@@ -23,8 +23,9 @@ class ImageError(VertexError):
 #   api: "gemini" (generateContent, supports --ref) | "imagen" (predict, text-only)
 # Verified working on your-gcp-project, 2026-06-06.
 MODELS: dict[str, tuple[str, str, str]] = {
-    "nano-banana":     ("gemini-2.5-flash-image",      "us-central1", "gemini"),  # default; ref/edit
-    "nano-banana-pro": ("gemini-3-pro-image-preview",  "global",      "gemini"),  # newer; global-only
+    "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini"),  # fast default; ref/edit
+    "nano-banana-3":   ("gemini-3.1-flash-image",  "global",      "gemini"),  # newer flash image (GA)
+    "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini"),  # premium: legible text + up to 14 refs
     "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen"),  # fast t2i
     "imagen-4":        ("imagen-4.0-generate-001",      "us-central1", "imagen"),  # high-fidelity t2i
     "imagen-3":        ("imagen-3.0-generate-002",      "us-central1", "imagen"),
@@ -41,10 +42,10 @@ def _resolve(model: str | None) -> tuple[str, str, str]:
 
 
 # ------------------------------------------------------------------ Gemini path
-def _gemini_body(prompt: str, ref: str | None, aspect_ratio: str | None) -> dict:
+def _gemini_body(prompt: str, refs: list[str], aspect_ratio: str | None) -> dict:
     parts: list[dict] = [{"text": prompt}]
-    if ref:
-        b64, mime = encode_image_b64(ref, max_edge=1536, fmt="PNG")
+    for r in refs:  # gemini-3-pro-image accepts up to 14 reference images
+        b64, mime = encode_image_b64(r, max_edge=1536, fmt="PNG")
         parts.append({"inlineData": {"mimeType": mime, "data": b64}})
     gen_cfg: dict = {"responseModalities": ["IMAGE"]}
     if aspect_ratio:
@@ -84,21 +85,27 @@ def generate_image(
     out: str | Path,
     prompt: str,
     *,
-    ref: str | Path | None = None,
+    ref: str | Path | list[str | Path] | None = None,
     model: str | None = None,
     aspect_ratio: str | None = "9:16",
     dry_run: bool = False,
 ) -> Path | dict:
     """Generate (or restyle, when ref is given) one image via Vertex.
 
-    Gemini models support --ref (image-to-image). Imagen models are text-to-image
-    only and reject --ref. Returns the output path; dry_run returns the plan.
+    Gemini models support --ref image-to-image (one or many reference images;
+    gemini-3-pro-image takes up to 14). Imagen models are text-to-image only and
+    reject --ref. Returns the output path; dry_run returns the plan.
     """
     out = Path(out)
     model_id, location, api = _resolve(model)
-    ref = str(ref) if ref else None
+    if ref is None:
+        refs = []
+    elif isinstance(ref, (list, tuple)):
+        refs = [str(r) for r in ref]
+    else:
+        refs = [str(ref)]
 
-    if api == "imagen" and ref:
+    if api == "imagen" and refs:
         raise ImageError(f"model '{model}' (imagen) is text-to-image only — drop --ref or use a nano-banana model")
 
     if api == "imagen":
@@ -107,11 +114,11 @@ def generate_image(
         extract = _imagen_extract
     else:
         url = f"{model_base(model_id, location)}:generateContent"
-        body = _gemini_body(prompt, ref, aspect_ratio)
+        body = _gemini_body(prompt, refs, aspect_ratio)
         extract = _gemini_extract
 
     if dry_run:
-        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "ref": bool(ref)}
+        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "refs": len(refs)}
         if api == "imagen":
             info["parameters"] = body["parameters"]
         else:
