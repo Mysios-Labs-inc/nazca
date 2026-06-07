@@ -5,11 +5,18 @@ metadata GET returns 403 here regardless, so only a live call is trustworthy).
 Status: ✅ generated successfully · ❌ 404 not available · ⏳ documented, not live-probed.
 
 ## Image — Gemini family (`:generateContent`, supports `--ref` image-to-image)
-| shorthand | model id | region | --ref | status |
-|---|---|---|---|---|
-| `nano-banana` (default) | `gemini-2.5-flash-image` | us-central1 | yes | ✅ |
-| `nano-banana-pro` | `gemini-3-pro-image-preview` | **global** | yes | ✅ (404 in us-central1 — global only) |
-| — | `gemini-2.0-flash-preview-image-generation` | us-central1 | — | ❌ 404 |
+| shorthand | model id | region | --ref | legible text | status |
+|---|---|---|---|---|---|
+| `nano-banana` (default, fast) | `gemini-2.5-flash-image` | us-central1 | yes | ❌ garbles | ✅ |
+| `nano-banana-3` | `gemini-3.1-flash-image` | **global** | yes | ~ok | ✅ (GA) |
+| `nano-banana-pro` | `gemini-3-pro-image` | **global** | yes (up to **14 refs**) | ✅ **legible** | ✅ (GA) |
+| — | `gemini-2.0-flash-preview-image-generation` | us-central1 | — | — | ❌ 404 |
+
+> **Big deal:** `gemini-3-pro-image` (GA) renders **legible baked-in text** (verified:
+> clean gold "DON GUILLERMO") and accepts **up to 14 reference images** (dish +
+> wordmark + style refs for brand consistency). nano-banana 2.5 cannot render text.
+> → For some designed posts this can replace the separate overlay step; for exact
+> brand fonts/hex/wordmark, the Pillow/Figma overlay is still more controllable.
 
 ## Image — Imagen family (`:predict`, text-to-image ONLY, no `--ref`)
 | shorthand | model id | region | status |
@@ -28,11 +35,17 @@ Status: ✅ generated successfully · ❌ 404 not available · ⏳ documented, n
 ## Text — Gemini (`:generateContent`) — for prompt-writing / agents, not used by mediagen
 | model id | region | status |
 |---|---|---|
+| `gemini-3.5-flash` | global | ✅ (near-Pro at flash cost) |
+| `gemini-3.1-flash-lite` | global | ✅ (cheapest, high-volume) |
 | `gemini-2.5-pro` | us-central1 | ✅ |
 | `gemini-2.5-flash` | us-central1 | ✅ |
 | `gemini-2.5-flash-lite` | us-central1 | ✅ |
 | `gemini-3-flash-preview` | global | ✅ |
-| `gemini-3-pro-preview` | global | ❌ 404 (not provisioned) |
+| `gemini-3.1-pro` / `gemini-3-flash` / `gemini-3-pro-preview` | global | ❌ 404 (not provisioned) |
+
+Per the official catalog there's also: Lyria 3/2 (music), Imagen (Model Garden),
+Gemma (open models), embeddings (gemini-embedding-001, multimodalembedding). Not
+wired into mediagen.
 
 ## How to use them (guidance)
 - **Restyle a real product photo** → `nano-banana` (default) or `nano-banana-pro`
