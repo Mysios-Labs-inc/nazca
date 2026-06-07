@@ -39,3 +39,10 @@ add audio in post. Clips come back 9:16, 8s, 720p unless overridden.
 - One auth path (gcloud + Vertex REST) for both commands. No keys, no SDKs.
 - Not a framework. No brand logic, no overlay, no posting — those belong in a
   Skill (the "how") / MCP (posting) layer on top.
+
+## Workflow rule (locked)
+- **mediagen produces CLEAN media only** — food/product restyles + video. No
+  baked-in text. Prompt for clean images; keep the bottom third calm/darker.
+- **All text + brand overlays are done in Figma** (master templates + real
+  wordmark). Do NOT prompt the image model to render captions/headlines/logos —
+  even though `gemini-3-pro-image` *can* render legible text, we don't use it for that.
