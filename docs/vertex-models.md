@@ -67,3 +67,17 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 ```
 Model IDs change often — re-probe before trusting. global region uses host
 `aiplatform.googleapis.com` + `locations/global`.
+
+## Resolution + "cinematic" finding (2026-06-07)
+Why Vertex output felt less premium than Higgsfield was **not the engine** (both
+use the nano-banana family) — it was two defaults:
+1. **Resolution.** `imageSize` 1K/2K/4K is honored by **gemini-3 image models only**
+   (`gemini-3.1-flash-image`, `gemini-3-pro-image`). `gemini-2.5-flash-image`
+   ignores it and stays ~1K (896-928×1152). Higgsfield emits 2K (1856×2304).
+   → for finals use `nano-banana-pro --size 2K` (== 1856×2304) or `4K` (3712×4608).
+2. **Grade.** Raw output skews oversaturated (~0.8 HSL-S = "AI look"). Cinematic =
+   restrained saturation (~0.45-0.56) + deeper shadows. Prompt for it: "cinematic
+   film grade, muted/natural saturation, rich shadows, not instagram-bright."
+
+Recipe for premium DG stills: `nano-banana-pro` + `--size 2K` + brasa-atmosphere,
+restrained-grade prompt. Drafts: `nano-banana` (cheap, 1K).

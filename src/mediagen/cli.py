@@ -21,14 +21,15 @@ def cli() -> None:
 @click.option("--ref", multiple=True, help="Reference image → image-to-image restyle. Repeatable (pro-image: up to 14).")
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-3 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
+@click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(out, prompt, ref, model, aspect_ratio, dry_run):
+def image(out, prompt, ref, model, aspect_ratio, size, dry_run):
     """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
     from mediagen.image import generate_image
 
     result = generate_image(
         out, prompt, ref=list(ref) or None, model=model,
-        aspect_ratio=aspect_ratio, dry_run=dry_run,
+        aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
     )
     if dry_run:
         click.echo(json.dumps(result, indent=2))
