@@ -19,7 +19,7 @@ def cli() -> None:
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
 @click.option("-p", "--prompt", required=True, help="Generation prompt.")
 @click.option("--ref", default=None, help="Reference image → image-to-image restyle.")
-@click.option("--model", default=None, help="nano-banana (default) | nano-banana-pro | imagen | <vertex model id>")
+@click.option("--model", default=None, help="nano-banana (default,ref) | nano-banana-pro (ref,global) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
 def image(out, prompt, ref, model, aspect_ratio, dry_run):
