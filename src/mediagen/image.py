@@ -42,14 +42,20 @@ def _resolve(model: str | None) -> tuple[str, str, str]:
 
 
 # ------------------------------------------------------------------ Gemini path
-def _gemini_body(prompt: str, refs: list[str], aspect_ratio: str | None) -> dict:
+def _gemini_body(prompt: str, refs: list[str], aspect_ratio: str | None, size: str | None) -> dict:
     parts: list[dict] = [{"text": prompt}]
     for r in refs:  # gemini-3-pro-image accepts up to 14 reference images
-        b64, mime = encode_image_b64(r, max_edge=1536, fmt="PNG")
+        b64, mime = encode_image_b64(r, max_edge=2048, fmt="PNG")
         parts.append({"inlineData": {"mimeType": mime, "data": b64}})
     gen_cfg: dict = {"responseModalities": ["IMAGE"]}
+    img_cfg: dict = {}
     if aspect_ratio:
-        gen_cfg["imageConfig"] = {"aspectRatio": aspect_ratio}
+        img_cfg["aspectRatio"] = aspect_ratio
+    if size:
+        # 1K/2K/4K — honored by gemini-3 image models; 2.5-flash-image ignores it (1K)
+        img_cfg["imageSize"] = size
+    if img_cfg:
+        gen_cfg["imageConfig"] = img_cfg
     return {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen_cfg}
 
 
@@ -88,13 +94,15 @@ def generate_image(
     ref: str | Path | list[str | Path] | None = None,
     model: str | None = None,
     aspect_ratio: str | None = "9:16",
+    size: str | None = "2K",
     dry_run: bool = False,
 ) -> Path | dict:
     """Generate (or restyle, when ref is given) one image via Vertex.
 
     Gemini models support --ref image-to-image (one or many reference images;
-    gemini-3-pro-image takes up to 14). Imagen models are text-to-image only and
-    reject --ref. Returns the output path; dry_run returns the plan.
+    gemini-3-pro-image takes up to 14) and `size` 1K/2K/4K (gemini-3 only; 2.5-
+    flash stays 1K). Imagen models are text-to-image only and reject --ref.
+    Returns the output path; dry_run returns the plan.
     """
     out = Path(out)
     model_id, location, api = _resolve(model)
@@ -114,11 +122,11 @@ def generate_image(
         extract = _imagen_extract
     else:
         url = f"{model_base(model_id, location)}:generateContent"
-        body = _gemini_body(prompt, refs, aspect_ratio)
+        body = _gemini_body(prompt, refs, aspect_ratio, size)
         extract = _gemini_extract
 
     if dry_run:
-        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "refs": len(refs)}
+        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "refs": len(refs), "size": size}
         if api == "imagen":
             info["parameters"] = body["parameters"]
         else:
