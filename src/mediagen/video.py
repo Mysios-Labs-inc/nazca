@@ -1,62 +1,22 @@
 """Vertex Veo 3.1 image-to-video (ported from the proven make_clip.sh).
 
-Start frame + optional end frame (keyframe interpolation). gcloud auth, inline
-base64 in/out (no GCS bucket needed). Synchronous: submit → poll → decode.
+Start frame + optional end frame (keyframe interpolation). Same auth/REST as
+image (shared vertex.py). Synchronous: submit → poll → decode inline bytes.
 """
 
 from __future__ import annotations
 
 import base64
-import io
 import json
-import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
-from PIL import Image
-
 from mediagen import config
+from mediagen.vertex import VertexError, encode_image_b64, gcloud_token, model_base, post
 
 
-class VeoError(RuntimeError):
+class VeoError(VertexError):
     pass
-
-
-def _gcloud_token() -> str:
-    try:
-        out = subprocess.run(
-            ["gcloud", "auth", "print-access-token"],
-            capture_output=True, text=True, check=True,
-        )
-    except FileNotFoundError as e:
-        raise VeoError("gcloud not found — install the Google Cloud SDK") from e
-    except subprocess.CalledProcessError as e:
-        raise VeoError(f"gcloud auth failed: {e.stderr.strip()}") from e
-    return out.stdout.strip()
-
-
-def _encode_frame(path: str | Path, max_edge: int = 1280) -> str:
-    """Downscale a frame to keep the request small, return base64 JPEG."""
-    img = Image.open(path).convert("RGB")
-    w, h = img.size
-    scale = min(1.0, max_edge / max(w, h))
-    if scale < 1.0:
-        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=90)
-    return base64.b64encode(buf.getvalue()).decode()
-
-
-def _post(url: str, body: dict, token: str) -> dict:
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(body).encode(),
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req) as resp:  # noqa: S310 (trusted Google endpoint)
-        return json.loads(resp.read().decode())
 
 
 def generate_video(
@@ -74,22 +34,18 @@ def generate_video(
 ) -> Path:
     """Generate a Veo clip from a start frame (+ optional end frame).
 
-    Returns the output path. With dry_run=True, writes the request JSON next to
-    the output and returns without calling the API (no credits spent).
+    Returns the output path. dry_run writes the request JSON (frames summarized)
+    next to the output and spends no credits.
     """
     out = Path(out)
     model = model or config.VEO_MODEL
-    base = (
-        f"https://{config.VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/"
-        f"{config.VERTEX_PROJECT}/locations/{config.VERTEX_LOCATION}/publishers/google/models/{model}"
-    )
+    base = model_base(model)
 
-    instance: dict = {
-        "prompt": prompt,
-        "image": {"bytesBase64Encoded": _encode_frame(start), "mimeType": "image/jpeg"},
-    }
+    start_b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
+    instance: dict = {"prompt": prompt, "image": {"bytesBase64Encoded": start_b64, "mimeType": mime}}
     if end:
-        instance["lastFrame"] = {"bytesBase64Encoded": _encode_frame(end), "mimeType": "image/jpeg"}
+        end_b64, emime = encode_image_b64(end, max_edge=1280, fmt="JPEG")
+        instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
 
     body = {
         "instances": [instance],
@@ -104,7 +60,6 @@ def generate_video(
 
     if dry_run:
         dbg = out.with_suffix(".request.json")
-        # don't dump the giant base64 — summarize
         preview = json.loads(json.dumps(body))
         for inst in preview["instances"]:
             for k in ("image", "lastFrame"):
@@ -113,15 +68,15 @@ def generate_video(
         dbg.write_text(json.dumps({"url": f"{base}:predictLongRunning", **preview}, indent=2))
         return dbg
 
-    token = _gcloud_token()
-    submit = _post(f"{base}:predictLongRunning", body, token)
+    token = gcloud_token()
+    submit = post(f"{base}:predictLongRunning", body, token)
     op = submit.get("name")
     if not op:
         raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
 
     for _ in range(config.POLL_MAX_TRIES):
         time.sleep(config.POLL_INTERVAL)
-        poll = _post(f"{base}:fetchPredictOperation", {"operationName": op}, token)
+        poll = post(f"{base}:fetchPredictOperation", {"operationName": op}, token)
         if poll.get("done"):
             break
     else:
@@ -129,7 +84,6 @@ def generate_video(
 
     if poll.get("error"):
         raise VeoError(f"generation error: {poll['error'].get('message')}")
-
     resp = poll.get("response", {})
     vids = resp.get("videos") or resp.get("generatedSamples") or []
     if not vids:

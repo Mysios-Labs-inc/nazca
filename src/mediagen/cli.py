@@ -19,16 +19,15 @@ def cli() -> None:
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
 @click.option("-p", "--prompt", required=True, help="Generation prompt.")
 @click.option("--ref", default=None, help="Reference image → image-to-image restyle.")
-@click.option("--model", default=None, help="nano-banana | nano-banana-pro | seedream | flux | gemini-2.5-flash-image")
-@click.option("--provider", default=None, type=click.Choice(["fal", "gemini"]), help="Force provider (auto from model).")
-@click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio (fal).")
+@click.option("--model", default=None, help="nano-banana (default) | nano-banana-pro | imagen | <vertex model id>")
+@click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(out, prompt, ref, model, provider, aspect_ratio, dry_run):
-    """Generate (or restyle with --ref) one image via fal or Gemini."""
+def image(out, prompt, ref, model, aspect_ratio, dry_run):
+    """Generate (or restyle with --ref) one image via Vertex Gemini."""
     from mediagen.image import generate_image
 
     result = generate_image(
-        out, prompt, ref=ref, model=model, provider=provider,
+        out, prompt, ref=ref, model=model,
         aspect_ratio=aspect_ratio, dry_run=dry_run,
     )
     if dry_run:

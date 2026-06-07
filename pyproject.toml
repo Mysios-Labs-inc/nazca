@@ -1,18 +1,13 @@
 [project]
 name = "mediagen"
 version = "0.1.0"
-description = "Thin, Claude-driven CLI for AI image + video generation (fal/Gemini + Vertex Veo)"
+description = "Thin, Claude-driven CLI for AI image + video generation on Vertex AI (Gemini + Veo)"
 requires-python = ">=3.10"
 dependencies = [
     "click>=8.1",
     "Pillow>=10.0",
 ]
-
-[project.optional-dependencies]
-# image providers — install what you use
-fal = ["fal-client>=0.5"]
-gemini = ["google-genai>=1.0"]
-all = ["fal-client>=0.5", "google-genai>=1.0"]
+# No provider SDKs / API keys: image + video both use gcloud auth + Vertex REST.
 
 [project.scripts]
 mediagen = "mediagen.cli:cli"
