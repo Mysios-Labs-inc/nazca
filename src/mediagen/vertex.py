@@ -37,9 +37,11 @@ def gcloud_token() -> str:
 
 
 def model_base(model: str, location: str | None = None) -> str:
+    """Vertex model URL. Handles the `global` region (different host, no prefix)."""
     loc = location or config.VERTEX_LOCATION
+    host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
     return (
-        f"https://{loc}-aiplatform.googleapis.com/v1/projects/"
+        f"https://{host}/v1/projects/"
         f"{config.VERTEX_PROJECT}/locations/{loc}/publishers/google/models/{model}"
     )
 
