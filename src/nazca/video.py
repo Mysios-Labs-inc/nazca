@@ -21,9 +21,9 @@ import json
 import time
 from pathlib import Path
 
-from mediagen import config
-from mediagen.backends import get_backend
-from mediagen.vertex import VertexError
+from nazca import config
+from nazca.backends import get_backend
+from nazca.vertex import VertexError
 
 
 class VeoError(VertexError):

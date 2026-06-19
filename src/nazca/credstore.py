@@ -1,7 +1,7 @@
 """Local credential config layer — stdlib only, zero new deps.
 
-Config file: $XDG_CONFIG_HOME/mediagen/config.ini
-            (or ~/.config/mediagen/config.ini when XDG_CONFIG_HOME is unset)
+Config file: $XDG_CONFIG_HOME/nazca/config.ini
+            (or ~/.config/nazca/config.ini when XDG_CONFIG_HOME is unset)
 
 Single [default] section with keys: fal_key, ark_api_key
 Permissions: directory 0o700, file 0o600.
@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 
 _SECTION = "default"
-_APP = "mediagen"
+_APP = "nazca"
 
 
 def config_path() -> Path:

@@ -1,4 +1,4 @@
-"""mediagen — thin CLI for AI image + video generation.
+"""nazca — thin CLI for AI image + video generation.
 
 image → fal / Gemini (text-to-image + image-to-image via --ref)
 video → Vertex Veo 3.1 (image-to-video, start + optional end keyframe)

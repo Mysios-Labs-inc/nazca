@@ -1,4 +1,4 @@
-"""mediagen CLI — `mediagen image`, `mediagen video`, `mediagen login`, `mediagen config`."""
+"""nazca CLI — `nazca image`, `nazca video`, `nazca login`, `nazca config`."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 
 import click
 
-from mediagen import __version__
+from nazca import __version__
 
 # ---------------------------------------------------------------------------
 # Login UI helpers — two code paths:
@@ -96,7 +96,7 @@ def cli() -> None:
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
 def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
     """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
-    from mediagen.image import generate_image, select_model
+    from nazca.image import generate_image, select_model
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
@@ -125,7 +125,7 @@ def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
 def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
     """Generate a Veo clip from a start frame (+ optional end frame) on Vertex."""
-    from mediagen.video import generate_video, select_model
+    from nazca.video import generate_video, select_model
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
@@ -140,17 +140,17 @@ def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, au
 
 @cli.command()
 def login() -> None:
-    """Interactively store API credentials in ~/.config/mediagen/config.ini.
+    """Interactively store API credentials in ~/.config/nazca/config.ini.
 
-    Arrow-key menu when `mediagen[tui]` (questionary) is installed and stdin
+    Arrow-key menu when `nazca[tui]` (questionary) is installed and stdin
     is a TTY; numbered menu otherwise.  Keys are hidden on input and masked in
     confirmation output.  Press Enter to skip any key (leaves existing value).
     """
-    from mediagen.credstore import config_path, mask_value, set_value
+    from nazca.credstore import config_path, mask_value, set_value
 
     ui = "arrow-key (questionary)" if _use_rich_ui() else "numbered (click fallback)"
-    click.echo(f"mediagen login  [{ui}]")
-    click.echo("Credentials are saved to ~/.config/mediagen/config.ini (chmod 600).")
+    click.echo(f"nazca login  [{ui}]")
+    click.echo("Credentials are saved to ~/.config/nazca/config.ini (chmod 600).")
     click.echo("Precedence: env var > config file.  Enter to skip any key.\n")
 
     while True:
@@ -165,7 +165,7 @@ def login() -> None:
                 "\nVertex AI authenticates via gcloud.  Run:\n"
                 "  gcloud auth login\n"
                 "  gcloud auth application-default login\n"
-                "No key is stored by mediagen.\n"
+                "No key is stored by nazca.\n"
             )
             continue
 
@@ -188,15 +188,15 @@ def login() -> None:
 
 @cli.group()
 def config() -> None:
-    """Manage mediagen credential config (~/.config/mediagen/config.ini)."""
+    """Manage nazca credential config (~/.config/nazca/config.ini)."""
 
 
 @config.command(name="set")
 @click.argument("key")
 @click.argument("value")
 def config_set(key: str, value: str) -> None:
-    """Set a config KEY to VALUE (e.g. mediagen config set fal_key sk-...)."""
-    from mediagen.credstore import KNOWN_KEYS, set_value
+    """Set a config KEY to VALUE (e.g. nazca config set fal_key sk-...)."""
+    from nazca.credstore import KNOWN_KEYS, set_value
 
     if key not in KNOWN_KEYS:
         click.echo(
@@ -212,7 +212,7 @@ def config_set(key: str, value: str) -> None:
 @click.argument("key")
 def config_get(key: str) -> None:
     """Print the masked value and source of KEY."""
-    from mediagen.credstore import KNOWN_KEYS, _key_source, mask_value
+    from nazca.credstore import KNOWN_KEYS, _key_source, mask_value
 
     if key not in KNOWN_KEYS:
         click.echo(
@@ -230,7 +230,7 @@ def config_get(key: str) -> None:
 @config.command(name="path")
 def config_path_cmd() -> None:
     """Print the resolved config file path."""
-    from mediagen.credstore import config_path
+    from nazca.credstore import config_path
 
     click.echo(config_path())
 
@@ -238,7 +238,7 @@ def config_path_cmd() -> None:
 @config.command(name="list")
 def config_list() -> None:
     """List all known credentials with masked values and sources."""
-    from mediagen.credstore import KNOWN_KEYS, _key_source, mask_value
+    from nazca.credstore import KNOWN_KEYS, _key_source, mask_value
 
     for key in KNOWN_KEYS:
         val, source = _key_source(key)

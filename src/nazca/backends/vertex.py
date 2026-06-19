@@ -6,7 +6,7 @@ configured project. No API keys, no provider SDKs.
 
 The module-level functions (`gcloud_token`, `model_base`, `post`,
 `encode_image_b64`) are kept as the implementation and re-exported by the
-top-level `mediagen.vertex` shim for back-compat.
+top-level `nazca.vertex` shim for back-compat.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from mediagen import config
-from mediagen.backends.base import Backend
+from nazca import config
+from nazca.backends.base import Backend
 
 
 class VertexError(RuntimeError):
