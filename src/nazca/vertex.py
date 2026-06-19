@@ -1,13 +1,13 @@
-"""Back-compat shim — Vertex plumbing now lives in `mediagen.backends.vertex`.
+"""Back-compat shim — Vertex plumbing now lives in `nazca.backends.vertex`.
 
-Kept so `from mediagen.vertex import gcloud_token, model_base, post,
+Kept so `from nazca.vertex import gcloud_token, model_base, post,
 encode_image_b64, VertexError` keeps working. New code should use the backend
-seam (`mediagen.backends`).
+seam (`nazca.backends`).
 """
 
 from __future__ import annotations
 
-from mediagen.backends.vertex import (
+from nazca.backends.vertex import (
     VertexError,
     encode_image_b64,
     gcloud_token,

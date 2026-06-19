@@ -23,8 +23,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from mediagen import config
-from mediagen.backends.base import Backend
+from nazca import config
+from nazca.backends.base import Backend
 
 
 class FalError(RuntimeError):
@@ -43,7 +43,7 @@ class FalBackend(Backend):
         key = config.FAL_KEY
         if not key:
             raise FalError(
-                "FAL_KEY is not set. Run `mediagen login` (or `mediagen config set "
+                "FAL_KEY is not set. Run `nazca login` (or `nazca config set "
                 "fal_key <key>`) to save it, or export FAL_KEY for this session. "
                 "Get a key from the fal.ai dashboard → API keys."
             )

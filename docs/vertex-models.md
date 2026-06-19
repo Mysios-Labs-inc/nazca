@@ -32,7 +32,7 @@ Status: ✅ generated successfully · ❌ 404 not available · ⏳ documented, n
 | `veo-fast` (default) | `veo-3.1-fast-generate-001` | us-central1 | ✅ (made real DG clips) |
 | `veo` | `veo-3.1-generate-001` | us-central1 | ⏳ documented; higher fidelity, not live-probed (cost) |
 
-## Text — Gemini (`:generateContent`) — for prompt-writing / agents, not used by mediagen
+## Text — Gemini (`:generateContent`) — for prompt-writing / agents, not used by nazca
 | model id | region | status |
 |---|---|---|
 | `gemini-3.5-flash` | global | ✅ (near-Pro at flash cost) |
@@ -45,7 +45,7 @@ Status: ✅ generated successfully · ❌ 404 not available · ⏳ documented, n
 
 Per the official catalog there's also: Lyria 3/2 (music), Imagen (Model Garden),
 Gemma (open models), embeddings (gemini-embedding-001, multimodalembedding). Not
-wired into mediagen.
+wired into nazca.
 
 ## How to use them (guidance)
 - **Restyle a real product photo** → `nano-banana` (default) or `nano-banana-pro`
@@ -54,7 +54,7 @@ wired into mediagen.
 - **Fresh text-to-image** (no source photo) → `imagen-4` (fidelity) or
   `imagen-4-fast` (speed). NOTE: text-to-image invents content (e.g. it added
   off-brand bell peppers in testing) — prefer restyle for brand accuracy.
-- **Video** → `mediagen video` (Veo 3.1 fast); single start frame for camera
+- **Video** → `nazca video` (Veo 3.1 fast); single start frame for camera
   moves, start+end for tight keyframe transforms.
 
 ## Re-running this inventory
