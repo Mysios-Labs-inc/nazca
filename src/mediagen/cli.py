@@ -22,13 +22,17 @@ def cli() -> None:
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-3 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
+@click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(out, prompt, ref, model, aspect_ratio, size, dry_run):
+def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
     """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
-    from mediagen.image import generate_image
+    from mediagen.image import generate_image, select_model
+
+    # --model wins; --tier only supplies a default when --model is absent
+    resolved_model = model or select_model(tier)
 
     result = generate_image(
-        out, prompt, ref=list(ref) or None, model=model,
+        out, prompt, ref=list(ref) or None, model=resolved_model,
         aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
     )
     if dry_run:
@@ -47,13 +51,17 @@ def image(out, prompt, ref, model, aspect_ratio, size, dry_run):
 @click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9.")
 @click.option("--resolution", default="720p", help="720p | 1080p.")
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
+@click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, dry_run):
+def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
     """Generate a Veo clip from a start frame (+ optional end frame) on Vertex."""
-    from mediagen.video import generate_video
+    from mediagen.video import generate_video, select_model
+
+    # --model wins; --tier only supplies a default when --model is absent
+    resolved_model = model or select_model(tier)
 
     result = generate_video(
-        out, start, prompt, end=end, model=model, duration=duration,
+        out, start, prompt, end=end, model=resolved_model, duration=duration,
         aspect_ratio=aspect_ratio, resolution=resolution,
         generate_audio=audio, dry_run=dry_run,
     )
