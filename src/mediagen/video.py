@@ -1,7 +1,13 @@
-"""Vertex Veo 3.1 image-to-video (ported from the proven make_clip.sh).
+"""Video generation — Vertex Veo 3.1 and fal.ai (Seedance / Wan long tail).
 
-Start frame + optional end frame (keyframe interpolation). Same auth/REST as
-image (shared vertex.py). Synchronous: submit → poll → decode inline bytes.
+Vertex path (default, no API key):
+  Start frame + optional end frame (keyframe interpolation).
+  Submit predictLongRunning → poll fetchPredictOperation → decode inline bytes.
+
+fal path (opt-in, requires FAL_KEY):
+  POST to queue.fal.run/{model} with start image as data-URI → poll → download URL.
+  --end is passed if the model supports it; --resolution / --audio may be unsupported
+  (fal model schemas vary — check fal docs).
 """
 
 from __future__ import annotations
@@ -27,7 +33,14 @@ VEO_ALIASES: dict[str, str] = {
     "veo-3.1": "veo-3.1-generate-001",
 }
 
-# Veo runs on Vertex; isolate the backend name so future providers are additive.
+# fal video model shorthands → (fal model id, backend)
+# IDs are plausible but UNVERIFIED against a live key — check fal.ai/models.
+FAL_VIDEO_MODELS: dict[str, str] = {
+    "seedance-2-fast": "fal-ai/bytedance/seedance/v2/lite",  # verify id
+    "wan-2.6":         "fal-ai/wan/v2.6/text-to-video",     # verify id
+}
+
+# Vertex backend name (isolate so future providers stay additive)
 VEO_BACKEND = "vertex"
 
 
@@ -44,14 +57,52 @@ def generate_video(
     generate_audio: bool = False,
     dry_run: bool = False,
 ) -> Path:
-    """Generate a Veo clip from a start frame (+ optional end frame).
+    """Generate a video clip from a start frame (+ optional end frame).
 
-    Returns the output path. dry_run writes the request JSON (frames summarized)
-    next to the output and spends no credits.
+    Vertex Veo: start + optional end frame keyframe interpolation.
+    fal: start frame as data-URI; end/resolution/audio support varies by model.
+
+    Returns the output path (or .request.json for Vertex dry-run).
     """
     out = Path(out)
-    model = model or config.VEO_MODEL
-    model = VEO_ALIASES.get(model, model)
+    resolved_model = model or config.VEO_MODEL
+
+    # ---- fal dispatch ------------------------------------------------
+    if resolved_model in FAL_VIDEO_MODELS:
+        fal_model_id = FAL_VIDEO_MODELS[resolved_model]
+        backend = get_backend("fal")
+        url = backend.build_url(fal_model_id)
+
+        # Build fal video body
+        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+        body: dict = {
+            "prompt": prompt,
+            "image_url": start_uri,
+            "duration": int(duration),
+            "aspect_ratio": aspect_ratio,
+        }
+        if end:
+            body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)
+
+        if dry_run:
+            plan_body = dict(body)
+            for key in ("image_url", "end_image_url"):
+                if key in plan_body and plan_body[key].startswith("data:"):
+                    data_part = plan_body[key].split(",", 1)[1] if "," in plan_body[key] else ""
+                    plan_body[key] = f"<data-uri {len(data_part)} b64>"
+            dbg = out.with_suffix(".request.json")
+            dbg.write_text(
+                json.dumps({"url": url, "model": fal_model_id, "backend": "fal", **plan_body}, indent=2)
+            )
+            return dbg
+
+        fal_key = backend.auth_token()
+        raw = backend.submit_and_download(url, body, fal_key, media_type="video")
+        out.write_bytes(raw)
+        return out
+
+    # ---- Vertex dispatch (unchanged) ---------------------------------
+    veo_model = VEO_ALIASES.get(resolved_model, resolved_model)
     backend = get_backend(VEO_BACKEND)
 
     start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
@@ -78,18 +129,18 @@ def generate_video(
             for k in ("image", "lastFrame"):
                 if k in inst:
                     inst[k]["bytesBase64Encoded"] = f"<{len(instance[k]['bytesBase64Encoded'])} b64 chars>"
-        dbg.write_text(json.dumps({"url": backend.build_url(model, "predictLongRunning"), **preview}, indent=2))
+        dbg.write_text(json.dumps({"url": backend.build_url(veo_model, "predictLongRunning"), **preview}, indent=2))
         return dbg
 
     token = backend.auth_token()
-    submit = backend.post(backend.build_url(model, "predictLongRunning"), body, token)
+    submit = backend.post(backend.build_url(veo_model, "predictLongRunning"), body, token)
     op = submit.get("name")
     if not op:
         raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
 
     for _ in range(config.POLL_MAX_TRIES):
         time.sleep(config.POLL_INTERVAL)
-        poll = backend.post(backend.build_url(model, "fetchPredictOperation"), {"operationName": op}, token)
+        poll = backend.post(backend.build_url(veo_model, "fetchPredictOperation"), {"operationName": op}, token)
         if poll.get("done"):
             break
     else:

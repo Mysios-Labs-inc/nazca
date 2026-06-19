@@ -1,10 +1,14 @@
-"""Image generation on Vertex AI. Two model families, one CLI:
+"""Image generation — Vertex AI (Gemini / Imagen) and fal.ai (FLUX long tail).
 
-- Gemini image ("nano-banana") via :generateContent — supports --ref (image-to-image restyle).
-- Imagen via :predict — high-fidelity text-to-image only (no --ref).
+Vertex paths (default, no API key needed):
+  - Gemini image ("nano-banana") via :generateContent — supports --ref.
+  - Imagen via :predict — text-to-image only (no --ref).
 
-Same auth as video: gcloud token + Vertex REST. No API keys, no SDKs.
-Model availability is region-specific (see MODELS); verified on florece-492623.
+fal path (opt-in, requires FAL_KEY env var):
+  - FLUX schnell / dev — text-to-image; --ref sent as a data-URI.
+  - Routed when model's backend == "fal".
+
+Same Vertex auth as video: gcloud token + REST.  No provider SDKs.
 """
 
 from __future__ import annotations
@@ -20,17 +24,24 @@ class ImageError(VertexError):
     pass
 
 
-# shorthand -> (model id, location, api, backend)
-#   api: "gemini" (generateContent, supports --ref) | "imagen" (predict, text-only)
-#   backend: provider plumbing (only "vertex" today)
-# Verified working on florece-492623, 2026-06-06.
+# shorthand -> (model id, location/fal-id, api, backend)
+#   api:     "gemini" | "imagen" | "fal"
+#   backend: "vertex" | "fal"
+# Vertex models verified on florece-492623, 2026-06-06.
+# fal model IDs are plausible but UNVERIFIED against a live key — check
+# https://fal.ai/models before spending. (dry-run only in this PR)
 MODELS: dict[str, tuple[str, str, str, str]] = {
+    # --- Vertex: Gemini image (supports --ref) ---
     "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini", "vertex"),  # fast default; ref/edit
     "nano-banana-3":   ("gemini-3.1-flash-image",  "global",      "gemini", "vertex"),  # newer flash image (GA)
     "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini", "vertex"),  # premium: legible text + up to 14 refs
+    # --- Vertex: Imagen (text-to-image only) ---
     "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen", "vertex"),  # fast t2i
     "imagen-4":        ("imagen-4.0-generate-001",      "us-central1", "imagen", "vertex"),  # high-fidelity t2i
     "imagen-3":        ("imagen-3.0-generate-002",      "us-central1", "imagen", "vertex"),
+    # --- fal.ai: FLUX long tail (verify ids against fal docs before spend) ---
+    "flux-schnell":    ("fal-ai/flux/schnell", "", "fal", "fal"),  # ~$0.003/MP; fastest FLUX  # verify id
+    "flux-2-dev":      ("fal-ai/flux/dev",     "", "fal", "fal"),  # FLUX 2 dev; higher quality  # verify id
 }
 DEFAULT_MODEL = "nano-banana"
 
@@ -41,6 +52,40 @@ def _resolve(model: str | None) -> tuple[str, str, str, str]:
         return MODELS[model]
     # raw vertex id → assume Gemini family, default region, vertex backend
     return (model, "us-central1", "gemini", "vertex")
+
+
+# ------------------------------------------------------------------ fal path
+# fal expects image_size as a named string ("portrait_16_9" etc.) or
+# {width, height}.  We map our aspect/size flags to the named-string form.
+_FAL_ASPECT_MAP: dict[str, str] = {
+    "9:16":  "portrait_16_9",
+    "16:9":  "landscape_16_9",
+    "1:1":   "square",
+    "4:3":   "landscape_4_3",
+    "3:4":   "portrait_4_3",
+}
+
+
+def _fal_image_body(
+    prompt: str,
+    refs: list[str],
+    aspect_ratio: str | None,
+    backend,  # FalBackend — avoid circular import by keeping type loose
+) -> dict:
+    body: dict = {"prompt": prompt}
+    if aspect_ratio:
+        image_size = _FAL_ASPECT_MAP.get(aspect_ratio)
+        if image_size:
+            body["image_size"] = image_size
+        # unknown aspect → omit (fal will use its default)
+    if refs:
+        # fal FLUX models accept a single reference image as a data-URI
+        body["image_url"] = backend.encode_image_data_uri(refs[0], max_edge=2048)
+        if len(refs) > 1:
+            # fal FLUX does not support multi-ref; silently use only the first
+            # (caller should have already warned if this matters)
+            pass
+    return body
 
 
 # ------------------------------------------------------------------ Gemini path
@@ -99,16 +144,19 @@ def generate_image(
     size: str | None = "2K",
     dry_run: bool = False,
 ) -> Path | dict:
-    """Generate (or restyle, when ref is given) one image via Vertex.
+    """Generate (or restyle, when ref is given) one image.
 
-    Gemini models support --ref image-to-image (one or many reference images;
-    gemini-3-pro-image takes up to 14) and `size` 1K/2K/4K (gemini-3 only; 2.5-
-    flash stays 1K). Imagen models are text-to-image only and reject --ref.
-    Returns the output path; dry_run returns the plan.
+    Vertex/Gemini: supports --ref (one or many; gemini-3-pro-image up to 14)
+      and `size` 1K/2K/4K (gemini-3 only).
+    Vertex/Imagen: text-to-image only, rejects --ref.
+    fal/FLUX: text-to-image; --ref sends the first image as a data-URI.
+
+    Returns the output path; dry_run returns the plan dict (no API call, no key needed).
     """
     out = Path(out)
     model_id, location, api, backend_name = _resolve(model)
     backend = get_backend(backend_name)
+
     if ref is None:
         refs = []
     elif isinstance(ref, (list, tuple)):
@@ -116,6 +164,32 @@ def generate_image(
     else:
         refs = [str(ref)]
 
+    # ---- fal dispatch ------------------------------------------------
+    if backend_name == "fal":
+        url = backend.build_url(model_id)
+        body = _fal_image_body(prompt, refs, aspect_ratio, backend)
+
+        if dry_run:
+            # Summarize any data-URI ref so the plan stays readable
+            plan_body = dict(body)
+            if "image_url" in plan_body and plan_body["image_url"].startswith("data:"):
+                data_part = plan_body["image_url"].split(",", 1)[1] if "," in plan_body["image_url"] else ""
+                plan_body["image_url"] = f"<data-uri {len(data_part)} b64>"
+            return {
+                "url": url,
+                "model": model_id,
+                "backend": backend_name,
+                "api": api,
+                "refs": len(refs),
+                "body": plan_body,
+            }
+
+        key = backend.auth_token()
+        raw = backend.submit_and_download(url, body, key, media_type="image")
+        out.write_bytes(raw)
+        return out
+
+    # ---- Vertex dispatch (unchanged) ---------------------------------
     if api == "imagen" and refs:
         raise ImageError(f"model '{model}' (imagen) is text-to-image only — drop --ref or use a nano-banana model")
 
