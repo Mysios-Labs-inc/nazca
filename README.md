@@ -1,15 +1,16 @@
 # nazca
 
 ```text
-   ░░▒▒▓▓██  N A Z C A  ██▓▓▒▒░░
+                          ___
+                    _____/   \_____
+              _____/               \_____________________
+      ◀●══════                                            ╲╲╲╲╲╲╲
+              ‾‾‾‾‾\               /‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾    ╲╲╲╲╲╲╲
+                    ‾‾‾‾‾\     /‾‾‾‾‾                      ╲╲╲╲╲╲╲
+                          ‾‾‾‾‾
 
-        ___
-     ,-'   `-.________________________
-    (   ·                             `------------->
-     `-.___,-'\  /
-              \/
-
-   the lines that draw themselves — image & video, for agents
+      ░░▒▒▓▓██  N A Z C A  ██▓▓▒▒░░
+      the lines that draw themselves · image & video, for agents
 ```
 
 A thin, **agent-driven CLI** for AI **image** and **video** generation. Two
