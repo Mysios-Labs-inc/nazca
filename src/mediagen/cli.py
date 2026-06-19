@@ -3,10 +3,80 @@
 from __future__ import annotations
 
 import json
+import sys
 
 import click
 
 from mediagen import __version__
+
+# ---------------------------------------------------------------------------
+# Login UI helpers — two code paths:
+#   Rich path:  questionary installed AND stdin is a real TTY
+#   Fallback:   numbered menu via click (works non-TTY / piped / no questionary)
+# ---------------------------------------------------------------------------
+
+try:
+    import questionary as _questionary  # noqa: F401 — presence check only
+
+    _HAS_QUESTIONARY = True
+except ImportError:
+    _HAS_QUESTIONARY = False
+
+# Provider menu entries — (display label, credential key or None for info-only)
+_PROVIDERS: list[tuple[str, str | None]] = [
+    ("fal.ai  (FAL_KEY)", "fal_key"),
+    ("ByteDance ModelArk  (ARK_API_KEY)", "ark_api_key"),
+    ("Vertex AI  (gcloud — no key needed)", None),
+    ("Done", "done"),
+]
+
+
+def _use_rich_ui() -> bool:
+    """Return True only when questionary is available and stdin is a real TTY."""
+    return _HAS_QUESTIONARY and sys.stdin.isatty()
+
+
+def _select_provider() -> str | None:
+    """Show a provider menu; return the credential key, None (Vertex info), or 'done'."""
+    choices = [label for label, _ in _PROVIDERS]
+
+    if _use_rich_ui():
+        import questionary
+
+        label = questionary.select(
+            "Select a provider to configure:",
+            choices=choices,
+        ).ask()
+        if label is None:  # Ctrl-C
+            return "done"
+        return dict(_PROVIDERS)[label]
+    else:
+        # Fallback: numbered menu
+        click.echo("\nSelect a provider:")
+        for i, (label, _) in enumerate(_PROVIDERS, 1):
+            click.echo(f"  {i}. {label}")
+        choice = click.prompt(
+            "Enter number",
+            type=click.IntRange(1, len(_PROVIDERS)),
+        )
+        return _PROVIDERS[choice - 1][1]
+
+
+def _prompt_secret(label: str) -> str:
+    """Prompt for a hidden API key; returns '' if the user skips."""
+    if _use_rich_ui():
+        import questionary
+
+        val = questionary.password(f"Paste {label} (Enter to skip):").ask()
+        return val or ""
+    else:
+        return click.prompt(
+            f"Paste {label} (Enter to skip)",
+            hide_input=True,
+            default="",
+            show_default=False,
+            prompt_suffix=": ",
+        )
 
 
 @click.group()
@@ -72,33 +142,48 @@ def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, au
 def login() -> None:
     """Interactively store API credentials in ~/.config/mediagen/config.ini.
 
-    Press Enter to skip a credential and leave it unchanged.
+    Arrow-key menu when `mediagen[tui]` (questionary) is installed and stdin
+    is a TTY; numbered menu otherwise.  Keys are hidden on input and masked in
+    confirmation output.  Press Enter to skip any key (leaves existing value).
     """
-    from mediagen.credstore import config_path, set_value
+    from mediagen.credstore import config_path, mask_value, set_value
 
-    click.echo("Enter credentials (press Enter to skip / leave unchanged).")
+    ui = "arrow-key (questionary)" if _use_rich_ui() else "numbered (click fallback)"
+    click.echo(f"mediagen login  [{ui}]")
+    click.echo("Credentials are saved to ~/.config/mediagen/config.ini (chmod 600).")
+    click.echo("Precedence: env var > config file.  Enter to skip any key.\n")
 
-    fal_key = click.prompt(
-        "  fal.ai API key (FAL_KEY)",
-        hide_input=True,
-        default="",
-        show_default=False,
-    )
-    if fal_key:
-        set_value("fal_key", fal_key)
-        click.echo("  fal_key saved.")
+    while True:
+        key_id = _select_provider()
 
-    ark_key = click.prompt(
-        "  ByteDance ModelArk key (ARK_API_KEY)",
-        hide_input=True,
-        default="",
-        show_default=False,
-    )
-    if ark_key:
-        set_value("ark_api_key", ark_key)
-        click.echo("  ark_api_key saved.")
+        if key_id == "done":
+            break
 
-    click.echo(f"\nConfig file: {config_path()}")
+        if key_id is None:
+            # Vertex AI — info only, no credential stored
+            click.echo(
+                "\nVertex AI authenticates via gcloud.  Run:\n"
+                "  gcloud auth login\n"
+                "  gcloud auth application-default login\n"
+                "No key is stored by mediagen.\n"
+            )
+            continue
+
+        # Map credential key → display label for the prompt
+        _labels: dict[str, str] = {
+            "fal_key": "fal.ai API key (FAL_KEY)",
+            "ark_api_key": "ModelArk API key (ARK_API_KEY)",
+        }
+        label = _labels.get(key_id, key_id)
+        val = _prompt_secret(label)
+
+        if val:
+            set_value(key_id, val)
+            click.echo(f"  ✓ {key_id} saved  →  {mask_value(val)}  [{config_path()}]\n")
+        else:
+            click.echo(f"  — skipped {key_id} (existing value unchanged)\n")
+
+    click.echo(f"Done.  Config: {config_path()}")
 
 
 @cli.group()

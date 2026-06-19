@@ -9,6 +9,9 @@ dependencies = [
 ]
 # No provider SDKs / API keys: image + video both use gcloud auth + Vertex REST.
 
+[project.optional-dependencies]
+tui = ["questionary>=2.0"]
+
 [project.scripts]
 mediagen = "mediagen.cli:cli"
 
