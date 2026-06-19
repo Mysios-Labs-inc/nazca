@@ -19,6 +19,14 @@ class VeoError(VertexError):
     pass
 
 
+# Shorthand aliases → full Vertex Veo model ids
+VEO_ALIASES: dict[str, str] = {
+    "veo-3.1-lite": "veo-3.1-lite-generate-001",
+    "veo-3.1-fast": "veo-3.1-fast-generate-001",
+    "veo-3.1": "veo-3.1-generate-001",
+}
+
+
 def generate_video(
     out: str | Path,
     start: str | Path,
@@ -39,6 +47,7 @@ def generate_video(
     """
     out = Path(out)
     model = model or config.VEO_MODEL
+    model = VEO_ALIASES.get(model, model)
     base = model_base(model)
 
     start_b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
