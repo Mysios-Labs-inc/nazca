@@ -109,7 +109,144 @@ def generate_video(
     out = Path(out)
     resolved_model = model or config.VEO_MODEL
 
-    # ---- fal dispatch ------------------------------------------------
+    # ---- 1. backend:rawid prefix passthrough --------------------------
+    if ":" in resolved_model:
+        _prefix, _raw_id = resolved_model.split(":", 1)
+        _prefix = _prefix.lower()
+        if _prefix in ("vertex", "veo"):
+            # treat as raw Vertex Veo id; fall through to Vertex dispatch below
+            resolved_model = _raw_id
+        elif _prefix == "fal":
+            # inject into FAL_VIDEO_MODELS logic via a temporary local mapping
+            _fal_id = _raw_id
+            _backend = get_backend("fal")
+            _url = _backend.build_url(_fal_id)
+            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+            _body: dict = {
+                "prompt": prompt,
+                "image_url": _start_uri,
+                "duration": int(duration),
+                "aspect_ratio": aspect_ratio,
+            }
+            if end:
+                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
+            if dry_run:
+                _plan = dict(_body)
+                for _k in ("image_url", "end_image_url"):
+                    if _k in _plan and _plan[_k].startswith("data:"):
+                        _dp = _plan[_k].split(",", 1)[1] if "," in _plan[_k] else ""
+                        _plan[_k] = f"<data-uri {len(_dp)} b64>"
+                _dbg = out.with_suffix(".request.json")
+                _dbg.write_text(
+                    json.dumps({"url": _url, "model": _fal_id, "backend": "fal", **_plan}, indent=2)
+                )
+                return _dbg
+            _fal_key = _backend.auth_token()
+            _raw = _backend.submit_and_download(_url, _body, _fal_key, media_type="video")
+            out.write_bytes(_raw)
+            return out
+        elif _prefix in ("ark", "modelark"):
+            _ark_id = _raw_id
+            _backend = get_backend("modelark")
+            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+            _content: list[dict] = [{"type": "text", "text": prompt}]
+            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            _body = {
+                "model": _ark_id,
+                "content": _content,
+                "duration": int(duration),
+                "aspect_ratio": aspect_ratio,
+            }
+            if end:
+                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
+            if dry_run:
+                _dbg = out.with_suffix(".request.json")
+                _preview = json.loads(json.dumps(_body))
+                for _part in _preview["content"]:
+                    _u = _part.get("image_url", {}).get("url", "")
+                    if isinstance(_u, str) and _u.startswith("data:"):
+                        _part["image_url"]["url"] = f"<data-uri {len(_u.split(',', 1)[-1])} b64>"
+                if isinstance(_preview.get("end_image_url"), str) and _preview["end_image_url"].startswith("data:"):
+                    _preview["end_image_url"] = f"<data-uri {len(_preview['end_image_url'].split(',', 1)[-1])} b64>"
+                _dbg.write_text(
+                    json.dumps({"url": _backend.video_endpoint(), "backend": "modelark", **_preview}, indent=2)
+                )
+                return _dbg
+            _raw = _backend.generate_video(_ark_id, _body)
+            out.write_bytes(_raw)
+            return out
+
+    # ---- 2. user override file (~/.config/nazca/models.json) -----------
+    from nazca.registry import video_override
+
+    _ov = video_override(resolved_model)
+    if _ov is not None:
+        _ov_backend = _ov.get("backend", "vertex")
+        _ov_id = _ov.get("id", resolved_model)
+        if _ov_backend == "fal":
+            # Reroute to fal dispatch using the overridden model id
+            _FAL_VIDEO_MODELS_TEMP = {resolved_model: _ov_id}
+            _fal_model_id = _ov_id
+            _backend = get_backend("fal")
+            _url = _backend.build_url(_fal_model_id)
+            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+            _body = {
+                "prompt": prompt,
+                "image_url": _start_uri,
+                "duration": int(duration),
+                "aspect_ratio": aspect_ratio,
+            }
+            if end:
+                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
+            if dry_run:
+                _plan = dict(_body)
+                for _k in ("image_url", "end_image_url"):
+                    if _k in _plan and _plan[_k].startswith("data:"):
+                        _dp = _plan[_k].split(",", 1)[1] if "," in _plan[_k] else ""
+                        _plan[_k] = f"<data-uri {len(_dp)} b64>"
+                _dbg = out.with_suffix(".request.json")
+                _dbg.write_text(
+                    json.dumps({"url": _url, "model": _fal_model_id, "backend": "fal", **_plan}, indent=2)
+                )
+                return _dbg
+            _fal_key = _backend.auth_token()
+            _raw = _backend.submit_and_download(_url, _body, _fal_key, media_type="video")
+            out.write_bytes(_raw)
+            return out
+        if _ov_backend == "modelark":
+            _ark_model_id = _ov_id
+            _backend = get_backend("modelark")
+            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+            _content = [{"type": "text", "text": prompt}]
+            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            _body = {
+                "model": _ark_model_id,
+                "content": _content,
+                "duration": int(duration),
+                "aspect_ratio": aspect_ratio,
+            }
+            if end:
+                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
+            if dry_run:
+                _dbg = out.with_suffix(".request.json")
+                _preview = json.loads(json.dumps(_body))
+                for _part in _preview["content"]:
+                    _u = _part.get("image_url", {}).get("url", "")
+                    if isinstance(_u, str) and _u.startswith("data:"):
+                        _part["image_url"]["url"] = f"<data-uri {len(_u.split(',', 1)[-1])} b64>"
+                if isinstance(_preview.get("end_image_url"), str) and _preview["end_image_url"].startswith("data:"):
+                    _preview["end_image_url"] = f"<data-uri {len(_preview['end_image_url'].split(',', 1)[-1])} b64>"
+                _dbg.write_text(
+                    json.dumps({"url": _backend.video_endpoint(), "backend": "modelark", **_preview}, indent=2)
+                )
+                return _dbg
+            _raw = _backend.generate_video(_ark_model_id, _body)
+            out.write_bytes(_raw)
+            return out
+        # vertex override: _ov_id is the raw Veo model id
+        resolved_model = _ov_id
+
+    # ---- 3. fal dispatch ------------------------------------------------
     if resolved_model in FAL_VIDEO_MODELS:
         fal_model_id = FAL_VIDEO_MODELS[resolved_model]
         backend = get_backend("fal")
@@ -143,7 +280,7 @@ def generate_video(
         out.write_bytes(raw)
         return out
 
-    # ---- ModelArk dispatch -------------------------------------------
+    # ---- 4. ModelArk dispatch -------------------------------------------
     # WARNING: endpoint, schema, and model IDs are UNVERIFIED (dry-run only).
     # Benchmark against fal (seedance-2-fast) before real spend.
     if resolved_model in ARK_VIDEO_MODELS:
@@ -185,7 +322,7 @@ def generate_video(
         out.write_bytes(raw)
         return out
 
-    # ---- Vertex dispatch (unchanged) ---------------------------------
+    # ---- 5. Vertex dispatch (unchanged) ---------------------------------
     veo_model = VEO_ALIASES.get(resolved_model, resolved_model)
     backend = get_backend(VEO_BACKEND)
 
