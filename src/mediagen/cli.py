@@ -1,4 +1,4 @@
-"""mediagen CLI — `mediagen image` and `mediagen video`."""
+"""mediagen CLI — `mediagen image`, `mediagen video`, `mediagen login`, `mediagen config`."""
 
 from __future__ import annotations
 
@@ -66,6 +66,101 @@ def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, au
         generate_audio=audio, dry_run=dry_run,
     )
     click.echo(f"{'📝' if dry_run else '✅'} {result}")
+
+
+@cli.command()
+def login() -> None:
+    """Interactively store API credentials in ~/.config/mediagen/config.ini.
+
+    Press Enter to skip a credential and leave it unchanged.
+    """
+    from mediagen.credstore import config_path, set_value
+
+    click.echo("Enter credentials (press Enter to skip / leave unchanged).")
+
+    fal_key = click.prompt(
+        "  fal.ai API key (FAL_KEY)",
+        hide_input=True,
+        default="",
+        show_default=False,
+    )
+    if fal_key:
+        set_value("fal_key", fal_key)
+        click.echo("  fal_key saved.")
+
+    ark_key = click.prompt(
+        "  ByteDance ModelArk key (ARK_API_KEY)",
+        hide_input=True,
+        default="",
+        show_default=False,
+    )
+    if ark_key:
+        set_value("ark_api_key", ark_key)
+        click.echo("  ark_api_key saved.")
+
+    click.echo(f"\nConfig file: {config_path()}")
+
+
+@cli.group()
+def config() -> None:
+    """Manage mediagen credential config (~/.config/mediagen/config.ini)."""
+
+
+@config.command(name="set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key: str, value: str) -> None:
+    """Set a config KEY to VALUE (e.g. mediagen config set fal_key sk-...)."""
+    from mediagen.credstore import KNOWN_KEYS, set_value
+
+    if key not in KNOWN_KEYS:
+        click.echo(
+            f"Unknown key '{key}'. Known keys: {', '.join(KNOWN_KEYS)}",
+            err=True,
+        )
+        raise SystemExit(1)
+    set_value(key, value)
+    click.echo(f"Set {key} (saved to config file).")
+
+
+@config.command(name="get")
+@click.argument("key")
+def config_get(key: str) -> None:
+    """Print the masked value and source of KEY."""
+    from mediagen.credstore import KNOWN_KEYS, _key_source, mask_value
+
+    if key not in KNOWN_KEYS:
+        click.echo(
+            f"Unknown key '{key}'. Known keys: {', '.join(KNOWN_KEYS)}",
+            err=True,
+        )
+        raise SystemExit(1)
+    val, source = _key_source(key)
+    if val:
+        click.echo(f"{key} = {mask_value(val)}  [{source}]")
+    else:
+        click.echo(f"{key} = (unset)")
+
+
+@config.command(name="path")
+def config_path_cmd() -> None:
+    """Print the resolved config file path."""
+    from mediagen.credstore import config_path
+
+    click.echo(config_path())
+
+
+@config.command(name="list")
+def config_list() -> None:
+    """List all known credentials with masked values and sources."""
+    from mediagen.credstore import KNOWN_KEYS, _key_source, mask_value
+
+    for key in KNOWN_KEYS:
+        val, source = _key_source(key)
+        if val:
+            click.echo(f"{key} = {mask_value(val)}  [{source}]")
+        else:
+            click.echo(f"{key} = (unset)")
 
 
 if __name__ == "__main__":

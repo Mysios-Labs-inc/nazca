@@ -38,11 +38,12 @@ class ModelArkBackend(Backend):
         return f"data:{mime};base64,{b64}"
 
     def auth_token(self) -> str:
-        """Read ARK_API_KEY lazily — never called during dry-run."""
+        """Read ARK_API_KEY (env > config file) lazily — never called during dry-run."""
         key = config.ARK_API_KEY
         if not key:
             raise ModelArkError(
-                "ARK_API_KEY is not set. Export it or pass via env. "
+                "ARK_API_KEY is not set. Run `mediagen login` (or `mediagen config set "
+                "ark_api_key <key>`) to save it, or export ARK_API_KEY for this session. "
                 "See https://ark.bytepluses.com for credentials."
             )
         return key
