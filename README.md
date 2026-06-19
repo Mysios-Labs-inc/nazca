@@ -35,39 +35,49 @@ Design choices:
 
 ## Install
 
-**Prerequisites:** Python ≥ 3.10, and the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
-(`gcloud`) for the default Vertex path. No API keys needed for Google models.
-
-### Option A — global CLI with `pipx` (recommended)
-
-`pipx` installs `mediagen` in its own isolated environment and puts the command on your `PATH`:
+One command — installs the global `mediagen` CLI straight from GitHub:
 
 ```bash
 pipx install "git+https://github.com/MRCORD/mediagen.git"
-# with the optional arrow-key login UI:
-pipx install "mediagen[tui] @ git+https://github.com/MRCORD/mediagen.git"
 ```
 
-### Option B — clone + editable install (for development)
-
-```bash
-git clone https://github.com/MRCORD/mediagen.git
-cd mediagen
-python3 -m venv .venv && . .venv/bin/activate
-pip install -e .            # core: click + Pillow only
-pip install -e ".[tui]"     # optional: adds questionary for the arrow-key login UI
-```
-
-### Verify
+Then verify and authenticate (one-time):
 
 ```bash
 mediagen --help            # lists: image, video, login, config
-gcloud auth login          # one-time, for the default Vertex path
-mediagen image -o out.png -p "a test image" --dry-run   # prints the request, spends nothing
+gcloud auth login          # for the default Vertex path — no API key needed
 ```
 
-> `--dry-run` works on every command and never calls the API — use it to confirm
-> your setup before spending anything.
+That's it. `mediagen image -o out.png -p "a test" --dry-run` prints the request without spending.
+
+<details>
+<summary><b>Prerequisites & options</b></summary>
+
+- **Python ≥ 3.10** and the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) for the default Vertex path.
+- **No `pipx`?** Install it once: `brew install pipx` (macOS) or `python3 -m pip install --user pipx`.
+- **Private repo / no GitHub HTTPS auth?** Use SSH:
+  ```bash
+  pipx install "git+ssh://git@github.com/MRCORD/mediagen.git"
+  ```
+- **Arrow-key login UI** (optional questionary extra):
+  ```bash
+  pipx install "mediagen[tui] @ git+https://github.com/MRCORD/mediagen.git"
+  ```
+- **`uv` user?** `uv tool install "git+https://github.com/MRCORD/mediagen.git"` does the same.
+
+</details>
+
+<details>
+<summary><b>Development (clone + editable install)</b></summary>
+
+```bash
+git clone https://github.com/MRCORD/mediagen.git && cd mediagen
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e .            # core: click + Pillow
+pip install -e ".[tui]"     # optional arrow-key login UI
+```
+
+</details>
 
 ## Setup / credentials
 
