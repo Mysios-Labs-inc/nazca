@@ -1,13 +1,17 @@
 # mediagen
 
-A thin, **agent-driven CLI** for AI **image** and **video** generation on
-**Google Vertex AI**. Two commands, each does one thing and prints the output
-path. Claude (or you) orchestrates — mediagen is just clean, reliable access to
-the models.
+A thin, **agent-driven CLI** for AI **image** and **video** generation. Two
+commands, each does one thing and prints the output path. Claude (or you)
+orchestrates — mediagen is just clean, reliable access to the models.
+
+**Direct-first, multi-provider:** Google Vertex AI is the default and the cheapest
+path (no API key — `gcloud` handles auth). Opt into **fal.ai** for the long tail
+(FLUX, Wan, Seedance) or **ByteDance ModelArk** with a single `mediagen login`.
 
 ```bash
 mediagen image -o dish.png --ref photo.jpg -p "restyle: warm amber parrilla grade"
 mediagen video -o clip.mp4 -s start.png --end end.png -p "slow push-in, embers glow"
+mediagen video -o clip.mp4 -s start.png -p "..." --tier cheap   # pick the cheap model for you
 ```
 
 ---
@@ -31,12 +35,39 @@ Design choices:
 
 ## Install
 
+**Prerequisites:** Python ≥ 3.10, and the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install)
+(`gcloud`) for the default Vertex path. No API keys needed for Google models.
+
+### Option A — global CLI with `pipx` (recommended)
+
+`pipx` installs `mediagen` in its own isolated environment and puts the command on your `PATH`:
+
+```bash
+pipx install "git+https://github.com/MRCORD/mediagen.git"
+# with the optional arrow-key login UI:
+pipx install "mediagen[tui] @ git+https://github.com/MRCORD/mediagen.git"
+```
+
+### Option B — clone + editable install (for development)
+
 ```bash
 git clone https://github.com/MRCORD/mediagen.git
 cd mediagen
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e .
+pip install -e .            # core: click + Pillow only
+pip install -e ".[tui]"     # optional: adds questionary for the arrow-key login UI
 ```
+
+### Verify
+
+```bash
+mediagen --help            # lists: image, video, login, config
+gcloud auth login          # one-time, for the default Vertex path
+mediagen image -o out.png -p "a test image" --dry-run   # prints the request, spends nothing
+```
+
+> `--dry-run` works on every command and never calls the API — use it to confirm
+> your setup before spending anything.
 
 ## Setup / credentials
 
@@ -245,7 +276,7 @@ Tier defaults are **Vertex-direct** (direct-first rule — Google models never r
 | command | `--tier cheap` | `--tier premium` | notes |
 |---|---|---|---|
 | `image` | `nano-banana` ~$0.039/img | `nano-banana-pro` ~$0.134/img @2K | pro: legible text, up to 14 refs |
-| `video` | `veo-3.1-lite` $0.05/s (720p) | `veo-3.1` $0.20/s (720p) | lite: ~4x cheaper, great for mobile/social |
+| `video` | `veo-3.1-lite` $0.05/s (720p) | `veo-3.1` $0.20/s (720p) | lite: 2x cheaper than the default fast tier, great for mobile/social |
 
 Other models and rough prices (official Google Cloud, verified 2026-06-18):
 

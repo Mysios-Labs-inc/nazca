@@ -1,7 +1,13 @@
 # Plan: multi-provider + cost-tier mediagen
 
-**Status:** proposed · **Created:** 2026-06-18 · **Owner:** MRCORD
+**Status:** ✅ SHIPPED (2026-06-19) · **Created:** 2026-06-18 · **Owner:** MRCORD
 **Source research:** [`claudedocs/research_media-providers-and-cheap-models_2026-06-18.md`](../claudedocs/research_media-providers-and-cheap-models_2026-06-18.md)
+
+> **Delivered in PRs #1–#7:** Veo 3.1 Lite (#1), `backends/` seam (#2), fal backend (#3),
+> `--tier` cost routing (#4), ByteDance ModelArk (#5), `~/.config` credential store (#6),
+> interactive `mediagen login` (#7). Phases 0–3 + the ModelArk option are all merged to `main`.
+> **Remaining gate:** fal/ModelArk model IDs and request schemas are dry-run-validated only —
+> a real-key smoke test is still required before production spend (see §"Phase 4").
 
 ## Goal
 
