@@ -97,14 +97,27 @@ frame + **optional end frame** (keyframe interpolation). Submit → poll → dow
 # single start frame + motion (best for camera moves: push-in, pull-back)
 mediagen video -o clip.mp4 -s start.png -p "slow cinematic push-in, embers glow"
 
+# 720p Lite model — ~2x cheaper, perfect for mobile/social
+mediagen video -o clip.mp4 -s start.png -p "..." --model veo-3.1-lite
+
 # start + end frame (keyframe — only when the two frames are tight variants)
 mediagen video -o clip.mp4 -s a.png --end b.png -p "the skewer lifts off the grill"
 
 mediagen video -o clip.mp4 -s start.png -p "..." --dry-run   # request JSON, no credits
 ```
 
+| `--model` | resolution | $/sec (720p) | notes |
+|---|---|---|---|
+| `veo-3.1-lite` | 720p | $0.05 | ~2x cheaper, mobile/social |
+| `veo-3.1-fast` *(default)* | 720p | $0.10 | smooth interpolation |
+| `veo-3.1` | 720p/1080p | $0.20 | highest quality (video-only) |
+
+Prices are official Google Cloud rates (verified 2026-06-18). `--audio` costs extra
+— the full `veo-3.1` is $0.40/s with audio (2x its silent rate); clips are silent by
+default, so this only applies if you pass `--audio`.
+
 Options: `-o/--out`, `-s/--start`, `-p/--prompt`, `--end`, `--model`
-(default `veo-3.1-fast-generate-001`), `--duration` (4/6/8), `--aspect`
+(default `veo-3.1-fast`), `--duration` (4/6/8), `--aspect`
 (`9:16`/`16:9`), `--resolution` (`720p`/`1080p`), `--audio`, `--dry-run`.
 
 Notes: clips are **silent by default** (add audio in post). Keyframe interpolation
