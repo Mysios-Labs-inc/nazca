@@ -1,4 +1,4 @@
-"""Image generation — Vertex AI (Gemini / Imagen) and fal.ai (FLUX long tail).
+"""Image generation — Vertex AI (Gemini / Imagen), fal.ai (FLUX long tail), ModelArk (Seedream).
 
 Vertex paths (default, no API key needed):
   - Gemini image ("nano-banana") via :generateContent — supports --ref.
@@ -7,6 +7,10 @@ Vertex paths (default, no API key needed):
 fal path (opt-in, requires FAL_KEY env var):
   - FLUX schnell / dev — text-to-image; --ref sent as a data-URI.
   - Routed when model's backend == "fal".
+
+ModelArk path (opt-in, requires ARK_API_KEY env var):
+  - Seedream — text-to-image; endpoints/IDs UNVERIFIED (dry-run only).
+  - Routed when model's backend == "modelark".
 
 Same Vertex auth as video: gcloud token + REST.  No provider SDKs.
 """
@@ -42,6 +46,8 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     # --- fal.ai: FLUX long tail (verify ids against fal docs before spend) ---
     "flux-schnell":    ("fal-ai/flux/schnell", "", "fal", "fal"),  # ~$0.003/MP; fastest FLUX  # verify id
     "flux-2-dev":      ("fal-ai/flux/dev",     "", "fal", "fal"),  # FLUX 2 dev; higher quality  # verify id
+    # --- ByteDance ModelArk: Seedream (UNVERIFIED — dry-run only; benchmark vs fal before spend) ---
+    "seedream":        ("seedream-4-0", "", "modelark", "modelark"),  # verify ID against ModelArk docs
 }
 DEFAULT_MODEL = "nano-banana"
 
@@ -57,6 +63,7 @@ MODEL_TIERS: dict[str, str] = {
     "imagen-3":        "cheap",
     "flux-schnell":    "cheap",
     "flux-2-dev":      "premium",
+    "seedream":        "cheap",   # ModelArk: unverified pricing — benchmark vs fal before spend
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)
@@ -213,6 +220,34 @@ def generate_image(
 
         key = backend.auth_token()
         raw = backend.submit_and_download(url, body, key, media_type="image")
+        out.write_bytes(raw)
+        return out
+
+    # ---- ModelArk dispatch -------------------------------------------
+    # WARNING: endpoint, schema, and model IDs are UNVERIFIED (dry-run only).
+    # Benchmark against fal before real spend.
+    if backend_name == "modelark":
+        body = {
+            "model": model_id,
+            "prompt": prompt,
+            "response_format": "url",  # verify against ModelArk docs
+        }
+        if size:
+            body["size"] = size  # verify field name against ModelArk docs
+        if aspect_ratio:
+            body["aspect_ratio"] = aspect_ratio  # verify field name against ModelArk docs
+
+        if dry_run:
+            return {
+                "url": backend.image_endpoint(),
+                "model": model_id,
+                "backend": backend_name,
+                "api": api,
+                "refs": len(refs),
+                "body": body,
+            }
+
+        raw = backend.generate_image(model_id, body)
         out.write_bytes(raw)
         return out
 

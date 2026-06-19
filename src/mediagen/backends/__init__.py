@@ -13,12 +13,14 @@ from __future__ import annotations
 
 from mediagen.backends.base import Backend
 from mediagen.backends.fal import FalBackend
+from mediagen.backends.modelark import ModelArkBackend
 from mediagen.backends.vertex import VertexBackend
 
 # backend name -> implementation. Add one key per provider here.
 BACKENDS: dict[str, Backend] = {
     "vertex": VertexBackend(),
     "fal": FalBackend(),
+    "modelark": ModelArkBackend(),
 }
 
 
@@ -29,4 +31,4 @@ def get_backend(name: str) -> Backend:
         raise ValueError(f"unknown backend '{name}' (have: {', '.join(BACKENDS)})") from e
 
 
-__all__ = ["Backend", "FalBackend", "VertexBackend", "BACKENDS", "get_backend"]
+__all__ = ["Backend", "FalBackend", "ModelArkBackend", "VertexBackend", "BACKENDS", "get_backend"]

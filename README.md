@@ -80,6 +80,38 @@ or commit it to a file. A Vertex-only run never reads `FAL_KEY`.
 > **Note:** fal model IDs and pricing are subject to change — verify against
 > [fal.ai/models](https://fal.ai/models) before spending. Use `--dry-run` first.
 
+### ByteDance ModelArk (opt-in, optional cost path — NOT default)
+
+An alternative direct path to ByteDance's Seedream (image) and Seedance (video) models.
+**This is an optional cost path, not a default.** Vertex and fal behavior is entirely unchanged.
+
+> **CAUTION: ModelArk API IDs, endpoints, and schemas are UNVERIFIED. Use `--dry-run` only until you
+> have benchmarked ModelArk direct against `seedance-2-fast` via fal at your real resolution/tier.
+> The "~25% cheaper" claim is unverified — do not assume cost savings before measuring.**
+
+```bash
+export ARK_API_KEY=<your-key>   # ByteDance ModelArk → API keys (ark.bytepluses.com)
+```
+
+Keep `ARK_API_KEY` in your shell profile or a secrets manager. **Never** pass it as a CLI flag
+or commit it to a file. A Vertex-only or fal-only run never reads `ARK_API_KEY`.
+
+| `--model` | ModelArk model id | type | notes |
+|---|---|---|---|
+| `seedream` | seedream-4-0 | image | text-to-image; ID UNVERIFIED |
+| `seedance-pro` | seedance-3-pro | video | async task; ID UNVERIFIED |
+| `seedance-lite` | seedance-3-lite | video | async task; ID UNVERIFIED |
+
+**Known caveats (verify against current ModelArk docs before spending):**
+- **720p cap** on video output — upscale in post if 1080p is required.
+- **Close-up-face privacy flag** — close-up face frames may be refused by the API.
+- **Billing-dashboard lag** — ModelArk billing may not reflect charges in real time.
+- **~25% cheaper claim is UNVERIFIED** — Seedance pricing is tier/resolution-dependent
+  (Fast ~$0.022/s vs Pro ~$0.247/s observed); measure at your target resolution before
+  switching from fal.
+- **Endpoints and model IDs are UNVERIFIED** — use `--dry-run` only until confirmed against
+  official [ModelArk docs](https://ark.bytepluses.com).
+
 ---
 
 ## `mediagen image`
@@ -208,18 +240,19 @@ src/mediagen/
 │   ├── __init__.py         BACKENDS registry + get_backend()
 │   ├── base.py             Backend interface (auth_token, build_url, post, encode)
 │   ├── vertex.py           Vertex AI: gcloud OAuth token + REST
-│   └── fal.py              fal.ai: FAL_KEY + queue submit→poll→download
+│   ├── fal.py              fal.ai: FAL_KEY + queue submit→poll→download
+│   └── modelark.py         ByteDance ModelArk: ARK_API_KEY + REST (UNVERIFIED — dry-run only)
 ├── vertex.py               back-compat shim (re-exports from backends/vertex.py)
-├── image.py                Gemini/Imagen (Vertex) and FLUX (fal) dispatch
-├── video.py                Veo (Vertex) and Seedance/Wan (fal) dispatch
-└── config.py               env-overridable defaults (incl. FAL_KEY, optional)
+├── image.py                Gemini/Imagen (Vertex), FLUX (fal), Seedream (ModelArk) dispatch
+├── video.py                Veo (Vertex), Seedance/Wan (fal), Seedance (ModelArk) dispatch
+└── config.py               env-overridable defaults (incl. FAL_KEY, ARK_API_KEY, optional)
 docs/vertex-models.md       functionally-probed Vertex model inventory
 ```
 
 Routing is **data, not code**: a `backend` field in the `MODELS` map selects the
 provider. Adding a model is a one-line entry; adding a provider is a new `Backend`
 subclass + one key in `BACKENDS`. Auth is lazy — a Vertex-only run never reads
-`FAL_KEY`.
+`FAL_KEY` or `ARK_API_KEY`.
 
 ---
 
