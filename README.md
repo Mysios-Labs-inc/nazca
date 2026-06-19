@@ -383,6 +383,82 @@ Other models and rough prices (official Google Cloud, verified 2026-06-18):
 
 ---
 
+## Custom / overriding models
+
+Model IDs change without notice. Instead of editing source, you can:
+
+### 1. `backend:rawid` prefix syntax
+
+Pass any raw provider model ID directly — no `MODELS` entry needed:
+
+```bash
+# ByteDance ModelArk image (ark: or modelark: prefix)
+nazca image -o out.png -p "a vivid scene" --model "ark:seedream-4-5-251128" --dry-run
+
+# fal.ai image or video
+nazca image -o out.png -p "a cat" --model "fal:fal-ai/flux/pro" --dry-run
+
+# Vertex (vertex: or veo: prefix) — raw model id, default us-central1 region
+nazca video -o clip.mp4 -s start.png -p "pan" --model "vertex:veo-3.2-fast-generate-001" --dry-run
+```
+
+Prefix → backend routing:
+
+| prefix | backend | notes |
+|---|---|---|
+| `ark:` or `modelark:` | ModelArk | requires `ARK_API_KEY` |
+| `fal:` | fal.ai | requires `FAL_KEY` |
+| `vertex:` or `veo:` | Vertex AI | gcloud auth; default region `us-central1` |
+
+### 2. `~/.config/nazca/models.json` override file
+
+Create (or edit) `~/.config/nazca/models.json` to override any shorthand or add new ones:
+
+```json
+{
+  "image": {
+    "seedream": {
+      "id":      "seedream-4-5-251128",
+      "backend": "modelark",
+      "api":     "modelark",
+      "region":  "",
+      "tier":    "cheap"
+    },
+    "my-custom-vertex": {
+      "id":      "gemini-x-ultra-image",
+      "backend": "vertex",
+      "api":     "gemini",
+      "region":  "us-central1",
+      "tier":    "premium"
+    }
+  },
+  "video": {
+    "seedance-lite": {
+      "id":      "bytedance-seedance-1-0-lite-i2v-250601",
+      "backend": "modelark",
+      "tier":    "cheap"
+    }
+  }
+}
+```
+
+Override file entries win over the built-in `MODELS` dict. Useful for updating a single
+model ID without touching source code.
+
+### 3. `nazca models` — inspect the live model table
+
+```bash
+nazca models
+```
+
+Lists all built-in and override models in a readable table. Entries overridden by
+`models.json` are marked with `*`.
+
+**Why:** model IDs change often (provider deprecations, version bumps). This lets you
+update a single JSON entry rather than editing and reinstalling the package.
+
+---
+
 ## Workflow rule (locked)
 
 - **nazca produces CLEAN media only** — food/product restyles + video, no
@@ -407,6 +483,7 @@ src/nazca/
 ├── vertex.py               back-compat shim (re-exports from backends/vertex.py)
 ├── image.py                Gemini/Imagen (Vertex), FLUX (fal), Seedream (ModelArk) dispatch
 ├── video.py                Veo (Vertex), Seedance/Wan (fal), Seedance (ModelArk) dispatch
+├── registry.py             user override file (~/.config/nazca/models.json) loader
 └── config.py               env-overridable defaults (incl. FAL_KEY, ARK_API_KEY, optional)
 docs/vertex-models.md       functionally-probed Vertex model inventory
 ```

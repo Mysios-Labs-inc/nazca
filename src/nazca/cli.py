@@ -273,5 +273,80 @@ def config_list() -> None:
             click.echo(f"{key} = (unset)")
 
 
+@cli.command(name="models")
+def models_cmd() -> None:
+    """List all image and video models, including user overrides from models.json."""
+    from nazca.image import MODEL_TIERS as IMG_TIERS
+    from nazca.image import MODELS as IMG_MODELS
+    from nazca.registry import all_overrides, models_path
+    from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES, VIDEO_MODEL_TIERS
+
+    ov = all_overrides()
+    img_ov = ov.get("image", {})
+    vid_ov = ov.get("video", {})
+
+    SH = 20
+    BE = 12
+    TI = 10
+    ID = 40
+
+    def _hdr():
+        click.echo(f"  {'shorthand':<{SH}} {'backend':<{BE}} {'tier':<{TI}} {'model id'}")
+        click.echo(f"  {'-'*SH} {'-'*BE} {'-'*TI} {'-'*(ID)}")
+
+    # ---- IMAGE MODELS ----
+    click.echo("\nIMAGE MODELS")
+    _hdr()
+
+    # built-in + overrides merged (override wins for same shorthand)
+    all_img: dict[str, tuple[str, str, str, str]] = {}
+    for sh, (mid, region, api, be) in IMG_MODELS.items():
+        all_img[sh] = (mid, region, api, be)
+
+    for sh, entry in img_ov.items():
+        # override: may introduce new shorthands or replace built-ins
+        mid = entry.get("id", sh)
+        region = entry.get("region", "")
+        api = entry.get("api", "gemini")
+        be = entry.get("backend", "vertex")
+        all_img[sh] = (mid, region, api, be)
+
+    for sh in sorted(all_img):
+        mid, region, api, be = all_img[sh]
+        tier = img_ov.get(sh, {}).get("tier") or IMG_TIERS.get(sh, "")
+        marker = "*" if sh in img_ov else " "
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid}")
+
+    # ---- VIDEO MODELS ----
+    click.echo("\nVIDEO MODELS")
+    _hdr()
+
+    # Collect built-in video models
+    all_vid: dict[str, tuple[str, str]] = {}
+    for sh, full_id in VEO_ALIASES.items():
+        all_vid[sh] = (full_id, "vertex")
+    for sh, fal_id in FAL_VIDEO_MODELS.items():
+        all_vid[sh] = (fal_id, "fal")
+    for sh, ark_id in ARK_VIDEO_MODELS.items():
+        all_vid[sh] = (ark_id, "modelark")
+
+    for sh, entry in vid_ov.items():
+        mid = entry.get("id", sh)
+        be = entry.get("backend", "vertex")
+        all_vid[sh] = (mid, be)
+
+    for sh in sorted(all_vid):
+        mid, be = all_vid[sh]
+        tier = vid_ov.get(sh, {}).get("tier") or VIDEO_MODEL_TIERS.get(sh, "")
+        marker = "*" if sh in vid_ov else " "
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid}")
+
+    # ---- footer ----
+    mp = models_path()
+    status = "exists" if mp.exists() else "not found"
+    click.echo(f"\nOverride file: {mp} [{status}]")
+    click.echo("  * = overridden by user models.json")
+
+
 if __name__ == "__main__":
     cli()

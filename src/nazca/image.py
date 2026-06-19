@@ -83,9 +83,34 @@ def select_model(tier: str | None) -> str | None:
 
 def _resolve(model: str | None) -> tuple[str, str, str, str]:
     model = model or DEFAULT_MODEL
+
+    # 1. backend:rawid prefix passthrough — route by prefix without touching MODELS
+    if ":" in model:
+        prefix, raw_id = model.split(":", 1)
+        prefix = prefix.lower()
+        if prefix in ("vertex", "veo"):
+            return (raw_id, "us-central1", "gemini", "vertex")
+        if prefix == "fal":
+            return (raw_id, "", "fal", "fal")
+        if prefix in ("ark", "modelark"):
+            return (raw_id, "", "modelark", "modelark")
+
+    # 2. user override file (~/.config/nazca/models.json)
+    from nazca.registry import image_override
+
+    ov = image_override(model)
+    if ov is not None:
+        ov_id = ov.get("id", model)
+        ov_region = ov.get("region", "us-central1")
+        ov_api = ov.get("api", "gemini")
+        ov_backend = ov.get("backend", "vertex")
+        return (ov_id, ov_region, ov_api, ov_backend)
+
+    # 3. built-in MODELS dict (unchanged)
     if model in MODELS:
         return MODELS[model]
-    # raw vertex id → assume Gemini family, default region, vertex backend
+
+    # 4. fallback: raw vertex id → assume Gemini family, default region, vertex backend
     return (model, "us-central1", "gemini", "vertex")
 
 
