@@ -23,3 +23,8 @@ POLL_MAX_TRIES = int(os.getenv("VEO_POLL_MAX_TRIES", "60"))
 # Keep FAL_KEY in your shell profile or a secrets manager; never in scripts
 # or as a CLI flag (it would appear in shell history).
 FAL_KEY: str | None = os.getenv("FAL_KEY")
+
+# --- ByteDance ModelArk (optional — only required when a modelark model is selected) ---
+# Keep ARK_API_KEY in your shell profile or a secrets manager; never in scripts
+# or as a CLI flag (it would appear in shell history).
+ARK_API_KEY: str | None = os.getenv("ARK_API_KEY")

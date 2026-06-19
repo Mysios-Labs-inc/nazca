@@ -6,3 +6,6 @@ venv/
 dist/
 build/
 .DS_Store
+
+# Claude Code local agent worktrees/state
+.claude/

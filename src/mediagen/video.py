@@ -1,4 +1,4 @@
-"""Video generation — Vertex Veo 3.1 and fal.ai (Seedance / Wan long tail).
+"""Video generation — Vertex Veo 3.1, fal.ai (Seedance / Wan long tail), ModelArk (Seedance direct).
 
 Vertex path (default, no API key):
   Start frame + optional end frame (keyframe interpolation).
@@ -8,6 +8,10 @@ fal path (opt-in, requires FAL_KEY):
   POST to queue.fal.run/{model} with start image as data-URI → poll → download URL.
   --end is passed if the model supports it; --resolution / --audio may be unsupported
   (fal model schemas vary — check fal docs).
+
+ModelArk path (opt-in, requires ARK_API_KEY):
+  POST /contents/generations/tasks → poll → download URL.
+  endpoints/IDs UNVERIFIED (dry-run only) — benchmark vs fal before real spend.
 """
 
 from __future__ import annotations
@@ -40,15 +44,24 @@ FAL_VIDEO_MODELS: dict[str, str] = {
     "wan-2.6":         "fal-ai/wan/v2.6/text-to-video",     # verify id
 }
 
+# ModelArk video model shorthands → ModelArk model id
+# IDs are UNVERIFIED (dry-run only) — verify against ModelArk docs before spend.
+ARK_VIDEO_MODELS: dict[str, str] = {
+    "seedance-pro":  "seedance-3-pro",   # verify ID against ModelArk docs
+    "seedance-lite": "seedance-3-lite",  # verify ID against ModelArk docs
+}
+
 # tier tags: each shorthand → "cheap" | "premium"
 # Vertex-direct models are the tier defaults (direct-first rule).
-# fal long-tail models are tagged too but never auto-selected as tier defaults.
+# fal and modelark long-tail models are tagged too but never auto-selected as tier defaults.
 VIDEO_MODEL_TIERS: dict[str, str] = {
     "veo-3.1-lite":    "cheap",
     "veo-3.1-fast":    "cheap",
     "veo-3.1":         "premium",
     "seedance-2-fast": "cheap",
     "wan-2.6":         "cheap",
+    "seedance-pro":    "premium",  # ModelArk: unverified pricing — benchmark vs fal before spend
+    "seedance-lite":   "cheap",    # ModelArk: unverified pricing — benchmark vs fal before spend
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)
@@ -123,6 +136,48 @@ def generate_video(
 
         fal_key = backend.auth_token()
         raw = backend.submit_and_download(url, body, fal_key, media_type="video")
+        out.write_bytes(raw)
+        return out
+
+    # ---- ModelArk dispatch -------------------------------------------
+    # WARNING: endpoint, schema, and model IDs are UNVERIFIED (dry-run only).
+    # Benchmark against fal (seedance-2-fast) before real spend.
+    if resolved_model in ARK_VIDEO_MODELS:
+        ark_model_id = ARK_VIDEO_MODELS[resolved_model]
+        backend = get_backend("modelark")
+
+        # Build content array: text prompt + seed frame encoded as a data URI
+        # (a remote API cannot read a local path). Schema is UNVERIFIED.
+        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+        content: list[dict] = [{"type": "text", "text": prompt}]  # verify schema
+        content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
+        body: dict = {
+            "model": ark_model_id,
+            "content": content,
+            "duration": int(duration),
+            "aspect_ratio": aspect_ratio,
+        }
+        if end:
+            body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)  # verify field
+
+        if dry_run:
+            dbg = out.with_suffix(".request.json")
+            # Summarize data URIs so the plan stays readable.
+            preview = json.loads(json.dumps(body))
+            for part in preview["content"]:
+                u = part.get("image_url", {}).get("url", "")
+                if isinstance(u, str) and u.startswith("data:"):
+                    part["image_url"]["url"] = f"<data-uri {len(u.split(',', 1)[-1])} b64>"
+            if isinstance(preview.get("end_image_url"), str) and preview["end_image_url"].startswith("data:"):
+                preview["end_image_url"] = f"<data-uri {len(preview['end_image_url'].split(',', 1)[-1])} b64>"
+            dbg.write_text(
+                json.dumps(
+                    {"url": backend.video_endpoint(), "backend": "modelark", **preview}, indent=2
+                )
+            )
+            return dbg
+
+        raw = backend.generate_video(ark_model_id, body)
         out.write_bytes(raw)
         return out
 
