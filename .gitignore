@@ -9,3 +9,9 @@ build/
 
 # Claude Code local agent worktrees/state
 .claude/
+
+# Local research / scratch notes (not part of the shipped repo)
+claudedocs/
+
+# Local generated media (source clips kept out of the repo)
+assets/*.mp4
