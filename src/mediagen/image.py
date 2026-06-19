@@ -12,33 +12,35 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from mediagen.vertex import VertexError, encode_image_b64, gcloud_token, model_base, post
+from mediagen.backends import get_backend
+from mediagen.vertex import VertexError, encode_image_b64
 
 
 class ImageError(VertexError):
     pass
 
 
-# shorthand -> (vertex model id, location, api)
+# shorthand -> (model id, location, api, backend)
 #   api: "gemini" (generateContent, supports --ref) | "imagen" (predict, text-only)
+#   backend: provider plumbing (only "vertex" today)
 # Verified working on florece-492623, 2026-06-06.
-MODELS: dict[str, tuple[str, str, str]] = {
-    "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini"),  # fast default; ref/edit
-    "nano-banana-3":   ("gemini-3.1-flash-image",  "global",      "gemini"),  # newer flash image (GA)
-    "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini"),  # premium: legible text + up to 14 refs
-    "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen"),  # fast t2i
-    "imagen-4":        ("imagen-4.0-generate-001",      "us-central1", "imagen"),  # high-fidelity t2i
-    "imagen-3":        ("imagen-3.0-generate-002",      "us-central1", "imagen"),
+MODELS: dict[str, tuple[str, str, str, str]] = {
+    "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini", "vertex"),  # fast default; ref/edit
+    "nano-banana-3":   ("gemini-3.1-flash-image",  "global",      "gemini", "vertex"),  # newer flash image (GA)
+    "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini", "vertex"),  # premium: legible text + up to 14 refs
+    "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen", "vertex"),  # fast t2i
+    "imagen-4":        ("imagen-4.0-generate-001",      "us-central1", "imagen", "vertex"),  # high-fidelity t2i
+    "imagen-3":        ("imagen-3.0-generate-002",      "us-central1", "imagen", "vertex"),
 }
 DEFAULT_MODEL = "nano-banana"
 
 
-def _resolve(model: str | None) -> tuple[str, str, str]:
+def _resolve(model: str | None) -> tuple[str, str, str, str]:
     model = model or DEFAULT_MODEL
     if model in MODELS:
         return MODELS[model]
-    # raw vertex id → assume Gemini family, default region
-    return (model, "us-central1", "gemini")
+    # raw vertex id → assume Gemini family, default region, vertex backend
+    return (model, "us-central1", "gemini", "vertex")
 
 
 # ------------------------------------------------------------------ Gemini path
@@ -105,7 +107,8 @@ def generate_image(
     Returns the output path; dry_run returns the plan.
     """
     out = Path(out)
-    model_id, location, api = _resolve(model)
+    model_id, location, api, backend_name = _resolve(model)
+    backend = get_backend(backend_name)
     if ref is None:
         refs = []
     elif isinstance(ref, (list, tuple)):
@@ -117,11 +120,11 @@ def generate_image(
         raise ImageError(f"model '{model}' (imagen) is text-to-image only — drop --ref or use a nano-banana model")
 
     if api == "imagen":
-        url = f"{model_base(model_id, location)}:predict"
+        url = backend.build_url(model_id, "predict", location)
         body = _imagen_body(prompt, aspect_ratio)
         extract = _imagen_extract
     else:
-        url = f"{model_base(model_id, location)}:generateContent"
+        url = backend.build_url(model_id, "generateContent", location)
         body = _gemini_body(prompt, refs, aspect_ratio, size)
         extract = _gemini_extract
 
@@ -137,7 +140,7 @@ def generate_image(
             ]
         return info
 
-    token = gcloud_token()
-    resp = post(url, body, token)
+    token = backend.auth_token()
+    resp = backend.post(url, body, token)
     out.write_bytes(extract(resp))
     return out
