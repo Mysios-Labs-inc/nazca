@@ -45,6 +45,33 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
 }
 DEFAULT_MODEL = "nano-banana"
 
+# tier tags: each shorthand → "cheap" | "premium"
+# Vertex-direct models are the tier defaults (direct-first rule).
+# fal long-tail models are tagged too but are never auto-selected as tier defaults.
+MODEL_TIERS: dict[str, str] = {
+    "nano-banana":     "cheap",
+    "nano-banana-3":   "cheap",
+    "nano-banana-pro": "premium",
+    "imagen-4-fast":   "cheap",
+    "imagen-4":        "premium",
+    "imagen-3":        "cheap",
+    "flux-schnell":    "cheap",
+    "flux-2-dev":      "premium",
+}
+
+# tier → default Vertex-direct model (never auto-route to fal)
+_TIER_DEFAULTS: dict[str, str] = {
+    "cheap":   "nano-banana",
+    "premium": "nano-banana-pro",
+}
+
+
+def select_model(tier: str | None) -> str | None:
+    """Return the default model shorthand for *tier*, or None if tier is None."""
+    if tier is None:
+        return None
+    return _TIER_DEFAULTS.get(tier)
+
 
 def _resolve(model: str | None) -> tuple[str, str, str, str]:
     model = model or DEFAULT_MODEL

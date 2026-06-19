@@ -151,6 +151,44 @@ for camera moves.
 
 ---
 
+## Cost tiers (`--tier cheap|premium`)
+
+Instead of memorizing model ids, pass `--tier cheap` or `--tier premium`. The flag
+is ignored when `--model` is given (explicit model always wins).
+
+```bash
+mediagen video -o clip.mp4 -s start.png -p "push-in" --tier cheap    # → veo-3.1-lite
+mediagen video -o clip.mp4 -s start.png -p "push-in" --tier premium  # → veo-3.1
+mediagen image -o out.png -p "dish restyle" --tier cheap              # → nano-banana
+mediagen image -o out.png -p "dish restyle" --tier premium            # → nano-banana-pro
+```
+
+Tier defaults are **Vertex-direct** (direct-first rule — Google models never routed through fal).
+
+| command | `--tier cheap` | `--tier premium` | notes |
+|---|---|---|---|
+| `image` | `nano-banana` ~$0.039/img | `nano-banana-pro` ~$0.134/img @2K | pro: legible text, up to 14 refs |
+| `video` | `veo-3.1-lite` $0.05/s (720p) | `veo-3.1` $0.20/s (720p) | lite: ~4x cheaper, great for mobile/social |
+
+Other models and rough prices (official Google Cloud, verified 2026-06-18):
+
+| model | $/unit | tier |
+|---|---|---|
+| `imagen-4-fast` | $0.02/img | cheap |
+| `nano-banana` (gemini-2.5-flash-image) | ~$0.039/img | cheap |
+| `imagen-4` | $0.04/img | premium |
+| `nano-banana-pro` (gemini-3-pro-image) | ~$0.134/img @2K | premium |
+| `veo-3.1-lite` | $0.05/s | cheap |
+| `veo-3.1-fast` | $0.10/s (720p) / $0.12/s (1080p) | cheap |
+| `veo-3.1` | $0.20/s video-only; $0.40/s with audio | premium |
+| fal/FLUX schnell | ~$0.003/MP | cheap |
+| Seedance (via fal) | tier/resolution-dependent — verify per call | — |
+
+> Audio doubles Veo 3.1's rate ($0.20 → $0.40/s). Seedance pricing varies by
+> tier and resolution — do not assume a single $/s figure.
+
+---
+
 ## Workflow rule (locked)
 
 - **mediagen produces CLEAN media only** — food/product restyles + video, no
