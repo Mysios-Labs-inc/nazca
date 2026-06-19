@@ -11,10 +11,10 @@ key to `BACKENDS`.
 
 from __future__ import annotations
 
-from mediagen.backends.base import Backend
-from mediagen.backends.fal import FalBackend
-from mediagen.backends.modelark import ModelArkBackend
-from mediagen.backends.vertex import VertexBackend
+from nazca.backends.base import Backend
+from nazca.backends.fal import FalBackend
+from nazca.backends.modelark import ModelArkBackend
+from nazca.backends.vertex import VertexBackend
 
 # backend name -> implementation. Add one key per provider here.
 BACKENDS: dict[str, Backend] = {

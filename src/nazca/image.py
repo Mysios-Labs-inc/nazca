@@ -20,8 +20,8 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 
-from mediagen.backends import get_backend
-from mediagen.vertex import VertexError, encode_image_b64
+from nazca.backends import get_backend
+from nazca.vertex import VertexError, encode_image_b64
 
 
 class ImageError(VertexError):

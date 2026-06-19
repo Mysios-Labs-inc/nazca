@@ -9,9 +9,9 @@ import time
 import urllib.error
 import urllib.request
 
-from mediagen import config
-from mediagen.backends.base import Backend
-from mediagen.backends.vertex import encode_image_b64
+from nazca import config
+from nazca.backends.base import Backend
+from nazca.backends.vertex import encode_image_b64
 
 ARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"  # verify against ModelArk docs
 
@@ -42,7 +42,7 @@ class ModelArkBackend(Backend):
         key = config.ARK_API_KEY
         if not key:
             raise ModelArkError(
-                "ARK_API_KEY is not set. Run `mediagen login` (or `mediagen config set "
+                "ARK_API_KEY is not set. Run `nazca login` (or `nazca config set "
                 "ark_api_key <key>`) to save it, or export ARK_API_KEY for this session. "
                 "See https://ark.bytepluses.com for credentials."
             )
