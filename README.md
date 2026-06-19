@@ -1,37 +1,10 @@
 # nazca
 
-```text
-                               'M@M@e
-                               .WMMMM'
-                                +@MM@%:-::
-                                 X@MM@@@@@%
-                                 `MMMMMMMM@*.''.
-                                  x@M@@@@MMMWMMW:
-                                  .&MM@@@@@@@@M@%
-                                   =@M@@@@@MMMMM@- k888##*+=
-                                    %@M@@@@@@@@MM#=@@@@@@@@@`
-xxxeo*+=-::`'..                     'WMMMMMMMMMMMM8MMMMMMMMM`
-@@@@@@@@@@@@@MW&&8X%#kxeo*+=-:-kX8&&%&@M@@@@@@@@@@@@@@MMMMM&
-=+*oexk#%X8&&WM@@@@@@@@@@@@@@@@@@&k8MMM@MMMM8888X&&WXk@@@@@&#############*
-             ..'`::-=+*oexk#X8M@@Wkee+:'  .'         .*ekk&@@@@@@@@@@@@@@W++++++-
-                              'o#8M@@@W%o-                eMMMMMMMMMMMMMM@@@@@@@W::----========-
-                                   `*#&@@@8#8888'         -@M@@@@@@@@@@@@MMMMMMMM@@@@@@@@@@@@@@@
-                                       =MM@@@@@@X##xx:     &@MMMMMMMMMMMMM@@@@@@@Xxxxxxxxxxxxxxe
-                                       `@MMMMMMM@M&@@e*XXXXW@@@@@@@@@@@@@@Weeeeee'
-                                       :@M@@@@@MM%.MM#o@@@@@@8oooooooooooo-
-                                       'M@M@@@@M@X WMW8MMMMMM@:
-                                       'M@M@@@MMM& x@@@MMM@@@&-
-                                       'M@M@@@@@@8  *&@@@@#x+
-                                       'M@M@M@#:-'    =++=
-                                       'M@MMMMe
-                                       'M@M@@@x
-                                       'M@@Wo*`
-                                       'M@@&
-                                       'M@@&
+<p align="center">
+  <img src="assets/nazca-hummingbird.png" alt="Nazca hummingbird geoglyph" width="520">
+</p>
 
-        ░░▒▒▓▓██  N A Z C A  ██▓▓▒▒░░
-    the lines that draw themselves · image & video, for agents
-```
+<p align="center"><em>the lines that draw themselves — image &amp; video, for agents</em></p>
 
 A thin, **agent-driven CLI** for AI **image** and **video** generation. Two
 commands, each does one thing and prints the output path. Claude (or you)
