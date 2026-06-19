@@ -1,7 +1,7 @@
 # nazca
 
 <p align="center">
-  <img src="assets/nazca-hero.jpg" alt="Nazca hummingbird geoglyph" width="640">
+  <img src="assets/nazca-hero.gif" alt="Nazca hummingbird geoglyph" width="640">
 </p>
 
 <p align="center"><em>the lines that draw themselves — image &amp; video, for agents</em></p>
