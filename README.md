@@ -14,6 +14,25 @@ mediagen video -o clip.mp4 -s start.png --end end.png -p "slow push-in, embers g
 mediagen video -o clip.mp4 -s start.png -p "..." --tier cheap   # pick the cheap model for you
 ```
 
+## How it works
+
+```mermaid
+flowchart LR
+    A([you / Claude]) -->|"mediagen image · video"| CLI[mediagen CLI]
+    CLI -->|"--model / --tier"| R{{resolve model<br/>→ backend}}
+    R -->|default · cheapest| V[Vertex backend<br/>gcloud token]
+    R -.->|opt-in long tail| F[fal backend<br/>FAL_KEY]
+    R -.->|opt-in| M[ModelArk backend<br/>ARK_API_KEY]
+    V --> G[(Google Vertex<br/>Gemini · Imagen · Veo)]
+    F --> FP[(fal.ai<br/>FLUX · Wan · Seedance)]
+    M --> MP[(ByteDance<br/>Seedream · Seedance)]
+    G & FP & MP --> O[/output file<br/>.png · .mp4/]
+    O --> A
+```
+
+**Direct-first:** Google models always go straight to Vertex (cheapest, no key). fal and
+ModelArk are dotted because they're opt-in — a Vertex-only run never touches their keys.
+
 ---
 
 ## Why this exists
@@ -79,6 +98,39 @@ pip install -e ".[tui]"     # optional arrow-key login UI
 
 </details>
 
+## Quickstart
+
+```bash
+# 1. one-time auth for the default Google/Vertex path (no API key)
+gcloud auth login
+
+# 2. confirm your setup — prints the request, spends nothing
+mediagen image -o test.png -p "a rustic Peruvian parrilla scene, 9:16" --dry-run
+
+# 3. make a real image
+mediagen image -o dish.png -p "grilled anticuchos, warm amber parrilla light, 9:16"
+
+# 4. animate that image into a clip (cheap 720p tier)
+mediagen video -o dish.mp4 -s dish.png -p "slow cinematic push-in, embers glow" --tier cheap
+```
+
+**The golden rule:** every command takes `--dry-run` — it prints the exact request and
+**spends nothing**. Use it to verify before any real call.
+
+| I want to… | command |
+|---|---|
+| see all commands | `mediagen --help` |
+| see a command's flags | `mediagen image --help` |
+| preview without spending | add `--dry-run` |
+| let it pick the cheap model | add `--tier cheap` |
+| restyle a real photo | `mediagen image -o out.png --ref photo.jpg -p "..."` |
+| store a fal/ModelArk key | `mediagen login` |
+
+> mediagen makes **clean media only** (no baked-in text/logos — overlays go in Figma).
+> Google/Vertex models (the defaults) are the proven path; fal/ModelArk are dry-run-tested only.
+
+---
+
 ## Setup / credentials
 
 `mediagen login` (or `mediagen config set`) stores API keys in a local config file so you don't need to set env vars on every shell.
@@ -120,7 +172,20 @@ The config directory is created with mode `0700` and the file is chmod'd to `060
 **Precedence**: env var > config file > unset.
 Setting `FAL_KEY` in your shell overrides whatever is in the file.
 
-**Vertex needs no key** — `gcloud` handles auth transparently.
+```mermaid
+flowchart LR
+    N[need a provider key] --> E{env var set?<br/>FAL_KEY / ARK_API_KEY}
+    E -->|yes| USE[use it]
+    E -->|no| C{in config.ini?}
+    C -->|yes| USE
+    C -->|no| ERR[clear error →<br/>run 'mediagen login']
+    classDef ok fill:#1f6f3f,color:#fff;
+    classDef err fill:#8a1f1f,color:#fff;
+    class USE ok;
+    class ERR err;
+```
+
+**Vertex needs no key** — `gcloud` handles auth transparently (it never enters this flow).
 
 ---
 
@@ -339,6 +404,32 @@ Routing is **data, not code**: a `backend` field in the `MODELS` map selects the
 provider. Adding a model is a one-line entry; adding a provider is a new `Backend`
 subclass + one key in `BACKENDS`. Auth is lazy — a Vertex-only run never reads
 `FAL_KEY` or `ARK_API_KEY`.
+
+### Request flow
+
+```mermaid
+sequenceDiagram
+    participant U as you / Claude
+    participant C as cli.py
+    participant D as image.py / video.py
+    participant B as backend (vertex / fal / modelark)
+    participant P as provider API
+
+    U->>C: mediagen image/video … [--dry-run]
+    C->>D: resolve --model / --tier
+    D->>D: look up MODELS → (id, region, api, backend)
+    alt --dry-run
+        D-->>U: print request JSON (no auth, no spend)
+    else real call
+        D->>B: build_url + body
+        B->>B: auth_token()  (lazy: gcloud / FAL_KEY / ARK_API_KEY)
+        B->>P: POST request
+        Note over B,P: video = submit → poll → download
+        P-->>B: bytes (or media URL)
+        B-->>D: media bytes
+        D-->>U: ✅ writes output file, prints path
+    end
+```
 
 ---
 
