@@ -12,7 +12,8 @@ import time
 from pathlib import Path
 
 from mediagen import config
-from mediagen.vertex import VertexError, encode_image_b64, gcloud_token, model_base, post
+from mediagen.backends import get_backend
+from mediagen.vertex import VertexError
 
 
 class VeoError(VertexError):
@@ -25,6 +26,9 @@ VEO_ALIASES: dict[str, str] = {
     "veo-3.1-fast": "veo-3.1-fast-generate-001",
     "veo-3.1": "veo-3.1-generate-001",
 }
+
+# Veo runs on Vertex; isolate the backend name so future providers are additive.
+VEO_BACKEND = "vertex"
 
 
 def generate_video(
@@ -48,12 +52,12 @@ def generate_video(
     out = Path(out)
     model = model or config.VEO_MODEL
     model = VEO_ALIASES.get(model, model)
-    base = model_base(model)
+    backend = get_backend(VEO_BACKEND)
 
-    start_b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
+    start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
     instance: dict = {"prompt": prompt, "image": {"bytesBase64Encoded": start_b64, "mimeType": mime}}
     if end:
-        end_b64, emime = encode_image_b64(end, max_edge=1280, fmt="JPEG")
+        end_b64, emime = backend.encode_image_b64(end, max_edge=1280, fmt="JPEG")
         instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
 
     body = {
@@ -74,18 +78,18 @@ def generate_video(
             for k in ("image", "lastFrame"):
                 if k in inst:
                     inst[k]["bytesBase64Encoded"] = f"<{len(instance[k]['bytesBase64Encoded'])} b64 chars>"
-        dbg.write_text(json.dumps({"url": f"{base}:predictLongRunning", **preview}, indent=2))
+        dbg.write_text(json.dumps({"url": backend.build_url(model, "predictLongRunning"), **preview}, indent=2))
         return dbg
 
-    token = gcloud_token()
-    submit = post(f"{base}:predictLongRunning", body, token)
+    token = backend.auth_token()
+    submit = backend.post(backend.build_url(model, "predictLongRunning"), body, token)
     op = submit.get("name")
     if not op:
         raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
 
     for _ in range(config.POLL_MAX_TRIES):
         time.sleep(config.POLL_INTERVAL)
-        poll = post(f"{base}:fetchPredictOperation", {"operationName": op}, token)
+        poll = backend.post(backend.build_url(model, "fetchPredictOperation"), {"operationName": op}, token)
         if poll.get("done"):
             break
     else:
