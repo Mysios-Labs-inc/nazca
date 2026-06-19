@@ -40,6 +40,31 @@ FAL_VIDEO_MODELS: dict[str, str] = {
     "wan-2.6":         "fal-ai/wan/v2.6/text-to-video",     # verify id
 }
 
+# tier tags: each shorthand → "cheap" | "premium"
+# Vertex-direct models are the tier defaults (direct-first rule).
+# fal long-tail models are tagged too but never auto-selected as tier defaults.
+VIDEO_MODEL_TIERS: dict[str, str] = {
+    "veo-3.1-lite":    "cheap",
+    "veo-3.1-fast":    "cheap",
+    "veo-3.1":         "premium",
+    "seedance-2-fast": "cheap",
+    "wan-2.6":         "cheap",
+}
+
+# tier → default Vertex-direct model (never auto-route to fal)
+_TIER_DEFAULTS: dict[str, str] = {
+    "cheap":   "veo-3.1-lite",
+    "premium": "veo-3.1",
+}
+
+
+def select_model(tier: str | None) -> str | None:
+    """Return the default model shorthand for *tier*, or None if tier is None."""
+    if tier is None:
+        return None
+    return _TIER_DEFAULTS.get(tier)
+
+
 # Vertex backend name (isolate so future providers stay additive)
 VEO_BACKEND = "vertex"
 
