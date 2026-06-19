@@ -1,45 +1,33 @@
 # nazca
 
 ```text
-                                  *o
-                                  xk
-                                  x#
-                                  k%
-                                  #X
-                                  %X
-                                  X8
-                                 '8&'
-                               -XM@@MX=
-                              :@@&*+&@@-
-                              `M@8::8@@:
-                               `X@@@@8`
-                               =&MMMMW+
-                             .*@@M@@@@@o'
-                        '-o#8M@MM@@@@MM@M8#o-'
-                   `=e#&M@@@@@M@@@@@@@@M@@@@@M&%e=`
-             .`=e%&M@@@@@MMMMM@@@@@@@@@@MMMMM@@@@@M&%x+`.
-        .:+xXW@@@@@@MMMMMMMMMM@@@@@@@@@@MMMMMMMMMM@@@@@@WXx+:.
-   .:*kXW@@@@@MMMMMM@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@MMMMMM@@@@@WXk*-.
-   X@@@@@MMM@@@@@@@@MW&8%ke*=8@M@@@@@@M@&=*ek%X&WM@@@@@@@@MMM@@@@@8
-  .@@@@@@@@M&8%ke*=:`.       xMM@@@@@@MM#       .`:=*ek%8&M@@@@@@@@'
-  :&X#xo+-`'                 :@M@@@@@@M@-                 .`-+ox#%8-
-                              #@MM@@MM@%
-                               %M@@@@MX
-                        :#:ko=#:MMMMMM-k+*k:#-
-                        k@-@e#M-@*X&+@=WX*@-M%
-                        W#=M:8%-@-X8:@=#W`M+xM.
-                       :@-xM'Me=@`X&'@+o@'W#:@=
-                       kM.W%'@=*@.%8.@o-@`kM W#
-                       W#.@+-M`e@ X8 Mx'@==@'xM
-                      :@:-@'o@ kM X8 W% Me.@+`@-
-                      xM kM #W %& X& 88 &X W% W#
-                      W# W% &X 88 X& %& #W kM xM
-                     :@:.@* Mx W% X& kM o@ =@'`@-
-                     xM =@'.@= Mk X8 e@ -M`.@* W#
-                     Wk kW -M` Me %8 *M..@+ &% xW
-                    :@: W# o@ .@* X8 =@' Mx kM `@-
-                    o8 .&= xX '&- #% :&: %# -W' Xx
-                    .   .      .      .      .   .
+                               'M@M@e
+                               .WMMMM'
+                                +@MM@%:-::
+                                 X@MM@@@@@%
+                                 `MMMMMMMM@*.''.
+                                  x@M@@@@MMMWMMW:
+                                  .&MM@@@@@@@@M@%
+                                   =@M@@@@@MMMMM@- k888##*+=
+                                    %@M@@@@@@@@MM#=@@@@@@@@@`
+xxxeo*+=-::`'..                     'WMMMMMMMMMMMM8MMMMMMMMM`
+@@@@@@@@@@@@@MW&&8X%#kxeo*+=-:-kX8&&%&@M@@@@@@@@@@@@@@MMMMM&
+=+*oexk#%X8&&WM@@@@@@@@@@@@@@@@@@&k8MMM@MMMM8888X&&WXk@@@@@&#############*
+             ..'`::-=+*oexk#X8M@@Wkee+:'  .'         .*ekk&@@@@@@@@@@@@@@W++++++-
+                              'o#8M@@@W%o-                eMMMMMMMMMMMMMM@@@@@@@W::----========-
+                                   `*#&@@@8#8888'         -@M@@@@@@@@@@@@MMMMMMMM@@@@@@@@@@@@@@@
+                                       =MM@@@@@@X##xx:     &@MMMMMMMMMMMMM@@@@@@@Xxxxxxxxxxxxxxe
+                                       `@MMMMMMM@M&@@e*XXXXW@@@@@@@@@@@@@@Weeeeee'
+                                       :@M@@@@@MM%.MM#o@@@@@@8oooooooooooo-
+                                       'M@M@@@@M@X WMW8MMMMMM@:
+                                       'M@M@@@MMM& x@@@MMM@@@&-
+                                       'M@M@@@@@@8  *&@@@@#x+
+                                       'M@M@M@#:-'    =++=
+                                       'M@MMMMe
+                                       'M@M@@@x
+                                       'M@@Wo*`
+                                       'M@@&
+                                       'M@@&
 
         ░░▒▒▓▓██  N A Z C A  ██▓▓▒▒░░
     the lines that draw themselves · image & video, for agents

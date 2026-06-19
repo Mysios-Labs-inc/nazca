@@ -1,19 +1,36 @@
-"""Draw a stylized Nazca hummingbird and render it as halftone ASCII.
+"""Render a Nazca hummingbird as halftone ASCII (brightness → density ramp).
 
-No API calls, no spend — pure Pillow. Brightness → character-density ramp.
-Run: python scripts/halftone_nazca.py [width]
+No API calls, no spend — pure Pillow.
+  python scripts/halftone_nazca.py [width]                 # built-in drawing
+  python scripts/halftone_nazca.py --image PATH [width]    # from a real photo/line-art
 """
 
 from __future__ import annotations
 
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 # light → dark ink ramp (space = background, @ = densest figure)
 RAMP = " .'`:-=+*oexk#%X8&WM@"
 
 SS = 4  # supersample factor for smooth (gradient) edges
+
+
+def from_image(path: str, cols: int) -> Image.Image:
+    """Load black-line-on-white art, return grayscale with the FIGURE bright.
+
+    Invert (lines → bright), threshold to crisp ink, then dilate enough to fuse
+    a double outline (Nazca strokes are drawn as parallel line pairs) into solid
+    strokes that survive the downscale to character resolution.
+    """
+    img = ImageOps.autocontrast(ImageOps.grayscale(Image.open(path)))
+    img = ImageOps.invert(img)                       # black lines → white ink
+    img = img.point(lambda p: 255 if p > 80 else 0)  # crisp threshold
+    w, _ = img.size
+    k = min(21, max(3, int(w / max(cols, 1) * 1.3) | 1))  # ~1.3 cells, odd
+    img = img.filter(ImageFilter.MaxFilter(k)).filter(ImageFilter.MaxFilter(k))
+    return img
 
 
 def draw_hummingbird() -> Image.Image:
@@ -77,5 +94,12 @@ def to_halftone(img: Image.Image, cols: int) -> str:
 
 
 if __name__ == "__main__":
-    cols = int(sys.argv[1]) if len(sys.argv) > 1 else 76
-    print(to_halftone(draw_hummingbird(), cols))
+    args = sys.argv[1:]
+    if args and args[0] == "--image":
+        path = args[1]
+        cols = int(args[2]) if len(args) > 2 else 90
+        img = from_image(path, cols)
+    else:
+        cols = int(args[0]) if args else 76
+        img = draw_hummingbird()
+    print(to_halftone(img, cols))
