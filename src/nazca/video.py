@@ -44,11 +44,15 @@ FAL_VIDEO_MODELS: dict[str, str] = {
     "wan-2.6":         "fal-ai/wan/v2.6/text-to-video",     # verify id
 }
 
-# ModelArk video model shorthands → ModelArk model id
-# IDs are UNVERIFIED (dry-run only) — verify against ModelArk docs before spend.
+# ModelArk video model shorthands → BytePlus ModelArk model id.
+# nazca video is image-to-video, so we use the i2v variants.
+# IDs verified against BytePlus ModelArk docs (2026-06-19). NOTE: the endpoint,
+# auth and request shape are confirmed working live; calling these requires the
+# model to be ACTIVATED for your account in the BytePlus console (region
+# ap-southeast), else the API returns 404 InvalidEndpointOrModel.NotFound.
 ARK_VIDEO_MODELS: dict[str, str] = {
-    "seedance-pro":  "seedance-3-pro",   # verify ID against ModelArk docs
-    "seedance-lite": "seedance-3-lite",  # verify ID against ModelArk docs
+    "seedance-pro":  "bytedance-seedance-1-0-pro-250528",
+    "seedance-lite": "bytedance-seedance-1-0-lite-i2v-250428",
 }
 
 # tier tags: each shorthand → "cheap" | "premium"
