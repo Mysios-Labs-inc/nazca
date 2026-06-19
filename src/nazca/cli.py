@@ -23,12 +23,37 @@ except ImportError:
     _HAS_QUESTIONARY = False
 
 # Provider menu entries — (display label, credential key or None for info-only)
+# (base label, credential key). key=None → Vertex (info only); "done" → exit.
 _PROVIDERS: list[tuple[str, str | None]] = [
     ("fal.ai  (FAL_KEY)", "fal_key"),
     ("ByteDance ModelArk  (ARK_API_KEY)", "ark_api_key"),
     ("Vertex AI  (gcloud — no key needed)", None),
     ("Done", "done"),
 ]
+
+_LABEL_W = 36  # pad base labels so the status column lines up
+
+
+def _status(key: str | None) -> str:
+    """Right-hand status tag for a provider row (set/not-set + source)."""
+    if key == "done":
+        return ""
+    if key is None:  # Vertex — auth is gcloud, no stored key
+        return "✓ gcloud"
+    from nazca.credstore import _key_source
+
+    _, source = _key_source(key)
+    return "✗ not set" if source == "unset" else f"✓ set · {source}"
+
+
+def _menu_items() -> list[tuple[str, str | None]]:
+    """Build (display_label, key) rows with an aligned live status column."""
+    items = []
+    for base, key in _PROVIDERS:
+        status = _status(key)
+        display = f"{base.ljust(_LABEL_W)}{status}".rstrip()
+        items.append((display, key))
+    return items
 
 
 def _use_rich_ui() -> bool:
@@ -38,28 +63,28 @@ def _use_rich_ui() -> bool:
 
 def _select_provider() -> str | None:
     """Show a provider menu; return the credential key, None (Vertex info), or 'done'."""
-    choices = [label for label, _ in _PROVIDERS]
+    items = _menu_items()
 
     if _use_rich_ui():
         import questionary
 
         label = questionary.select(
             "Select a provider to configure:",
-            choices=choices,
+            choices=[d for d, _ in items],
         ).ask()
         if label is None:  # Ctrl-C
             return "done"
-        return dict(_PROVIDERS)[label]
+        return dict(items)[label]
     else:
         # Fallback: numbered menu
         click.echo("\nSelect a provider:")
-        for i, (label, _) in enumerate(_PROVIDERS, 1):
-            click.echo(f"  {i}. {label}")
+        for i, (display, _) in enumerate(items, 1):
+            click.echo(f"  {i}. {display}")
         choice = click.prompt(
             "Enter number",
-            type=click.IntRange(1, len(_PROVIDERS)),
+            type=click.IntRange(1, len(items)),
         )
-        return _PROVIDERS[choice - 1][1]
+        return items[choice - 1][1]
 
 
 def _prompt_secret(label: str) -> str:
