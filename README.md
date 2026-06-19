@@ -22,7 +22,7 @@ judges the result, and runs a small command.** That's `mediagen`. It is the
 posting belongs in MCP. mediagen stays deliberately small.
 
 Design choices:
-- **One auth path:** Vertex AI via `gcloud`. No API keys, no provider SDKs.
+- **No API keys for Google models.** Vertex AI via `gcloud` — short-lived OAuth token minted per call, nothing persisted. Opt into a non-Google backend (e.g. fal) and you need that provider's key; keep it in your shell profile / secrets manager, never in a script or CLI flag.
 - **Two tiny dependencies:** `click` + `Pillow`.
 - **Stdlib HTTP** (`urllib`) — the whole thing is a few hundred lines.
 - **`--dry-run`** on both commands prints the exact request before spending anything.
@@ -38,9 +38,11 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
-## Auth — one path for everything
+## Auth
 
-Everything runs through **Vertex AI** with your gcloud credentials. No keys.
+### Google models (default — no API key)
+
+Everything Vertex runs through your gcloud credentials. No keys, nothing persisted.
 
 ```bash
 gcloud auth login
@@ -53,7 +55,30 @@ Defaults target project `your-gcp-project`, region `us-central1`. Override via e
 | `VERTEX_PROJECT` | `your-gcp-project` | GCP project (billing/credits) |
 | `VERTEX_LOCATION` | `us-central1` | default region (some models are `global`) |
 | `VEO_MODEL` | `veo-3.1-fast-generate-001` | default video model |
-| `VEO_POLL_INTERVAL` / `VEO_POLL_MAX_TRIES` | `15` / `60` | video polling |
+| `VEO_POLL_INTERVAL` / `VEO_POLL_MAX_TRIES` | `15` / `60` | video/fal polling |
+
+### fal.ai (opt-in — long-tail models only)
+
+Models like FLUX schnell/dev, Seedance, and Wan have no Google first-party path;
+fal.ai gives them all under one key. Google models **stay on Vertex** (direct is cheaper).
+
+```bash
+export FAL_KEY=<your-key>   # fal.ai dashboard → API keys
+```
+
+Keep `FAL_KEY` in your shell profile or a secrets manager (`~/.zshrc`,
+`~/.profile`, 1Password, etc.). **Never** pass it as a CLI flag (shell history)
+or commit it to a file. A Vertex-only run never reads `FAL_KEY`.
+
+| `--model` | fal model id | notes |
+|---|---|---|
+| `flux-schnell` | fal-ai/flux/schnell | fastest FLUX; ~$0.003/MP |
+| `flux-2-dev` | fal-ai/flux/dev | FLUX 2 dev; higher quality |
+| `seedance-2-fast` | fal-ai/bytedance/seedance/v2/lite | video; tier/resolution-dependent pricing |
+| `wan-2.6` | fal-ai/wan/v2.6/text-to-video | video; ~$0.05/s |
+
+> **Note:** fal model IDs and pricing are subject to change — verify against
+> [fal.ai/models](https://fal.ai/models) before spending. Use `--dry-run` first.
 
 ---
 
@@ -140,17 +165,23 @@ for camera moves.
 
 ```
 src/mediagen/
-├── cli.py       click entrypoint: `image`, `video`
-├── vertex.py    shared: gcloud token, REST POST, image encode, region/global URLs
-├── image.py     Gemini (generateContent + --ref) and Imagen (predict, t2i) paths
-├── video.py     Veo predictLongRunning + fetchPredictOperation polling
-└── config.py    env-overridable defaults
-docs/vertex-models.md   functionally-probed model inventory for the project
+├── cli.py                  click entrypoint: `image`, `video`
+├── backends/
+│   ├── __init__.py         BACKENDS registry + get_backend()
+│   ├── base.py             Backend interface (auth_token, build_url, post, encode)
+│   ├── vertex.py           Vertex AI: gcloud OAuth token + REST
+│   └── fal.py              fal.ai: FAL_KEY + queue submit→poll→download
+├── vertex.py               back-compat shim (re-exports from backends/vertex.py)
+├── image.py                Gemini/Imagen (Vertex) and FLUX (fal) dispatch
+├── video.py                Veo (Vertex) and Seedance/Wan (fal) dispatch
+└── config.py               env-overridable defaults (incl. FAL_KEY, optional)
+docs/vertex-models.md       functionally-probed Vertex model inventory
 ```
 
-Both commands share `vertex.py`: one auth + REST + image-encoding path. Adding a
-model is usually a one-line entry in the `MODELS` map in `image.py` (or a new
-`--model` value for video).
+Routing is **data, not code**: a `backend` field in the `MODELS` map selects the
+provider. Adding a model is a one-line entry; adding a provider is a new `Backend`
+subclass + one key in `BACKENDS`. Auth is lazy — a Vertex-only run never reads
+`FAL_KEY`.
 
 ---
 
