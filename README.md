@@ -38,6 +38,28 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install -e .
 ```
 
+## Setup / credentials
+
+`mediagen login` (or `mediagen config set`) stores API keys in a local config file so you don't need to set env vars on every shell.
+
+```bash
+mediagen login                         # interactive — prompts for each key, hides input
+mediagen config set fal_key sk-...    # set one key non-interactively
+mediagen config get fal_key            # show masked value + source (env / file / unset)
+mediagen config list                   # all known keys, masked, with sources
+mediagen config path                   # print the config file location
+```
+
+Keys are written to `~/.config/mediagen/config.ini` (or `$XDG_CONFIG_HOME/mediagen/config.ini`).
+The config directory is created with mode `0700` and the file is chmod'd to `0600` after every write.
+
+**Precedence**: env var > config file > unset.
+Setting `FAL_KEY` in your shell overrides whatever is in the file.
+
+**Vertex needs no key** — `gcloud` handles auth transparently.
+
+---
+
 ## Auth
 
 ### Google models (default — no API key)

@@ -39,13 +39,13 @@ class FalBackend(Backend):
     # ------------------------------------------------------------------ auth
 
     def auth_token(self) -> str:
-        """Read FAL_KEY from env.  Only called on real dispatch, never --dry-run."""
+        """Read FAL_KEY (env > config file).  Only called on real dispatch, never --dry-run."""
         key = config.FAL_KEY
         if not key:
             raise FalError(
-                "FAL_KEY is not set — export FAL_KEY=<your-key> (fal.ai dashboard → "
-                "API keys).  Keep it in your shell profile or secrets manager; "
-                "never pass it as a CLI flag."
+                "FAL_KEY is not set. Run `mediagen login` (or `mediagen config set "
+                "fal_key <key>`) to save it, or export FAL_KEY for this session. "
+                "Get a key from the fal.ai dashboard → API keys."
             )
         return key
 
