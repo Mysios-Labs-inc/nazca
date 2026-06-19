@@ -46,8 +46,9 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     # --- fal.ai: FLUX long tail (verify ids against fal docs before spend) ---
     "flux-schnell":    ("fal-ai/flux/schnell", "", "fal", "fal"),  # ~$0.003/MP; fastest FLUX  # verify id
     "flux-2-dev":      ("fal-ai/flux/dev",     "", "fal", "fal"),  # FLUX 2 dev; higher quality  # verify id
-    # --- ByteDance ModelArk: Seedream (UNVERIFIED — dry-run only; benchmark vs fal before spend) ---
-    "seedream":        ("seedream-4-0", "", "modelark", "modelark"),  # verify ID against ModelArk docs
+    # --- ByteDance ModelArk: Seedream (id from BytePlus docs; requires model
+    #     activation in the BytePlus console, region ap-southeast, before it works) ---
+    "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # ~$0.035/img
 }
 DEFAULT_MODEL = "nano-banana"
 
