@@ -14,6 +14,8 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
@@ -29,14 +31,48 @@ class VertexError(RuntimeError):
     pass
 
 
+# Common Google Cloud SDK install locations, checked when `gcloud` is not on
+# PATH. This matters when nazca runs as an MCP server: Claude Desktop spawns the
+# server detached with a minimal PATH that excludes the SDK's bin dir, so a bare
+# "gcloud" lookup fails even though the SDK is installed. Set GCLOUD_BIN to point
+# at the binary explicitly if your install lives elsewhere.
+_GCLOUD_FALLBACK_PATHS = (
+    "~/google-cloud-sdk/bin/gcloud",
+    "/opt/homebrew/bin/gcloud",
+    "/usr/local/bin/gcloud",
+    "/usr/lib/google-cloud-sdk/bin/gcloud",
+    "/snap/bin/gcloud",
+)
+
+
+def _find_gcloud() -> str:
+    """Locate the gcloud binary, tolerant of a minimal PATH (e.g. MCP subprocess).
+
+    Order: $GCLOUD_BIN → PATH lookup → common SDK install locations.
+    """
+    explicit = os.getenv("GCLOUD_BIN")
+    if explicit and Path(explicit).expanduser().is_file():
+        return str(Path(explicit).expanduser())
+    found = shutil.which("gcloud")
+    if found:
+        return found
+    for candidate in _GCLOUD_FALLBACK_PATHS:
+        p = Path(candidate).expanduser()
+        if p.is_file():
+            return str(p)
+    raise VertexError(
+        "gcloud not found — install the Google Cloud SDK, or set GCLOUD_BIN to "
+        "the gcloud binary (e.g. when running under Claude Desktop with a minimal PATH)"
+    )
+
+
 def gcloud_token() -> str:
+    gcloud = _find_gcloud()
     try:
         out = subprocess.run(
-            ["gcloud", "auth", "print-access-token"],
+            [gcloud, "auth", "print-access-token"],
             capture_output=True, text=True, check=True,
         )
-    except FileNotFoundError as e:
-        raise VertexError("gcloud not found — install the Google Cloud SDK") from e
     except subprocess.CalledProcessError as e:
         raise VertexError(f"gcloud auth failed: {e.stderr.strip()}") from e
     return out.stdout.strip()

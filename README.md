@@ -337,9 +337,12 @@ uv tool install "nazca[mcp] @ git+<your-repo-url>"   # or, from a clone:  uv too
 gcloud auth application-default login                 # your own Vertex credentials
 ```
 
-Using `application-default login` matters: it writes a well-known credentials file rather than a
-shell env var, so the token still resolves when Claude Desktop launches the server as a detached
-subprocess (which does **not** inherit your shell's `PATH`/env).
+Auth note: nazca mints Vertex tokens by shelling out to `gcloud auth print-access-token`. Claude
+Desktop launches the server with a **minimal PATH** that usually excludes the Cloud SDK's `bin/`,
+so nazca also probes common SDK install locations (`~/google-cloud-sdk/bin`, Homebrew, etc.). If
+your SDK lives somewhere unusual, set `GCLOUD_BIN` to the binary path in the server config's `env`
+block. (`gcloud auth login` vs `application-default login` both work for token minting; ADC is only
+needed if you later switch to library-based auth.)
 
 **2. Register the server** in `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
