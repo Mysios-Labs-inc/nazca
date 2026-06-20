@@ -30,6 +30,7 @@ nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
+- [Use with Claude Desktop (MCP)](#use-with-claude-desktop-mcp)
 - [Design & architecture](#design--architecture)
 - [Limitations](#limitations)
 
@@ -316,6 +317,73 @@ nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "...
 **3. `nazca models`** — print the resolved table; user-overridden entries are marked `*`.
 
 **Resolution order:** `backend:rawid` → `models.json` override → built-in defaults → raw passthrough.
+
+---
+
+## Use with Claude Desktop (MCP)
+
+The same engine that powers the CLI is also exposed as an [MCP](https://modelcontextprotocol.io)
+server, so the **Claude Desktop app** can generate images and video directly. The Desktop app
+can't run arbitrary shell commands the way Claude Code can — it talks to tools through MCP — so
+this server is the supported way to use nazca from Desktop.
+
+It runs locally over stdio. Each user authenticates with their **own** Google credentials
+(Application Default Credentials), plus optional `FAL_KEY` / `ARK_API_KEY` — exactly like the CLI.
+Nothing is hosted or shared.
+
+**1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
+
+```bash
+uv tool install "nazca[mcp] @ git+<your-repo-url>"   # or, from a clone:  uv tool install ".[mcp]"
+nazca setup                                           # installs gcloud if missing, then logs you in
+```
+
+`nazca setup` is interactive: it checks for the Google Cloud SDK and **offers to install it**
+(Homebrew cask or the official script) if you don't have it, runs
+`gcloud auth application-default login` (browser flow), and verifies a token mints. Use
+`nazca setup -y` to skip the confirmations.
+
+Auth note: with the `[mcp]` extra installed, nazca mints Vertex tokens from your ADC via the
+`google-auth` library — **no `gcloud` binary needed at runtime**, so it works under Claude Desktop's
+minimal-PATH subprocess launch. (Pure-CLI installs without the extra fall back to shelling
+`gcloud`, probing common SDK locations; set `GCLOUD_BIN` if yours is unusual.) Your GCP project is
+`VERTEX_PROJECT` (override via env var); the ADC login is what associates your own quota/billing.
+
+**2. Register the server** in `claude_desktop_config.json`
+(macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "nazca": { "command": "nazca-mcp" }
+  }
+}
+```
+
+If `nazca-mcp` isn't on Desktop's `PATH`, use its absolute path (`which nazca-mcp`) or run via uv:
+
+```json
+{
+  "mcpServers": {
+    "nazca": {
+      "command": "uv",
+      "args": ["run", "--directory", "/abs/path/to/mediagen", "nazca-mcp"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You'll get three tools: **`list_models`**, **`generate_image`**, and
+**`generate_video`** — thin wrappers over the same `generate_image` / `generate_video` the CLI uses
+(refs, tiers, `backend:rawid` passthrough, and `dry_run` all work identically).
+
+**Output files**: a bare filename (e.g. `cat.png`) is written to the server's **current working
+directory**, which Claude Desktop / Cowork set to the session folder where they surface files — so
+the image/video appears in chat. Pass an absolute path to put it elsewhere, or set
+`$NAZCA_OUTPUT_DIR` in the server config's `env` block to pin a fixed location (falls back to
+`~/nazca-output` when the cwd isn't writable, e.g. a plain chat launch).
+
+> Run it standalone to sanity-check before wiring Desktop: `nazca-mcp` (it will wait on stdio — Ctrl-C to exit).
 
 ---
 
