@@ -30,6 +30,7 @@ nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
+- [Use with Claude Desktop (MCP)](#use-with-claude-desktop-mcp)
 - [Design & architecture](#design--architecture)
 - [Limitations](#limitations)
 
@@ -316,6 +317,62 @@ nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "...
 **3. `nazca models`** — print the resolved table; user-overridden entries are marked `*`.
 
 **Resolution order:** `backend:rawid` → `models.json` override → built-in defaults → raw passthrough.
+
+---
+
+## Use with Claude Desktop (MCP)
+
+The same engine that powers the CLI is also exposed as an [MCP](https://modelcontextprotocol.io)
+server, so the **Claude Desktop app** can generate images and video directly. The Desktop app
+can't run arbitrary shell commands the way Claude Code can — it talks to tools through MCP — so
+this server is the supported way to use nazca from Desktop.
+
+It runs locally over stdio. Each user authenticates with their **own** credentials (their `gcloud`
+ADC, plus optional `FAL_KEY` / `ARK_API_KEY`) — exactly like the CLI. Nothing is hosted or shared.
+
+**1. Install nazca with the `mcp` extra** (one-time, per machine):
+
+```bash
+uv tool install "nazca[mcp] @ git+<your-repo-url>"   # or, from a clone:  uv tool install ".[mcp]"
+gcloud auth application-default login                 # your own Vertex credentials
+```
+
+Using `application-default login` matters: it writes a well-known credentials file rather than a
+shell env var, so the token still resolves when Claude Desktop launches the server as a detached
+subprocess (which does **not** inherit your shell's `PATH`/env).
+
+**2. Register the server** in `claude_desktop_config.json`
+(macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "nazca": { "command": "nazca-mcp" }
+  }
+}
+```
+
+If `nazca-mcp` isn't on Desktop's `PATH`, use its absolute path (`which nazca-mcp`) or run via uv:
+
+```json
+{
+  "mcpServers": {
+    "nazca": {
+      "command": "uv",
+      "args": ["run", "--directory", "/abs/path/to/mediagen", "nazca-mcp"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You'll get three tools: **`list_models`**, **`generate_image`**, and
+**`generate_video`** — thin wrappers over the same `generate_image` / `generate_video` the CLI uses
+(refs, tiers, `backend:rawid` passthrough, and `dry_run` all work identically).
+
+**Output files** land in `$NAZCA_OUTPUT_DIR` (default `~/nazca-output`), since an MCP server has no
+working directory of its own. Set that env var in the server config's `env` block to change it.
+
+> Run it standalone to sanity-check before wiring Desktop: `nazca-mcp` (it will wait on stdio — Ctrl-C to exit).
 
 ---
 
