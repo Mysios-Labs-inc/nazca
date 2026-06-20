@@ -15,3 +15,6 @@ claudedocs/
 
 # Local generated media (source clips kept out of the repo)
 assets/*.mp4
+
+# MCP server output dir when run inside a project (Claude Code)
+nazca-output/

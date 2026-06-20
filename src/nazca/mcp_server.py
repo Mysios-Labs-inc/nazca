@@ -35,6 +35,10 @@ def _output_dir() -> Path:
          agent mode) launch the server with cwd set to their session/outputs
          folder, which is exactly where they surface generated files. Writing
          there makes a bare filename land where the host can show it.
+         Exception: when cwd is a **git repo root** (i.e. Claude Code in a
+         project), write to a `nazca-output/` subdir instead of dumping media
+         in the repo root. Cowork's cwd is a session folder, not a git root, so
+         it stays flat and surfaceable there.
       3. ~/nazca-output as a last resort (e.g. cwd is "/" or not writable, as
          can happen for a plain desktop chat launch).
     """
@@ -43,7 +47,13 @@ def _output_dir() -> Path:
         d = Path(env)
     else:
         cwd = Path.cwd()
-        d = cwd if (cwd != cwd.root and os.access(cwd, os.W_OK)) else Path.home() / "nazca-output"
+        if str(cwd) == cwd.root or not os.access(cwd, os.W_OK):
+            d = Path.home() / "nazca-output"
+        elif (cwd / ".git").exists():
+            # In a project (Claude Code) — keep generated media out of the repo root.
+            d = cwd / "nazca-output"
+        else:
+            d = cwd
     d.mkdir(parents=True, exist_ok=True)
     return d
 
