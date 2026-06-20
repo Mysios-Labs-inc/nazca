@@ -61,27 +61,39 @@ ModelArk are *dotted* because they're opt-in: a Vertex-only run never reaches fo
 
 ## Install
 
-One command installs the global `nazca` CLI:
+**Two ways to use nazca — pick the one that matches how you'll run it:**
+
+| You want to use it from… | Install | Section |
+|---|---|---|
+| **Terminal / Claude Code** | the `nazca` CLI (below) | this section |
+| **Claude Desktop app** | the MCP server | [Use with Claude Desktop](#use-with-claude-desktop-mcp) |
+
+> **How it's distributed:** nazca is a **private** package — it is **not on PyPI**. You install it
+> straight from the GitHub repo with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a
+> released version with `@v0.1.0`; drop it to track the latest `main`. (Needs access to the private repo.)
+
+### CLI (terminal)
 
 ```bash
-pipx install "git+https://github.com/Mysios-Labs-inc/nazca.git"
+uv tool install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"   # recommended
+# or:  pipx install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"
 ```
 
 Then authenticate the default (Google) path — no API key needed:
 
 ```bash
 gcloud auth login
-nazca --help    # image · video · login · config · models
+nazca --help    # image · video · login · config · models · setup
 ```
 
 <details>
 <summary><b>Prerequisites & options</b></summary>
 
 - **Python ≥ 3.10** + the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) for the Vertex path.
-- **No `pipx`?** `brew install pipx` (macOS) or `python3 -m pip install --user pipx`.
-- **Private repo / SSH:** `pipx install "git+ssh://git@github.com/Mysios-Labs-inc/nazca.git"`
-- **Arrow-key login UI** (optional): `pipx install "nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git"`
-- **`uv` user?** `uv tool install "git+https://github.com/Mysios-Labs-inc/nazca.git"`
+- **No `uv`?** `brew install uv` (macOS) — or use `pipx` (`brew install pipx`).
+- **SSH instead of HTTPS:** swap the URL for `git+ssh://git@github.com/Mysios-Labs-inc/nazca.git@v0.1.0`.
+- **Arrow-key login UI** (optional): add the `tui` extra → `"nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"`.
+- **Update later:** `uv tool upgrade nazca` (or re-run the install with a newer `@tag`).
 
 </details>
 
@@ -341,7 +353,7 @@ Nothing is hosted or shared.
 **1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
 
 ```bash
-uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git"   # or, from a clone:  uv tool install ".[mcp]"
+uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"   # or, from a clone:  uv tool install ".[mcp]"
 nazca setup                                           # installs gcloud if missing, then logs you in
 ```
 
