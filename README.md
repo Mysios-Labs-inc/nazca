@@ -64,7 +64,7 @@ ModelArk are *dotted* because they're opt-in: a Vertex-only run never reaches fo
 One command installs the global `nazca` CLI:
 
 ```bash
-pipx install "git+https://github.com/MRCORD/nazca.git"
+pipx install "git+https://github.com/Mysios-Labs-inc/nazca.git"
 ```
 
 Then authenticate the default (Google) path — no API key needed:
@@ -79,9 +79,9 @@ nazca --help    # image · video · login · config · models
 
 - **Python ≥ 3.10** + the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) for the Vertex path.
 - **No `pipx`?** `brew install pipx` (macOS) or `python3 -m pip install --user pipx`.
-- **Private repo / SSH:** `pipx install "git+ssh://git@github.com/MRCORD/nazca.git"`
-- **Arrow-key login UI** (optional): `pipx install "nazca[tui] @ git+https://github.com/MRCORD/nazca.git"`
-- **`uv` user?** `uv tool install "git+https://github.com/MRCORD/nazca.git"`
+- **Private repo / SSH:** `pipx install "git+ssh://git@github.com/Mysios-Labs-inc/nazca.git"`
+- **Arrow-key login UI** (optional): `pipx install "nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git"`
+- **`uv` user?** `uv tool install "git+https://github.com/Mysios-Labs-inc/nazca.git"`
 
 </details>
 
@@ -89,7 +89,7 @@ nazca --help    # image · video · login · config · models
 <summary><b>Development (clone + editable install)</b></summary>
 
 ```bash
-git clone https://github.com/MRCORD/nazca.git && cd nazca
+git clone https://github.com/Mysios-Labs-inc/nazca.git && cd nazca
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[tui]"     # core (click + Pillow) + optional arrow-key UI
 ```
@@ -331,10 +331,17 @@ It runs locally over stdio. Each user authenticates with their **own** Google cr
 (Application Default Credentials), plus optional `FAL_KEY` / `ARK_API_KEY` — exactly like the CLI.
 Nothing is hosted or shared.
 
+> **Distributing to a team?** Each teammate (with access to the private repo) runs the one-shot
+> installer, which does steps 1–2 below and prints the config snippet for step 3:
+> ```bash
+> git clone https://github.com/Mysios-Labs-inc/nazca.git && cd nazca && ./scripts/install.sh
+> ```
+> (`scripts/install.sh` needs only `uv` + GitHub access.) Updates later: `uv tool upgrade nazca`.
+
 **1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
 
 ```bash
-uv tool install "nazca[mcp] @ git+<your-repo-url>"   # or, from a clone:  uv tool install ".[mcp]"
+uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git"   # or, from a clone:  uv tool install ".[mcp]"
 nazca setup                                           # installs gcloud if missing, then logs you in
 ```
 
