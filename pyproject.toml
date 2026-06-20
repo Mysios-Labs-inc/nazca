@@ -12,7 +12,9 @@ dependencies = [
 [project.optional-dependencies]
 tui = ["questionary>=2.0"]
 # MCP server (Claude Desktop / any MCP client). Install with: nazca[mcp]
-mcp = ["mcp>=1.2"]
+# google-auth lets the server mint tokens from ADC without the gcloud binary on
+# PATH — essential under Claude Desktop's minimal-env subprocess launch.
+mcp = ["mcp>=1.2", "google-auth>=2.0"]
 
 [project.scripts]
 nazca = "nazca.cli:cli"

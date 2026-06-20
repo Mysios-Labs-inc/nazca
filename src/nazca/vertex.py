@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from nazca.backends.vertex import (
     VertexError,
+    access_token,
     encode_image_b64,
     gcloud_token,
     model_base,
     post,
 )
 
-__all__ = ["VertexError", "encode_image_b64", "gcloud_token", "model_base", "post"]
+__all__ = ["VertexError", "access_token", "encode_image_b64", "gcloud_token", "model_base", "post"]

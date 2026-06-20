@@ -327,22 +327,27 @@ server, so the **Claude Desktop app** can generate images and video directly. Th
 can't run arbitrary shell commands the way Claude Code can — it talks to tools through MCP — so
 this server is the supported way to use nazca from Desktop.
 
-It runs locally over stdio. Each user authenticates with their **own** credentials (their `gcloud`
-ADC, plus optional `FAL_KEY` / `ARK_API_KEY`) — exactly like the CLI. Nothing is hosted or shared.
+It runs locally over stdio. Each user authenticates with their **own** Google credentials
+(Application Default Credentials), plus optional `FAL_KEY` / `ARK_API_KEY` — exactly like the CLI.
+Nothing is hosted or shared.
 
-**1. Install nazca with the `mcp` extra** (one-time, per machine):
+**1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
 
 ```bash
 uv tool install "nazca[mcp] @ git+<your-repo-url>"   # or, from a clone:  uv tool install ".[mcp]"
-gcloud auth application-default login                 # your own Vertex credentials
+nazca setup                                           # installs gcloud if missing, then logs you in
 ```
 
-Auth note: nazca mints Vertex tokens by shelling out to `gcloud auth print-access-token`. Claude
-Desktop launches the server with a **minimal PATH** that usually excludes the Cloud SDK's `bin/`,
-so nazca also probes common SDK install locations (`~/google-cloud-sdk/bin`, Homebrew, etc.). If
-your SDK lives somewhere unusual, set `GCLOUD_BIN` to the binary path in the server config's `env`
-block. (`gcloud auth login` vs `application-default login` both work for token minting; ADC is only
-needed if you later switch to library-based auth.)
+`nazca setup` is interactive: it checks for the Google Cloud SDK and **offers to install it**
+(Homebrew cask or the official script) if you don't have it, runs
+`gcloud auth application-default login` (browser flow), and verifies a token mints. Use
+`nazca setup -y` to skip the confirmations.
+
+Auth note: with the `[mcp]` extra installed, nazca mints Vertex tokens from your ADC via the
+`google-auth` library — **no `gcloud` binary needed at runtime**, so it works under Claude Desktop's
+minimal-PATH subprocess launch. (Pure-CLI installs without the extra fall back to shelling
+`gcloud`, probing common SDK locations; set `GCLOUD_BIN` if yours is unusual.) Your GCP project is
+`VERTEX_PROJECT` (override via env var); the ADC login is what associates your own quota/billing.
 
 **2. Register the server** in `claude_desktop_config.json`
 (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):

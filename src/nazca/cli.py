@@ -211,6 +211,20 @@ def login() -> None:
     click.echo(f"Done.  Config: {config_path()}")
 
 
+@cli.command()
+@click.option("-y", "--yes", "assume_yes", is_flag=True, help="Skip confirmations (auto-install + login).")
+def setup(assume_yes: bool) -> None:
+    """Install gcloud (if missing) and authenticate Vertex AI (one-time, interactive).
+
+    Ensures the Google Cloud SDK is present, runs `gcloud auth application-default
+    login`, and verifies a token mints. Run this in your terminal before using
+    Vertex models from the CLI or the Claude Desktop MCP server.
+    """
+    from nazca.setup import run_setup
+
+    raise SystemExit(run_setup(assume_yes=assume_yes))
+
+
 @cli.group()
 def config() -> None:
     """Manage nazca credential config (~/.config/nazca/config.ini)."""
