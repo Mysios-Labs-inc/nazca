@@ -377,8 +377,11 @@ Restart Claude Desktop. You'll get three tools: **`list_models`**, **`generate_i
 **`generate_video`** — thin wrappers over the same `generate_image` / `generate_video` the CLI uses
 (refs, tiers, `backend:rawid` passthrough, and `dry_run` all work identically).
 
-**Output files** land in `$NAZCA_OUTPUT_DIR` (default `~/nazca-output`), since an MCP server has no
-working directory of its own. Set that env var in the server config's `env` block to change it.
+**Output files**: a bare filename (e.g. `cat.png`) is written to the server's **current working
+directory**, which Claude Desktop / Cowork set to the session folder where they surface files — so
+the image/video appears in chat. Pass an absolute path to put it elsewhere, or set
+`$NAZCA_OUTPUT_DIR` in the server config's `env` block to pin a fixed location (falls back to
+`~/nazca-output` when the cwd isn't writable, e.g. a plain chat launch).
 
 > Run it standalone to sanity-check before wiring Desktop: `nazca-mcp` (it will wait on stdio — Ctrl-C to exit).
 

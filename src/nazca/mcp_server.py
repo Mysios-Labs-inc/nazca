@@ -27,16 +27,33 @@ mcp = FastMCP("nazca")
 
 
 def _output_dir() -> Path:
-    d = Path(os.getenv("NAZCA_OUTPUT_DIR", str(Path.home() / "nazca-output")))
+    """Where bare filenames are written.
+
+    Priority:
+      1. $NAZCA_OUTPUT_DIR if set (explicit override).
+      2. The current working directory — MCP hosts (Claude Desktop / Cowork
+         agent mode) launch the server with cwd set to their session/outputs
+         folder, which is exactly where they surface generated files. Writing
+         there makes a bare filename land where the host can show it.
+      3. ~/nazca-output as a last resort (e.g. cwd is "/" or not writable, as
+         can happen for a plain desktop chat launch).
+    """
+    env = os.getenv("NAZCA_OUTPUT_DIR")
+    if env:
+        d = Path(env)
+    else:
+        cwd = Path.cwd()
+        d = cwd if (cwd != cwd.root and os.access(cwd, os.W_OK)) else Path.home() / "nazca-output"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _resolve_out(filename: str) -> Path:
-    """Resolve a caller-supplied filename to a safe path under the output dir.
+    """Resolve a caller-supplied filename to a safe output path.
 
     Absolute paths are honored as-is (the caller knows what they want); bare
-    names are placed under $NAZCA_OUTPUT_DIR.
+    names go in the output dir (the host's working dir by default — see
+    _output_dir), so the host can surface the file in chat.
     """
     p = Path(filename).expanduser()
     if not p.is_absolute():
@@ -79,8 +96,10 @@ def generate_image(
 
     Args:
         prompt: Text description of the image to generate.
-        filename: Output filename (bare name → saved under $NAZCA_OUTPUT_DIR;
-            absolute path → used as-is).
+        filename: Output filename. A bare name (e.g. "cat.png") is saved in the
+            current working directory, which is where the host surfaces files —
+            prefer this so the image shows up in chat. An absolute path is used
+            as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
         ref: Optional list of reference image paths. Only nano-banana (Gemini)
             models support references; nano-banana-pro accepts up to 14. Imagen
             models are text-to-image only and reject refs.
@@ -130,8 +149,10 @@ def generate_video(
         prompt: Text description of the motion / scene.
         start: Path to the start frame image (required — nazca video is
             image-to-video).
-        filename: Output filename (bare name → saved under $NAZCA_OUTPUT_DIR;
-            absolute path → used as-is).
+        filename: Output filename. A bare name (e.g. "clip.mp4") is saved in the
+            current working directory, which is where the host surfaces files —
+            prefer this so the video shows up in chat. An absolute path is used
+            as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
         end: Optional path to an end frame for keyframe interpolation (Vertex Veo
             and some fal models).
         model: Model shorthand (see list_models) or "<backend>:<raw-id>". Defaults
