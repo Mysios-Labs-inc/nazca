@@ -37,7 +37,7 @@ class ImageError(VertexError):
 MODELS: dict[str, tuple[str, str, str, str]] = {
     # --- Vertex: Gemini image (supports --ref) ---
     "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini", "vertex"),  # fast default; ref/edit
-    "nano-banana-3":   ("gemini-3.1-flash-image",  "global",      "gemini", "vertex"),  # newer flash image (GA)
+    "nano-banana-2":   ("gemini-3.1-flash-image",  "global",      "gemini", "vertex"),  # Nano Banana 2 (Gemini 3.1 Flash Image)
     "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini", "vertex"),  # premium: legible text + up to 14 refs
     # --- Vertex: Imagen (text-to-image only) ---
     "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen", "vertex"),  # fast t2i
@@ -57,7 +57,7 @@ DEFAULT_MODEL = "nano-banana"
 # fal long-tail models are tagged too but are never auto-selected as tier defaults.
 MODEL_TIERS: dict[str, str] = {
     "nano-banana":     "cheap",
-    "nano-banana-3":   "cheap",
+    "nano-banana-2":   "cheap",
     "nano-banana-pro": "premium",
     "imagen-4-fast":   "cheap",
     "imagen-4":        "premium",

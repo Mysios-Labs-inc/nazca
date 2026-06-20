@@ -145,7 +145,7 @@ nazca image -o out.png --model imagen-4 -p "a rustic Peruvian parrilla scene, 9:
 | `--model` | id | region | `--ref`? |
 |---|---|---|---|
 | `nano-banana` *(default)* | gemini-2.5-flash-image | us-central1 | ✅ |
-| `nano-banana-3` | gemini-3.1-flash-image | global | ✅ |
+| `nano-banana-2` | gemini-3.1-flash-image | global | ✅ |
 | `nano-banana-pro` | gemini-3-pro-image | global | ✅ (≤14) |
 | `imagen-4` · `imagen-4-fast` · `imagen-3` | imagen-4.0-\* / 3.0 | us-central1 | ❌ (text-to-image only) |
 
