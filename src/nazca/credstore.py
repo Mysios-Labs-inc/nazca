@@ -68,13 +68,21 @@ def mask_value(val: str) -> str:
     return "***"
 
 
+#: Maps a config key → its environment-variable override name.
+_ENV_MAP: dict[str, str] = {
+    "fal_key": "FAL_KEY",
+    "ark_api_key": "ARK_API_KEY",
+    "vertex_project": "VERTEX_PROJECT",
+    "vertex_location": "VERTEX_LOCATION",
+}
+
+#: Keys that hold secrets (masked in `config get`/`list`). Project/region are not.
+SECRET_KEYS: tuple[str, ...] = ("fal_key", "ark_api_key")
+
+
 def _key_source(key: str) -> tuple[str | None, str]:
     """Return (raw_value, source) where source is 'env', 'file', or 'unset'."""
-    _env_map = {
-        "fal_key": "FAL_KEY",
-        "ark_api_key": "ARK_API_KEY",
-    }
-    env_name = _env_map.get(key)
+    env_name = _ENV_MAP.get(key)
     if env_name:
         env_val = os.getenv(env_name)
         if env_val:
@@ -85,5 +93,10 @@ def _key_source(key: str) -> tuple[str | None, str]:
     return None, "unset"
 
 
-#: Known credential keys (used by `config list`).
-KNOWN_KEYS: tuple[str, ...] = ("fal_key", "ark_api_key")
+def display_value(key: str, val: str) -> str:
+    """Mask secret keys for display; show non-secret config (project/region) as-is."""
+    return mask_value(val) if key in SECRET_KEYS else val
+
+
+#: Known config keys (used by `config list` and the login menu).
+KNOWN_KEYS: tuple[str, ...] = ("fal_key", "ark_api_key", "vertex_project", "vertex_location")

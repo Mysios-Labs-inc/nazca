@@ -11,10 +11,11 @@ import os
 from nazca.credstore import get_value
 
 # --- Vertex AI (project + region used for BOTH image and video) ---
-# No default project: you must set VERTEX_PROJECT to your own GCP project. A
-# clear error is raised at call time if it's unset (see backends/vertex.py).
-VERTEX_PROJECT = os.getenv("VERTEX_PROJECT")
-VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
+# No hardcoded project: set your own via `nazca setup`, the VERTEX_PROJECT env
+# var, or config.ini. Precedence: env var > config.ini > unset (clear error at
+# call time, see backends/vertex.py). Region defaults to us-central1.
+VERTEX_PROJECT: str | None = os.getenv("VERTEX_PROJECT") or get_value("vertex_project")
+VERTEX_LOCATION = os.getenv("VERTEX_LOCATION") or get_value("vertex_location") or "us-central1"
 
 # --- Models ---
 VEO_MODEL = os.getenv("VEO_MODEL", "veo-3.1-fast-generate-001")

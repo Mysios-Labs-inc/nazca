@@ -6,7 +6,9 @@ or browser). It:
   1. ensures the Google Cloud SDK (`gcloud`) is installed — offering to install
      it via Homebrew or the official script,
   2. runs the interactive `gcloud auth application-default login` browser flow,
-  3. verifies a token can be minted.
+  3. verifies a token can be minted,
+  4. captures your GCP project (VERTEX_PROJECT) + region and saves them to
+     config.ini (there is no hardcoded default project).
 
 Runtime token minting prefers Application Default Credentials via google-auth
 (see `nazca.backends.vertex.access_token`), so once ADC is set the MCP server
@@ -15,6 +17,7 @@ works even without `gcloud` on its PATH.
 
 from __future__ import annotations
 
+import os
 import platform
 import shutil
 import subprocess
@@ -78,6 +81,58 @@ def _adc_login(gcloud: str) -> bool:
     return True
 
 
+def _gcloud_active_project(gcloud: str) -> str | None:
+    """Return gcloud's currently-configured project, or None if unset."""
+    try:
+        out = subprocess.run(
+            [gcloud, "config", "get-value", "project"],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError:
+        return None
+    val = out.stdout.strip()
+    return val if val and val != "(unset)" else None
+
+
+def _configure_project(gcloud: str, assume_yes: bool) -> bool:
+    """Resolve and persist VERTEX_PROJECT (+ optional region). True if a project is set."""
+    from nazca import config
+    from nazca.credstore import config_path, set_value
+
+    if config.VERTEX_PROJECT:
+        click.echo(f"  ✓ Project set: {config.VERTEX_PROJECT}  (VERTEX_PROJECT / config.ini)")
+        return True
+
+    suggested = _gcloud_active_project(gcloud)
+    if assume_yes:
+        project = suggested or ""
+    else:
+        project = click.prompt(
+            "  Your GCP project id (VERTEX_PROJECT)",
+            default=suggested, show_default=bool(suggested),
+        ).strip()
+
+    if not project:
+        click.echo("  ✗ No project set — Vertex calls fail until VERTEX_PROJECT is set "
+                   "(`export VERTEX_PROJECT=…` or `nazca config set vertex_project …`).")
+        return False
+
+    set_value("vertex_project", project)
+    os.environ["VERTEX_PROJECT"] = project
+    config.VERTEX_PROJECT = project
+    click.echo(f"  ✓ Project saved: {project}  [{config_path()}]")
+
+    # Region is optional — default us-central1; only persist if changed.
+    if not assume_yes:
+        region = click.prompt("  Region (VERTEX_LOCATION)", default=config.VERTEX_LOCATION).strip()
+        if region and region != config.VERTEX_LOCATION:
+            set_value("vertex_location", region)
+            os.environ["VERTEX_LOCATION"] = region
+            config.VERTEX_LOCATION = region
+            click.echo(f"  ✓ Region saved: {region}")
+    return True
+
+
 def run_setup(assume_yes: bool = False) -> int:
     """Execute the setup flow. Returns a process exit code (0 = ready)."""
     click.echo("nazca setup — configuring Vertex AI (Google) authentication\n")
@@ -109,16 +164,21 @@ def run_setup(assume_yes: bool = False) -> int:
         from nazca.backends.vertex import access_token
 
         access_token()
-        click.echo("  ✓ Token minted successfully.\n")
+        click.echo("  ✓ Token minted successfully.")
     except VertexError as e:
         click.echo(f"  ✗ Could not mint a token: {e}")
         return 1
 
+    # 4. project (+ region) — required now that there's no hardcoded default
+    if not _configure_project(gcloud, assume_yes):
+        return 1
+
     from nazca import config
 
-    click.echo("Ready. Vertex models will work via your own credentials.")
-    click.echo(f"  Project (VERTEX_PROJECT): {config.VERTEX_PROJECT}")
-    click.echo("  Override with: export VERTEX_PROJECT=<your-gcp-project>")
+    click.echo("\nReady. Vertex models will work via your own credentials.")
+    click.echo(f"  Project:  {config.VERTEX_PROJECT}")
+    click.echo(f"  Region:   {config.VERTEX_LOCATION}")
+    click.echo("  Saved to ~/.config/nazca/config.ini (override anytime via env vars).")
     click.echo("\nFor Claude Desktop, register the MCP server (see README → "
                "'Use with Claude Desktop').")
     return 0
