@@ -11,7 +11,9 @@ import os
 from nazca.credstore import get_value
 
 # --- Vertex AI (project + region used for BOTH image and video) ---
-VERTEX_PROJECT = os.getenv("VERTEX_PROJECT", "florece-492623")
+# No default project: you must set VERTEX_PROJECT to your own GCP project. A
+# clear error is raised at call time if it's unset (see backends/vertex.py).
+VERTEX_PROJECT = os.getenv("VERTEX_PROJECT")
 VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
 
 # --- Models ---

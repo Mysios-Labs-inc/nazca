@@ -31,7 +31,7 @@ class ImageError(VertexError):
 # shorthand -> (model id, location/fal-id, api, backend)
 #   api:     "gemini" | "imagen" | "fal"
 #   backend: "vertex" | "fal"
-# Vertex models verified on florece-492623, 2026-06-06.
+# Vertex models verified live, 2026-06-06.
 # fal model IDs are plausible but UNVERIFIED against a live key — check
 # https://fal.ai/models before spending. (dry-run only in this PR)
 MODELS: dict[str, tuple[str, str, str, str]] = {

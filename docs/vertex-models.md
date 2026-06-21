@@ -1,4 +1,4 @@
-# Vertex AI model inventory — florece-492623
+# Vertex AI model inventory
 
 Functionally probed 2026-06-06 (real API calls, not metadata reads — the
 metadata GET returns 403 here regardless, so only a live call is trustworthy).
@@ -63,7 +63,7 @@ wired into nazca.
 TOKEN=$(gcloud auth print-access-token)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"contents":[{"role":"user","parts":[{"text":"red dot"}]}],"generationConfig":{"responseModalities":["IMAGE"]}}' \
-  "https://us-central1-aiplatform.googleapis.com/v1/projects/florece-492623/locations/us-central1/publishers/google/models/<MODEL>:generateContent"
+  "https://us-central1-aiplatform.googleapis.com/v1/projects/<your-project>/locations/us-central1/publishers/google/models/<MODEL>:generateContent"
 ```
 Model IDs change often — re-probe before trusting. global region uses host
 `aiplatform.googleapis.com` + `locations/global`.

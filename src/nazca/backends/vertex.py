@@ -159,6 +159,12 @@ def access_token() -> str:
 
 def model_base(model: str, location: str | None = None) -> str:
     """Vertex model URL. Handles the `global` region (different host, no prefix)."""
+    if not config.VERTEX_PROJECT:
+        raise VertexError(
+            "VERTEX_PROJECT is not set — point nazca at your own GCP project, e.g.\n"
+            "  export VERTEX_PROJECT=my-gcp-project\n"
+            "(or set it in your MCP server config's env block)."
+        )
     loc = location or config.VERTEX_LOCATION
     host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
     return (
