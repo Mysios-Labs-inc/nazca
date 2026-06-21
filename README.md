@@ -68,9 +68,9 @@ ModelArk are *dotted* because they're opt-in: a Vertex-only run never reaches fo
 | **Terminal / Claude Code** | the `nazca` CLI (below) | this section |
 | **Claude Desktop app** | the MCP server | [Use with Claude Desktop](#use-with-claude-desktop-mcp) |
 
-> **How it's distributed:** nazca is a **private** package — it is **not on PyPI**. You install it
-> straight from the GitHub repo with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a
-> released version with `@v0.1.0`; drop it to track the latest `main`. (Needs access to the private repo.)
+> **How it's distributed:** nazca is **not on PyPI** — you install it straight from the GitHub repo
+> with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a released version with `@v0.1.0`;
+> drop it to track the latest `main`.
 
 ### CLI (terminal)
 
@@ -270,11 +270,11 @@ An env var always overrides the stored file — handy for CI or a one-off second
 ### Google Vertex (default — no key)
 
 Runs on your gcloud credentials (short-lived token, nothing
-persisted). Defaults: project `your-gcp-project`, region `us-central1`. Override via env:
+persisted). Set `VERTEX_PROJECT` to your own GCP project (no default); region defaults to `us-central1`. Override via env:
 
 | env var | default | purpose |
 |---|---|---|
-| `VERTEX_PROJECT` | `your-gcp-project` | GCP project (billing/credits) |
+| `VERTEX_PROJECT` | _(required — no default)_ | your GCP project (billing/credits) |
 | `VERTEX_LOCATION` | `us-central1` | default region (some models are `global`) |
 | `VEO_MODEL` | `veo-3.1-fast-generate-001` | default video model |
 | `VEO_POLL_INTERVAL` / `VEO_POLL_MAX_TRIES` | `15` / `60` | video & fal polling cadence |
@@ -343,8 +343,8 @@ It runs locally over stdio. Each user authenticates with their **own** Google cr
 (Application Default Credentials), plus optional `FAL_KEY` / `ARK_API_KEY` — exactly like the CLI.
 Nothing is hosted or shared.
 
-> **Distributing to a team?** Each teammate (with access to the private repo) runs the one-shot
-> installer, which does steps 1–2 below and prints the config snippet for step 3:
+> **Setting up a team?** Each person runs the one-shot installer, which does steps 1–2 below and
+> prints the config snippet for step 3:
 > ```bash
 > git clone https://github.com/Mysios-Labs-inc/nazca.git && cd nazca && ./scripts/install.sh
 > ```
@@ -471,4 +471,5 @@ sequenceDiagram
 
 ## License
 
-Private / internal tooling.
+[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, fork, modify, and build on for **any
+noncommercial purpose**, with attribution. Commercial use requires a separate license. © Mysios Labs, Inc.

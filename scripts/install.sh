@@ -5,7 +5,7 @@
 # prints the claude_desktop_config.json snippet to register the server.
 #
 # Usage:  ./scripts/install.sh
-# Requires: uv (https://docs.astral.sh/uv/) and GitHub access to the private repo.
+# Requires: uv (https://docs.astral.sh/uv/).
 
 set -euo pipefail
 
