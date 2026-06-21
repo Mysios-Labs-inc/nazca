@@ -185,12 +185,11 @@ def login() -> None:
             break
 
         if key_id is None:
-            # Vertex AI — info only, no credential stored
+            # Vertex AI — info only, no API key. Auth + project setup live in `nazca setup`.
             click.echo(
-                "\nVertex AI authenticates via gcloud.  Run:\n"
-                "  gcloud auth login\n"
-                "  gcloud auth application-default login\n"
-                "No key is stored by nazca.\n"
+                "\nVertex AI uses Google auth (no API key). Run:\n"
+                "  nazca setup    # installs gcloud if needed, logs in, sets VERTEX_PROJECT + region\n"
+                "No key is stored by nazca; your project/region are saved to config.ini.\n"
             )
             continue
 
@@ -251,7 +250,7 @@ def config_set(key: str, value: str) -> None:
 @click.argument("key")
 def config_get(key: str) -> None:
     """Print the masked value and source of KEY."""
-    from nazca.credstore import KNOWN_KEYS, _key_source, mask_value
+    from nazca.credstore import KNOWN_KEYS, _key_source, display_value
 
     if key not in KNOWN_KEYS:
         click.echo(
@@ -261,7 +260,7 @@ def config_get(key: str) -> None:
         raise SystemExit(1)
     val, source = _key_source(key)
     if val:
-        click.echo(f"{key} = {mask_value(val)}  [{source}]")
+        click.echo(f"{key} = {display_value(key, val)}  [{source}]")
     else:
         click.echo(f"{key} = (unset)")
 
@@ -277,12 +276,12 @@ def config_path_cmd() -> None:
 @config.command(name="list")
 def config_list() -> None:
     """List all known credentials with masked values and sources."""
-    from nazca.credstore import KNOWN_KEYS, _key_source, mask_value
+    from nazca.credstore import KNOWN_KEYS, _key_source, display_value
 
     for key in KNOWN_KEYS:
         val, source = _key_source(key)
         if val:
-            click.echo(f"{key} = {mask_value(val)}  [{source}]")
+            click.echo(f"{key} = {display_value(key, val)}  [{source}]")
         else:
             click.echo(f"{key} = (unset)")
 
