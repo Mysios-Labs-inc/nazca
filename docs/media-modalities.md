@@ -48,6 +48,7 @@ backends that support it, not a new ad-hoc code path.
 | `flux-schnell` | fal | t2i, i2i | **single ref only**; fal id unverified |
 | `flux-2-dev` | fal | t2i, i2i | single ref only; fal id unverified |
 | `seedream` | modelark | t2i, i2i, compose | up to 14 refs; needs BytePlus activation; `group` (N/call) not wired |
+| `gpt-image-2` | openai | t2i, i2i, compose | **≤5 refs** via `/images/edits`; legible text/ads; `--quality` lever; token-billed; slow (~30–105s) |
 | `upscale` | fal | upscale | clarity-upscaler, `--scale 1-4`, $0.03/MP (verified id) |
 | `rmbg` | fal | bg_remove | birefnet/v2 → transparent PNG, free compute (verified id) |
 | `inpaint` | fal | inpaint | flux-pro/v1/fill, `--mask` (white=edit) + prompt, $0.05/MP (verified id) |
