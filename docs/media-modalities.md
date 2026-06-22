@@ -50,6 +50,8 @@ backends that support it, not a new ad-hoc code path.
 | `seedream` | modelark | t2i, i2i, compose | up to 14 refs; needs BytePlus activation; `group` (N/call) not wired |
 | `upscale` | fal | upscale | clarity-upscaler, `--scale 1-4`, $0.03/MP (verified id) |
 | `rmbg` | fal | bg_remove | birefnet/v2 → transparent PNG, free compute (verified id) |
+| `inpaint` | fal | inpaint | flux-pro/v1/fill, `--mask` (white=edit) + prompt, $0.05/MP (verified id) |
+| `outpaint` | fal | outpaint | flux-2-pro/outpaint, `--expand` px/side, no prompt/mask (verified id) |
 
 ### Video
 | shorthand | backend | ops | notes |
@@ -72,10 +74,10 @@ backends that support it, not a new ad-hoc code path.
 3. ⬜ **Seedream `group` mode** (1 call → up to 15 related images) is a real distinct
    axis and is still unwired.
 
-**P3 (done): `upscale` + `bg_remove`** wired on fal (clarity-upscaler, birefnet/v2)
-via the positional `SOURCE` slot — `nazca image photo.png --upscale|--rmbg`.
-Remaining modify ops (`inpaint`/`outpaint`, and video `v2v`/`reframe`/`extend`)
-are next.
+**P3 (done): all four image modify ops** wired on fal via the positional `SOURCE`
+slot — `upscale` (clarity-upscaler), `bg_remove` (birefnet/v2), `inpaint`
+(flux-pro/v1/fill, `--mask` + prompt) and `outpaint` (flux-2-pro/outpaint,
+`--expand`). Remaining: video `v2v`/`reframe`/`extend` (P4).
 
 ## CLI surface (decided: infer op from flags)
 
@@ -105,7 +107,7 @@ nazca video SOURCE -p "restyle ..."        # v2v
   shows ops. No behavior change.
 - ✅ **P2** — derive op from flags + validate against `CAPS`; make `--start`
   optional (unblocks `t2v`); reject imagen+ref up front. Fixes mismatches #1, #2.
-- 🟡 **P3** — image modify ops via the `SOURCE` slot: `upscale`/`bg_remove` **done**
-  (fal clarity-upscaler / birefnet, verified ids); `inpaint`/`outpaint` (mask/region)
-  next.
+- ✅ **P3** — all four image modify ops via the `SOURCE` slot: `upscale`,
+  `bg_remove`, `inpaint` (`--mask` + prompt), `outpaint` (`--expand`) — fal, all ids
+  verified.
 - ⬜ **P4** — video-to-video: `v2v`/`reframe`/`extend` (largest lift).
