@@ -49,8 +49,8 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     # --- ByteDance ModelArk: Seedream (id from BytePlus docs; requires model
     #     activation in the BytePlus console, region ap-southeast, before it works) ---
     "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # ~$0.035/img
-    # --- OpenAI: gpt-image-2 (best-in-class legible text; ad creative). t2i only
-    #     in this PR — reference/edit injection (/images/edits) is a follow-up. ---
+    # --- OpenAI: gpt-image-2 (best-in-class legible text; ad creative). t2i via
+    #     /images/generations; --ref (up to 5) routes to /images/edits. ---
     "gpt-image-2":     ("gpt-image-2", "", "openai", "openai"),  # token-billed; cost scales with size×quality
 }
 DEFAULT_MODEL = "nano-banana"
@@ -311,13 +311,28 @@ def generate_image(
 
     # ---- OpenAI dispatch (gpt-image-2) -------------------------------
     if backend_name == "openai":
-        if refs:
-            raise ImageError(
-                f"model '{model}' (openai) is text-to-image only in this build — "
-                "reference/edit injection via /images/edits is a follow-up. "
-                "Drop --ref, or use a nano-banana model for now."
-            )
         body = _openai_image_body(prompt, model_id, aspect_ratio)
+
+        # With refs → /images/edits (multipart). Without → /images/generations.
+        if refs:
+            from nazca.backends.openai import MAX_EDIT_IMAGES
+
+            if len(refs) > MAX_EDIT_IMAGES:
+                raise ImageError(
+                    f"gpt-image-2 accepts at most {MAX_EDIT_IMAGES} reference images, got {len(refs)}"
+                )
+            if dry_run:
+                return {
+                    "url": backend.edit_endpoint(),
+                    "model": model_id,
+                    "backend": backend_name,
+                    "api": api,
+                    "refs": len(refs),
+                    "body": body,  # sent as multipart form fields alongside image[] parts
+                }
+            raw = backend.edit_image(body, refs)
+            out.write_bytes(raw)
+            return out
 
         if dry_run:
             return {
@@ -325,7 +340,7 @@ def generate_image(
                 "model": model_id,
                 "backend": backend_name,
                 "api": api,
-                "refs": len(refs),
+                "refs": 0,
                 "body": body,
             }
 
