@@ -191,13 +191,20 @@ _OPENAI_ASPECT_MAP: dict[str, str] = {
 }
 
 
-def _openai_image_body(prompt: str, model_id: str, aspect_ratio: str | None) -> dict:
-    """Build the /images/generations body. quality=high for legible text/ads."""
+def _openai_image_body(
+    prompt: str, model_id: str, aspect_ratio: str | None, quality: str | None = None
+) -> dict:
+    """Build the /images/{generations,edits} body (shared by both ops).
+
+    `quality` (low|medium|high|auto) is the main cost/speed lever — output image
+    tokens, which dominate the bill, scale ~4× between medium and high. Defaults
+    to "high" (best text fidelity) when unset.
+    """
     body: dict = {
         "model": model_id,
         "prompt": prompt,
         "n": 1,
-        "quality": "high",
+        "quality": quality or "high",
     }
     body["size"] = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
     return body
@@ -332,6 +339,7 @@ def generate_image(
     model: str | None = None,
     aspect_ratio: str | None = "9:16",
     size: str | None = "2K",
+    quality: str | None = None,
     dry_run: bool = False,
 ) -> Path | dict:
     """Generate (or restyle, when ref is given) one image.
@@ -340,6 +348,8 @@ def generate_image(
       and `size` 1K/2K/4K (gemini-3 only).
     Vertex/Imagen: text-to-image only, rejects --ref.
     fal/FLUX: text-to-image; --ref sends the first image as a data-URI.
+    OpenAI/gpt-image-2: t2i + edits; `quality` (low|medium|high|auto) sets the
+      cost/speed lever (ignored by other backends).
 
     Returns the output path; dry_run returns the plan dict (no API call, no key needed).
     """
@@ -407,7 +417,7 @@ def generate_image(
 
     # ---- OpenAI dispatch (gpt-image-2) -------------------------------
     if backend_name == "openai":
-        body = _openai_image_body(prompt, model_id, aspect_ratio)
+        body = _openai_image_body(prompt, model_id, aspect_ratio, quality)
 
         # With refs → /images/edits (multipart). Without → /images/generations.
         if refs:

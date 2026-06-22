@@ -125,9 +125,10 @@ def cli() -> None:
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only) | gpt-image-2 (OpenAI; legible text/ads, ref up to 5)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
+@click.option("--quality", default="high", type=click.Choice(["low", "medium", "high", "auto"]), help="gpt-image-2 only: cost/speed lever (medium ≈ 4× cheaper & faster than high). Ignored by other models.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, tier, dry_run):
+def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, quality, tier, dry_run):
     """Generate, restyle (--ref), or modify (SOURCE + --upscale/--rmbg/--mask/--outpaint) an image.
 
     \b
@@ -191,7 +192,7 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
     else:
         result = generate_image(
             out, prompt, ref=list(ref) or None, model=resolved_model,
-            aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
+            aspect_ratio=aspect_ratio, size=size, quality=quality, dry_run=dry_run,
         )
     if dry_run:
         click.echo(json.dumps(result, indent=2))
