@@ -63,6 +63,29 @@ so future work doesn't relearn them.
 - Base URL: `https://ark.ap-southeast.bytepluses.com/api/v3`; video = async tasks
   (`/contents/generations/tasks` → poll → download); image = sync (`/images/generations`).
 
+## OpenAI gpt-image-2 — hard-won
+
+- **Best-in-class legible text; verified live both paths.** t2i via `/v1/images/generations` (JSON);
+  reference/edit via `/v1/images/edits` (multipart, up to 5 `image[]` parts). gpt-image models always
+  return base64 (no `response_format: url`) — decode `data[0].b64_json`. A directed brief + a brand
+  reference (`--ref`) is the difference between stock and usable: same model/quality, night-and-day output.
+- **It preserves pixel-art refs instead of smoothing them.** Fed Bacon's 8-bit mascot via `/images/edits`
+  with an explicit "do not vectorize/anti-alias" instruction — the strip's hard pixels survived. The edit
+  path composes *around* a kept reference, which is exactly what brand-asset work needs.
+- **Token-billed, not flat $/image.** Output image tokens dominate and scale with size×quality, so there
+  is no constant to put in the cost table — quote a low/med/high range. This breaks any downstream code
+  assuming a fixed `$/image` per model.
+- **Quality is THE cost/speed lever; default `high` was wasteful.** Measured @1024×1536: low ~$0.012/~30s ·
+  medium ~$0.05/~45s · high ~$0.19/~105s (~16× cost, ~3.5× time across the range). For flat graphic/poster
+  work, **low is visually indistinguishable** — even small mono text stayed crisp. Draft at low, re-export
+  keepers at medium/high. Don't hardcode a quality; expose `--quality`.
+- **It's SLOW (~30–105s/img) vs Gemini/fal seconds.** Latency, not cost, is the throughput wall for volume
+  — parallelize requests rather than chasing a cheaper per-image price.
+- **Billing gotcha (account-side, not a code bug):** OpenAI promo **credit grants** deplete silently; once
+  the grant balance hits ~$0, calls bill the payment method or fail on a quota/billing error. Check
+  Billing → Credit grants + Limits before a volume run — a sudden 4xx after N images is usually spent
+  credit, not nazca. (Same class of gotcha as ModelArk activation.)
+
 ## Distribution / install
 
 - **Python's npm-equivalent is PyPI; `pip`/`pipx` == `npm install`.** No need to rewrite to Node for a

@@ -47,15 +47,17 @@ flowchart LR
     R -->|default · cheapest| V[Vertex backend<br/>gcloud token]
     R -.->|opt-in long tail| F[fal backend<br/>FAL_KEY]
     R -.->|opt-in| M[ModelArk backend<br/>ARK_API_KEY]
+    R -.->|opt-in| OA[OpenAI backend<br/>OPENAI_API_KEY]
     V --> G[(Google Vertex<br/>Gemini · Imagen · Veo)]
     F --> FP[(fal.ai<br/>FLUX · Wan · Seedance)]
     M --> MP[(ByteDance<br/>Seedream · Seedance)]
-    G & FP & MP --> O[/output file<br/>.png · .mp4/]
+    OA --> OP[(OpenAI<br/>gpt-image-2)]
+    G & FP & MP & OP --> O[/output file<br/>.png · .mp4/]
     O --> A
 ```
 
-**Direct-first.** Google models always go straight to Vertex — the cheapest path, no API key. fal and
-ModelArk are *dotted* because they're opt-in: a Vertex-only run never reaches for their keys.
+**Direct-first.** Google models always go straight to Vertex — the cheapest path, no API key. fal,
+ModelArk, and OpenAI are *dotted* because they're opt-in: a Vertex-only run never reaches for their keys.
 
 ---
 
@@ -153,6 +155,9 @@ nazca image -o out.png --model nano-banana-pro --ref dish.jpg --ref style.jpg -p
 
 # fresh text-to-image via Imagen
 nazca image -o out.png --model imagen-4 -p "a rustic Peruvian parrilla scene, 9:16"
+
+# legible text / ad creative via OpenAI gpt-image-2 (needs OPENAI_API_KEY)
+nazca image -o ad.png --model gpt-image-2 --quality medium -p "Poster headline: GRAND OPENING — 50% OFF"
 ```
 
 | `--model` | id | region | `--ref`? |
@@ -161,9 +166,15 @@ nazca image -o out.png --model imagen-4 -p "a rustic Peruvian parrilla scene, 9:
 | `nano-banana-2` | gemini-3.1-flash-image | global | ✅ |
 | `nano-banana-pro` | gemini-3-pro-image | global | ✅ (≤14) |
 | `imagen-4` · `imagen-4-fast` · `imagen-3` | imagen-4.0-\* / 3.0 | us-central1 | ❌ (text-to-image only) |
+| `gpt-image-2` | gpt-image-2 (OpenAI) | — | ✅ (≤5, via `/images/edits`) |
+
+`gpt-image-2` leads on **legible text + ad creative**. Caveats: needs `OPENAI_API_KEY`, billed per
+**token** (no flat $/image — output tokens scale with size×quality), and noticeably slower than the
+Gemini/fal paths (~30–105s depending on `--quality`). Use `--quality` to trade cost/speed for fidelity.
 
 **Flags:** `-o/--out` · `-p/--prompt` · `--ref` (repeatable) · `--model` · `--aspect` (default `9:16`) ·
-`--size 1K\|2K\|4K` (gemini-3 only) · `--tier cheap\|premium` · `--dry-run`.
+`--size 1K\|2K\|4K` (gemini-3 only) · `--quality low\|medium\|high\|auto` (gpt-image-2 only; default
+`high`) · `--tier cheap\|premium` · `--dry-run`.
 Full Vertex inventory: [`docs/vertex-models.md`](docs/vertex-models.md).
 
 ### `nazca video`
@@ -200,8 +211,8 @@ nazca image -o out.png -p "..." --tier cheap      # → nano-banana
 nazca video -o clip.mp4 -s a.png -p "..." --tier premium   # → veo-3.1
 ```
 
-Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk pricing changes often and
-is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
+Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI pricing changes
+often and is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
 
 | model | kind | $/unit | tier | backend |
 |---|---|---|---|---|
@@ -211,6 +222,7 @@ is tier/resolution-dependent — treat those as approximate and `--dry-run` firs
 | `nano-banana-pro` | image | ~$0.134 / img @2K | premium | Vertex |
 | `flux-schnell` | image | ~$0.003 / MP | cheap | fal |
 | `seedream` | image | ~$0.035 / img | — | ModelArk |
+| `gpt-image-2` | image | ~$0.012 / $0.05 / $0.19 (low/med/high @1024×1536) | premium | OpenAI |
 | `veo-3.1-lite` | video | $0.05 / s (720p) | cheap | Vertex |
 | `veo-3.1-fast` *(default)* | video | $0.10 / s (720p) | cheap | Vertex |
 | `veo-3.1` | video | $0.20 / s · **+audio $0.40** | premium | Vertex |
@@ -223,8 +235,8 @@ Run **`nazca models`** anytime to print the live table (including your overrides
 
 ## Credentials
 
-Google/Vertex needs **no key** — `gcloud auth login` handles it. You only set keys to opt into fal or
-ModelArk, and nazca stores them so you don't re-export env vars every shell.
+Google/Vertex needs **no key** — `gcloud auth login` handles it. You only set keys to opt into fal,
+ModelArk, or OpenAI, and nazca stores them so you don't re-export env vars every shell.
 
 ### `nazca login`
 
@@ -235,6 +247,7 @@ are already set:
 ? Select a provider to configure:  (↑↓)
    fal.ai  (FAL_KEY)                   ✗ not set
  ❯ ByteDance ModelArk  (ARK_API_KEY)   ✗ not set
+   OpenAI  (OPENAI_API_KEY)            ✗ not set
    Vertex AI  (gcloud — no key needed) ✓ gcloud
    Done
 ```
@@ -254,7 +267,7 @@ history); use `login` or an env var.
 
 ```mermaid
 flowchart LR
-    N[need a provider key] --> E{env var set?<br/>FAL_KEY / ARK_API_KEY}
+    N[need a provider key] --> E{env var set?<br/>FAL_KEY / ARK_API_KEY / OPENAI_API_KEY}
     E -->|yes| USE[use it]
     E -->|no| C{in config.ini?}
     C -->|yes| USE
@@ -297,6 +310,19 @@ you get `ModelNotOpen` / `404`.
 - Caveats: video output capped at **720p** (upscale in post); close-up faces may be refused; the billing
   dashboard lags. Benchmark vs fal before relying on it for cost (Seedance pricing is tier/resolution-dependent).
 
+### OpenAI (opt-in — gpt-image-2)
+
+Best-in-class **legible text** for ad creative. `--model gpt-image-2` runs text-to-image via
+`/v1/images/generations`; add `--ref` (up to 5 images) to compose around real assets via
+`/v1/images/edits`. *Status: verified live (both paths).*
+
+- Get a key at [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → `nazca login` → OpenAI.
+- **Quality is the cost/speed lever:** `--quality low|medium|high|auto` (default `high`). Output image
+  tokens dominate the bill and scale ~4× from medium→high. Measured @1024×1536: low ~$0.012/~30s ·
+  medium ~$0.05/~45s · high ~$0.19/~105s. For flat graphic/poster work, **low usually suffices** — draft
+  at low, re-export keepers at medium/high.
+- Caveats: **token-billed** (no flat $/image), and **slow** vs Gemini/fal — parallelize for volume.
+
 ---
 
 ## Custom / overriding models
@@ -308,6 +334,7 @@ Provider model IDs change (deprecations, version bumps). You never have to edit 
 ```bash
 nazca image --model "ark:seedream-4-5-251128" -o out.png -p "..."
 nazca image --model "fal:fal-ai/flux/pro"     -o out.png -p "..."
+nazca image --model "openai:gpt-image-2"      -o out.png -p "..."
 nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "..."
 ```
 
@@ -315,6 +342,7 @@ nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "...
 |---|---|---|
 | `ark:` / `modelark:` | ModelArk | `ARK_API_KEY` |
 | `fal:` | fal.ai | `FAL_KEY` |
+| `openai:` / `oai:` | OpenAI | `OPENAI_API_KEY` |
 | `vertex:` / `veo:` | Vertex | gcloud auth |
 
 **2. `~/.config/nazca/models.json` override** — re-point a shorthand (or add one) without a release:
