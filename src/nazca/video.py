@@ -82,13 +82,30 @@ def select_model(tier: str | None) -> str | None:
     return _TIER_DEFAULTS.get(tier)
 
 
+# fal video-EDIT ops (source VIDEO → video). Shorthand == op name. The source
+# enters as a URL (video_url), never inlined — see edit_video(). reframe's id and
+# input field are verified (research workflow, fal.ai 2026-06-22); v2v/extend are
+# deferred pending a live input-field probe.
+VIDEO_EDIT_MODELS: dict[str, str] = {
+    "reframe": "fal-ai/luma-dream-machine/ray-2/reframe",
+    "v2v":     "fal-ai/wan-vace-apps/video-edit",  # video_url field UNVERIFIED — verify before spend
+    "extend":  "fal-ai/pixverse/extend",           # video_url field UNVERIFIED — verify before spend
+}
+VIDEO_EDIT_OPS = tuple(VIDEO_EDIT_MODELS)
+
+
+def default_video_edit_model(op: str) -> str:
+    """Default model shorthand for a video-edit op (the op name is the shorthand)."""
+    return op
+
+
 # Vertex backend name (isolate so future providers stay additive)
 VEO_BACKEND = "vertex"
 
 
 def generate_video(
     out: str | Path,
-    start: str | Path,
+    start: str | Path | None,
     prompt: str,
     end: str | Path | None = None,
     *,
@@ -99,10 +116,13 @@ def generate_video(
     generate_audio: bool = False,
     dry_run: bool = False,
 ) -> Path:
-    """Generate a video clip from a start frame (+ optional end frame).
+    """Generate a video clip — text-to-video, or from a start frame (+ optional end).
 
-    Vertex Veo: start + optional end frame keyframe interpolation.
-    fal: start frame as data-URI; end/resolution/audio support varies by model.
+    Vertex Veo: t2v (no frames), i2v (start), or keyframe (start + end).
+    fal: start frame as data-URI when given; end/resolution/audio support varies.
+
+    `start=None` produces text-to-video; the per-backend image field is simply
+    omitted. (The CLI validates that the chosen model supports the inferred op.)
 
     Returns the output path (or .request.json for Vertex dry-run).
     """
@@ -121,13 +141,13 @@ def generate_video(
             _fal_id = _raw_id
             _backend = get_backend("fal")
             _url = _backend.build_url(_fal_id)
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _body: dict = {
                 "prompt": prompt,
-                "image_url": _start_uri,
                 "duration": int(duration),
                 "aspect_ratio": aspect_ratio,
             }
+            if start:
+                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
             if end:
                 _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
             if dry_run:
@@ -148,9 +168,10 @@ def generate_video(
         elif _prefix in ("ark", "modelark"):
             _ark_id = _raw_id
             _backend = get_backend("modelark")
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _content: list[dict] = [{"type": "text", "text": prompt}]
-            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            if start:
+                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
             _body = {
                 "model": _ark_id,
                 "content": _content,
@@ -189,13 +210,13 @@ def generate_video(
             _fal_model_id = _ov_id
             _backend = get_backend("fal")
             _url = _backend.build_url(_fal_model_id)
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _body = {
                 "prompt": prompt,
-                "image_url": _start_uri,
                 "duration": int(duration),
                 "aspect_ratio": aspect_ratio,
             }
+            if start:
+                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
             if end:
                 _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
             if dry_run:
@@ -216,9 +237,10 @@ def generate_video(
         if _ov_backend == "modelark":
             _ark_model_id = _ov_id
             _backend = get_backend("modelark")
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _content = [{"type": "text", "text": prompt}]
-            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            if start:
+                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
             _body = {
                 "model": _ark_model_id,
                 "content": _content,
@@ -252,14 +274,14 @@ def generate_video(
         backend = get_backend("fal")
         url = backend.build_url(fal_model_id)
 
-        # Build fal video body
-        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+        # Build fal video body (image_url only when a start frame is given → t2v when not)
         body: dict = {
             "prompt": prompt,
-            "image_url": start_uri,
             "duration": int(duration),
             "aspect_ratio": aspect_ratio,
         }
+        if start:
+            body["image_url"] = backend.encode_image_data_uri(start, max_edge=1280)
         if end:
             body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)
 
@@ -287,11 +309,12 @@ def generate_video(
         ark_model_id = ARK_VIDEO_MODELS[resolved_model]
         backend = get_backend("modelark")
 
-        # Build content array: text prompt + seed frame encoded as a data URI
+        # Build content array: text prompt + (optional) seed frame as a data URI
         # (a remote API cannot read a local path). Schema is UNVERIFIED.
-        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
         content: list[dict] = [{"type": "text", "text": prompt}]  # verify schema
-        content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
+        if start:
+            start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+            content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
         body: dict = {
             "model": ark_model_id,
             "content": content,
@@ -326,8 +349,10 @@ def generate_video(
     veo_model = VEO_ALIASES.get(resolved_model, resolved_model)
     backend = get_backend(VEO_BACKEND)
 
-    start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
-    instance: dict = {"prompt": prompt, "image": {"bytesBase64Encoded": start_b64, "mimeType": mime}}
+    instance: dict = {"prompt": prompt}
+    if start:  # omit `image` for text-to-video
+        start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
+        instance["image"] = {"bytesBase64Encoded": start_b64, "mimeType": mime}
     if end:
         end_b64, emime = backend.encode_image_b64(end, max_edge=1280, fmt="JPEG")
         instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
@@ -381,4 +406,71 @@ def generate_video(
             raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
         raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
     out.write_bytes(base64.b64decode(b64))
+    return out
+
+
+def edit_video(
+    out: str | Path,
+    source: str,
+    *,
+    op: str,
+    model: str | None = None,
+    aspect_ratio: str = "9:16",
+    prompt: str | None = None,
+    duration: int = 8,
+    dry_run: bool = False,
+) -> Path:
+    """Video-edit ops (source VIDEO → video) via fal.
+
+    The source is passed as a URL (`video_url`), NOT inlined as a base64 data-URI
+    — a real clip is MB-scale and fal expects a URL. Local-file → fal-storage
+    upload is a planned follow-up; for now SOURCE must be a public http(s) URL.
+
+      reframe → fal-ai/luma-dream-machine/ray-2/reframe  {video_url, aspect_ratio}
+      v2v     → fal-ai/wan-vace-apps/video-edit          {video_url, prompt}
+      extend  → fal-ai/pixverse/extend                   {video_url, prompt, duration}
+
+    NOTE: the `video_url` field for v2v/extend is fal's convention but UNVERIFIED
+    live — dry-run safe; verify with a real call before spending.
+
+    Returns the output path (or .request.json for dry-run).
+    """
+    out = Path(out)
+    src = str(source)
+    if not (src.startswith("http://") or src.startswith("https://")):
+        raise VeoError(
+            f"{op} SOURCE must be a public https:// video URL "
+            f"(local-file upload to fal storage is a planned follow-up); got: {src}"
+        )
+
+    resolved = model or default_video_edit_model(op)
+    fal_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → fal id, or raw passthrough
+    backend = get_backend("fal")
+    url = backend.build_url(fal_id)
+
+    if op == "reframe":
+        body: dict = {"video_url": src, "aspect_ratio": aspect_ratio}
+        if prompt:
+            body["prompt"] = prompt  # optional: guides inpainting of exposed regions
+    elif op == "v2v":
+        if not prompt:
+            raise VeoError("v2v needs a prompt (the edit instruction)")
+        body = {"video_url": src, "prompt": prompt}
+    elif op == "extend":
+        if not prompt:
+            raise VeoError("extend needs a prompt")
+        if int(duration) not in (5, 8):
+            raise VeoError("extend --duration must be 5 or 8 (seconds added to the clip)")
+        body = {"video_url": src, "prompt": prompt, "duration": str(int(duration))}
+    else:
+        raise VeoError(f"video-edit op '{op}' is not wired yet")
+
+    if dry_run:
+        dbg = out.with_suffix(".request.json")
+        dbg.write_text(json.dumps({"url": url, "model": fal_id, "backend": "fal", "op": op, **body}, indent=2))
+        return dbg
+
+    key = backend.auth_token()
+    raw = backend.submit_and_download(url, body, key, media_type="video")
+    out.write_bytes(raw)
     return out

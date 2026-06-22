@@ -24,6 +24,32 @@ so future work doesn't relearn them.
 - **Direct-first beats aggregators for first-party models.** Google on Vertex is the floor (and gets
   GCP credits). fal is for the long tail you have no first-party account for, not a price-beater.
 
+## Rate limits / quota (Vertex image gen) — hard-won
+
+- **The default Vertex image-gen quota is brutally low: 2 requests/minute.** The binding quota is
+  `GenContentImageGenRequestsPerMinutePerProjectPerBaseModelGlobal` = **2 RPM**, *per base model*, on the
+  **global** endpoint (where `gemini-3-pro-image` and `gemini-3.1-flash-image` live). The token-input
+  quotas (`GenContentImageInputPerMinute...` ~1.7–6.7M/min) are never the constraint. Verified on project
+  `florece-492623`, 2026-06-22, via the Cloud Quotas API.
+- **`429 RESOURCE_EXHAUSTED` here is pacing, not a ban and not a daily cap.** It refills every minute.
+  A batch that throttled at 12s (=5/min) slammed straight through the 2/min allowance and 429'd
+  constantly. **Pace at ≥30s between calls (`THROTTLE=32` for margin) to stay under 2/min.** Retrying an
+  exhausted minute with tight loops is what looks abusive — use bounded retries + exponential backoff.
+- **Per-base-model buckets are independent → split load to ~double throughput.** `gemini-3-pro-image`
+  and `gemini-3.1-flash-image` each get their own 2/min. While pro was exhausted, a single flash call
+  sailed through. Run heroes on pro and bulk on flash to get ~4/min combined without touching quota.
+- **At 2/min, bulk is hours, so request a quota increase first.** 840 images ÷ 2/min ≈ 7h (pro-only).
+  Bumping the RPM quota in the GCP console (Cloud Quotas → `aiplatform.googleapis.com`) is the real fix —
+  60/min turns the same job into ~15 min. Check the limit *before* planning any large batch:
+  `curl -H "Authorization: Bearer $(gcloud auth print-access-token)" "https://cloudquotas.googleapis.com/v1/projects/<PROJ>/locations/global/services/aiplatform.googleapis.com/quotaInfos?pageSize=2000"`
+  then grep `GenContentImageGen`.
+- **nazca defaults to 2K** (`size="2K"` in `image.py`). Official per-image pricing is per-model:
+  **pro** (`gemini-3-pro-image`) **$0.134** at 1K/2K, **$0.24** at 4K; **flash-3.1**
+  (`gemini-3.1-flash-image`) **$0.067** (1K) / **$0.101** (2K) / **$0.151** (4K). At the 2K default,
+  pro ($0.134) is ~$0.033 dearer than flash ($0.101) — run bulk on flash.
+  Resolution does **not** change the RPM ceiling — only cost. For pro, 1K and 2K cost the same ($0.134),
+  so dropping pro to 1K saves nothing; on flash, 1K is ~33% cheaper than 2K. Neither speeds a quota-bound batch.
+
 ## ModelArk (BytePlus) integration — hard-won
 
 - **Endpoint + auth + request shape were right; only the model ID and activation were wrong.** A live

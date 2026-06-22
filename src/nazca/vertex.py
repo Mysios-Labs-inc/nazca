@@ -8,6 +8,7 @@ seam (`nazca.backends`).
 from __future__ import annotations
 
 from nazca.backends.vertex import (
+    RateLimitError,
     VertexError,
     access_token,
     encode_image_b64,
@@ -16,4 +17,12 @@ from nazca.backends.vertex import (
     post,
 )
 
-__all__ = ["VertexError", "access_token", "encode_image_b64", "gcloud_token", "model_base", "post"]
+__all__ = [
+    "RateLimitError",
+    "VertexError",
+    "access_token",
+    "encode_image_b64",
+    "gcloud_token",
+    "model_base",
+    "post",
+]

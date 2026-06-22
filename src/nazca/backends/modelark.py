@@ -9,7 +9,7 @@ import time
 import urllib.error
 import urllib.request
 
-from nazca import config
+from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.vertex import encode_image_b64
 
@@ -18,6 +18,13 @@ ARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"  # verify against Mo
 
 class ModelArkError(Exception):
     pass
+
+
+class ModelArkRateLimitError(ModelArkError):
+    """429/503/RESOURCE_EXHAUSTED that persisted past NAZCA_MAX_RETRIES retries.
+
+    A distinct type so batch logic can tell "paced wrong" from a real failure.
+    """
 
 
 class ModelArkBackend(Backend):
@@ -55,14 +62,18 @@ class ModelArkBackend(Backend):
         }
 
     def _post(self, path: str, body: dict) -> dict:
+        """POST to ModelArk with bounded backoff on 429/503/RESOURCE_EXHAUSTED (item 1A)."""
         url = f"{ARK_BASE}{path}"
-        data = json.dumps(body).encode()
-        req = urllib.request.Request(url, data=data, headers=self._headers(), method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
-                return json.loads(resp.read())
-        except urllib.error.HTTPError as exc:
-            raise ModelArkError(f"ModelArk HTTP {exc.code}: {exc.read().decode()[:400]}") from exc
+        return retry.post_json(
+            url,
+            body,
+            headers=self._headers(),
+            timeout=30,
+            on_http_error=lambda code, detail: ModelArkError(f"ModelArk HTTP {code}: {detail}"),
+            on_rate_limited=lambda code, detail: ModelArkRateLimitError(
+                f"ModelArk rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
 
     def _get(self, path: str) -> dict:
         url = f"{ARK_BASE}{path}"

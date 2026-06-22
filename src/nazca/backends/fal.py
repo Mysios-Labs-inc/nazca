@@ -23,12 +23,19 @@ from pathlib import Path
 
 from PIL import Image
 
-from nazca import config
+from nazca import config, retry
 from nazca.backends.base import Backend
 
 
 class FalError(RuntimeError):
     """Raised when fal dispatch fails (missing key, HTTP error, timeout, etc.)."""
+
+
+class FalRateLimitError(FalError):
+    """429/503/requeue that persisted past NAZCA_MAX_RETRIES retries.
+
+    A distinct type so batch logic can tell "paced wrong" from a real failure.
+    """
 
 
 class FalBackend(Backend):
@@ -71,29 +78,30 @@ class FalBackend(Backend):
             raise FalError(f"HTTP {e.code} from fal: {detail}") from e
 
     def post(self, url: str, body: dict, token: str) -> dict:
-        """POST JSON to fal queue endpoint, return decoded JSON."""
-        req = urllib.request.Request(
+        """POST JSON to fal queue endpoint with bounded backoff (item 1A), return JSON.
+
+        Retries on 429/503 and on fal's `x-fal-needs-retry` server-side requeue signal.
+        """
+        return retry.post_json(
             url,
-            data=json.dumps(body).encode(),
+            body,
             headers={
                 "Authorization": f"Key {token}",
                 "Content-Type": "application/json",
             },
-            method="POST",
+            on_http_error=lambda code, detail: FalError(f"HTTP {code} from fal: {detail}"),
+            on_rate_limited=lambda code, detail: FalRateLimitError(
+                f"fal rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
         )
-        try:
-            with urllib.request.urlopen(req) as resp:  # noqa: S310
-                return json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors="replace")[:600]
-            raise FalError(f"HTTP {e.code} from fal: {detail}") from e
 
     # ------------------------------------------------------------------ queue lifecycle
 
     def submit_and_download(self, url: str, body: dict, token: str, media_type: str = "image") -> bytes:
         """Submit to fal queue, poll until done, download and return raw bytes.
 
-        media_type: "image" → result["images"][0]["url"]
+        media_type: "image" → result["images"][0]["url"], or singular
+                              result["image"]["url"] (modify models: upscaler, birefnet)
                     "video" → result["video"]["url"]
         """
         # 1. Submit
@@ -127,12 +135,13 @@ class FalBackend(Backend):
             if not media_url:
                 raise FalError(f"no video URL in fal result: {json.dumps(result)[:400]}")
         else:
+            # Most fal image models return images[0].url; the modify models
+            # (clarity-upscaler, birefnet) return a singular image.url. Accept both.
             images = result.get("images") or []
-            if not images:
-                raise FalError(f"no images in fal result: {json.dumps(result)[:400]}")
-            media_url = images[0].get("url")
+            single = result.get("image") if isinstance(result.get("image"), dict) else None
+            media_url = (images[0].get("url") if images else None) or (single.get("url") if single else None)
             if not media_url:
-                raise FalError(f"no URL in fal image entry: {json.dumps(images[0])[:300]}")
+                raise FalError(f"no image URL in fal result: {json.dumps(result)[:400]}")
 
         # 5. Download bytes
         dl_req = urllib.request.Request(media_url, method="GET")

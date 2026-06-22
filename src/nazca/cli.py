@@ -112,49 +112,346 @@ def cli() -> None:
 
 
 @cli.command()
+@click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
-@click.option("-p", "--prompt", required=True, help="Generation prompt.")
+@click.option("-p", "--prompt", default=None, help="Generation prompt (not needed for --upscale/--rmbg).")
 @click.option("--ref", multiple=True, help="Reference image → image-to-image restyle. Repeatable (pro-image: up to 14).")
+@click.option("--upscale", "do_upscale", is_flag=True, help="Upscale SOURCE image (fal clarity-upscaler).")
+@click.option("--scale", "upscale_factor", default=2, type=click.IntRange(1, 4), help="Upscale factor 1-4 (with --upscale).")
+@click.option("--rmbg", "do_rmbg", is_flag=True, help="Remove background from SOURCE → transparent PNG (fal birefnet).")
+@click.option("--mask", default=None, type=click.Path(), help="Mask image → inpaint SOURCE (white pixels = region to edit). Needs -p.")
+@click.option("--outpaint", "do_outpaint", is_flag=True, help="Outpaint/expand SOURCE canvas (fal flux-2-pro/outpaint).")
+@click.option("--expand", default=256, type=click.IntRange(1, 2048), help="Outpaint pixels per side (with --outpaint).")
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only) | gpt-image-2 (OpenAI; legible text/ads, ref up to 5)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
-    """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
-    from nazca.image import generate_image, select_model
+def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, tier, dry_run):
+    """Generate, restyle (--ref), or modify (SOURCE + --upscale/--rmbg/--mask/--outpaint) an image.
 
-    # --model wins; --tier only supplies a default when --model is absent
-    resolved_model = model or select_model(tier)
-
-    result = generate_image(
-        out, prompt, ref=list(ref) or None, model=resolved_model,
-        aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
+    \b
+      nazca image -p "a cat"                       # t2i
+      nazca image -p "..." --ref a.png             # i2i (restyle)
+      nazca image photo.png --upscale              # upscale (no prompt)
+      nazca image photo.png --rmbg                 # background removal → transparent PNG
+      nazca image photo.png --mask m.png -p "..."  # inpaint the masked region
+      nazca image photo.png --outpaint --expand 320  # extend the canvas
+    """
+    from nazca.capabilities import CapabilityError, infer_image_op, validate_op
+    from nazca.image import (
+        DEFAULT_MODEL,
+        MODIFY_OPS,
+        default_modify_model,
+        generate_image,
+        modify_image,
+        select_model,
     )
+
+    # At most one modify signal at a time.
+    if sum([do_upscale, do_rmbg, bool(mask), do_outpaint]) > 1:
+        click.echo("❌ choose one modify op: --upscale / --rmbg / --mask (inpaint) / --outpaint", err=True)
+        raise SystemExit(2)
+
+    # The op is inferred from the flags: modify signals win, else refs count.
+    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg, mask=bool(mask), outpaint=do_outpaint)
+    modify = op in MODIFY_OPS
+
+    if modify:
+        if not source:
+            click.echo(f"❌ {op} needs a SOURCE image: nazca image PATH ...", err=True)
+            raise SystemExit(2)
+        if ref:
+            click.echo("❌ --ref is not used with modify ops (they modify SOURCE)", err=True)
+            raise SystemExit(2)
+        if op == "inpaint" and not prompt:
+            click.echo("❌ inpaint needs -p/--prompt describing the masked region", err=True)
+            raise SystemExit(2)
+        resolved_model = model or default_modify_model(op)
+    else:
+        if source:
+            click.echo("❌ a positional SOURCE image is only for modify ops (--upscale/--rmbg/--mask/--outpaint); use --ref for references", err=True)
+            raise SystemExit(2)
+        if not prompt:
+            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg/--outpaint)", err=True)
+            raise SystemExit(2)
+        resolved_model = model or select_model(tier)
+
+    try:
+        validate_op(resolved_model or DEFAULT_MODEL, op, n_refs=len(ref))
+    except CapabilityError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    if modify:
+        result = modify_image(
+            out, source, op=op, model=resolved_model, prompt=prompt, mask=mask,
+            upscale_factor=upscale_factor, expand=expand, dry_run=dry_run,
+        )
+    else:
+        result = generate_image(
+            out, prompt, ref=list(ref) or None, model=resolved_model,
+            aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
+        )
     if dry_run:
         click.echo(json.dumps(result, indent=2))
     else:
         click.echo(f"✅ {result}")
 
 
+@cli.command(name="batch")
+@click.argument("manifest", required=False, type=click.Path())
+@click.option("--from-dir", "from_dir", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Build rows from a dir of ref images instead of a manifest.")
+@click.option("--prompt", default=None, help="Prompt for --from-dir (may use {stem}/{name}).")
+@click.option("--out-dir", "out_dir", default="batch-out", type=click.Path(),
+              help="Output dir for --from-dir (default: batch-out).")
+@click.option("--rpm", default=2.0, type=float, help="Per-lane request starts/min (default 2 = Vertex cap).")
+@click.option("--models", default=None, help="Comma-separated model shorthands: filter (manifest) or fan-out (--from-dir).")
+@click.option("--aspect", "aspect", default=None, help="Default aspect ratio for rows that omit it.")
+@click.option("--size", default=None, type=click.Choice(["1K", "2K", "4K"]), help="Default size for rows that omit it.")
+@click.option("--concurrency", default=None, type=int, help="Max concurrent model lanes (default: one per model).")
+@click.option("--vertex-batch", "vertex_batch", is_flag=True, help="Use async Vertex Batch (no RPM wall, −50%, 1K only). Needs --gcs.")
+@click.option("--gcs", "gcs", default=None, help="gs://bucket/prefix for Vertex Batch input/output (with --vertex-batch).")
+@click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, concurrency, vertex_batch, gcs, dry_run):
+    """Generate many images, paced per model lane (idempotent + resumable).
+
+    Two input modes:
+
+    \b
+      nazca batch jobs.jsonl                     # manifest: one row per image
+      nazca batch --from-dir refs/ --prompt "…"  # one row per ref image in a dir
+
+    Rows already present at their `out` path are skipped, so a re-run only fills
+    gaps. Each distinct model runs on its own paced lane (the 2/min Vertex cap is
+    per base model), so N models ≈ N×rpm combined.
+
+    \b
+    --vertex-batch routes Gemini-image rows through async Vertex Batch inference
+    (no per-minute quota, 50% cheaper, 1K-only output) via a --gcs bucket.
+    """
+    from nazca.batch import (
+        BatchError,
+        load_manifest,
+        plan_batch,
+        rows_from_dir,
+        run_batch,
+    )
+    from nazca.image import DEFAULT_MODEL
+
+    model_list = [m.strip() for m in models.split(",") if m.strip()] if models else None
+
+    try:
+        if from_dir:
+            if not prompt:
+                raise BatchError("--from-dir requires --prompt")
+            rows = rows_from_dir(
+                from_dir, prompt, out_dir, models=model_list, aspect=aspect, size=size,
+            )
+            only = None  # --models already applied as fan-out
+        elif manifest:
+            defaults = {"aspect": aspect, "size": size}
+            rows = load_manifest(manifest, defaults=defaults)
+            only = set(model_list) if model_list else None
+        else:
+            raise BatchError("provide a MANIFEST path or --from-dir")
+    except BatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    # --- Vertex Batch (async, no RPM wall) -------------------------------
+    if vertex_batch:
+        _run_vertex_batch_cmd(rows, gcs, only, dry_run)
+        return
+
+    try:
+        plan = plan_batch(rows, rpm=rpm, default_model=DEFAULT_MODEL, only_models=only)
+    except BatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    for line in plan.summary_lines():
+        click.echo(line)
+
+    if plan.pending == 0 and not dry_run:
+        click.echo("nothing to do — all outputs already exist.")
+        return
+
+    icons = {"ok": "✅", "skipped": "⏭", "error": "❌", "planned": "📝"}
+
+    def on_event(status, row, detail):
+        line = f"  {icons.get(status, '?')} {row.out}"
+        if status == "error":
+            line += f"  ({detail})"
+        click.echo(line)
+
+    results = run_batch(plan, dry_run=dry_run, concurrency=concurrency, on_event=on_event)
+
+    ok = sum(1 for r in results if r.status == "ok")
+    skipped = sum(1 for r in results if r.status == "skipped")
+    errors = [r for r in results if r.status == "error"]
+    planned = sum(1 for r in results if r.status == "planned")
+
+    if dry_run:
+        click.echo(f"\nplanned {planned} request(s) ({skipped} already done) — no API calls made.")
+        return
+
+    click.echo(f"\ndone: {ok} generated · {skipped} skipped · {len(errors)} failed")
+    if errors:
+        raise SystemExit(1)
+
+
+def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
+    """Drive an async Vertex Batch run from the `batch` command (with --vertex-batch)."""
+    from nazca.vertex_batch import VertexBatchError, run_vertex_batch
+
+    if not gcs:
+        click.echo("❌ --vertex-batch requires --gcs gs://bucket/prefix", err=True)
+        raise SystemExit(2)
+
+    # Honor the manifest --models filter (resolve each row's model, keep matches).
+    if only_models:
+        from nazca.image import DEFAULT_MODEL, _resolve
+        kept = []
+        for r in rows:
+            mid, _, _, _ = _resolve(r.model or DEFAULT_MODEL)
+            if (r.model in only_models) or (mid in only_models):
+                kept.append(r)
+        rows = kept
+
+    def on_event(stage, detail):
+        if stage == "submit":
+            click.echo(f"  🚀 submitting {detail.model_id} ({len(detail.rows)} rows)")
+        elif stage == "poll":
+            click.echo(f"  ⏳ {detail}")
+        elif stage == "fetch":
+            click.echo(f"  ⬇  fetching {detail.model_id} predictions")
+
+    try:
+        summary = run_vertex_batch(rows, gcs, dry_run=dry_run, on_event=on_event)
+    except VertexBatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    click.echo(
+        f"vertex-batch: {summary['jobs']} job(s) · {summary['pending']} pending · "
+        f"models {', '.join(summary['models']) or '—'}"
+    )
+    if summary["oversize_forced_1k"]:
+        click.echo(f"  ⚠ {summary['oversize_forced_1k']} row(s) asked for 2K/4K — batch is 1K-only, forced to 1K")
+
+    if dry_run:
+        for j in summary.get("planned", []):
+            click.echo(f"  📝 {j['model']} [{j['location']}] {j['rows']} rows → {j['output_prefix']}")
+        click.echo(json.dumps(summary["planned"], indent=2))
+        click.echo("\nno job submitted (--dry-run).")
+        return
+
+    written = summary.get("written", 0)
+    errs = summary.get("errors", [])
+    click.echo(f"\ndone: {written} image(s) written · {len(errs)} error(s)")
+    for e in errs:
+        click.echo(f"  ❌ {e}")
+    if errs:
+        raise SystemExit(1)
+
+
 @cli.command()
+@click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output video path (.mp4).")
-@click.option("-s", "--start", required=True, help="Start frame image.")
-@click.option("-p", "--prompt", required=True, help="Motion prompt.")
+@click.option("-s", "--start", default=None, help="Start frame image. Omit for text-to-video (t2v).")
+@click.option("-p", "--prompt", default=None, help="Motion prompt (optional for --reframe).")
 @click.option("--end", default=None, help="Optional end frame (keyframe interpolation).")
+@click.option("--reframe", "do_reframe", is_flag=True, help="Re-aspect a SOURCE video URL to --aspect (fal luma ray-2).")
+@click.option("--v2v", "do_v2v", is_flag=True, help="Restyle/edit a SOURCE video URL from -p (fal wan-vace).")
+@click.option("--extend", "do_extend", is_flag=True, help="Extend a SOURCE video URL by --duration 5|8s (fal pixverse). Needs -p.")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
-@click.option("--duration", default=8, type=int, help="Seconds (4, 6, or 8).")
-@click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9.")
+@click.option("--duration", default=8, type=int, help="Seconds (Veo: 4/6/8; extend: 5 or 8 added).")
+@click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
 @click.option("--resolution", default="720p", help="720p | 1080p.")
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
-    """Generate a Veo clip from a start frame (+ optional end frame) on Vertex."""
-    from nazca.video import generate_video, select_model
+def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
+    """Generate or edit a video.
+
+    \b
+      nazca video -p "..."                     # t2v
+      nazca video -p "..." --start s.png       # i2v
+      nazca video -p "..." --start s.png --end e.png  # keyframe
+      nazca video CLIP_URL --reframe --aspect 9:16    # reframe a source video
+      nazca video CLIP_URL --v2v -p "make it neon"    # restyle a source video
+      nazca video CLIP_URL --extend -p "..." --duration 8  # lengthen a clip
+    """
+    from nazca import config
+    from nazca.capabilities import CapabilityError, infer_video_op, validate_op
+    from nazca.video import (
+        VEO_ALIASES,
+        VIDEO_EDIT_OPS,
+        VeoError,
+        default_video_edit_model,
+        edit_video,
+        generate_video,
+        select_model,
+    )
+
+    # At most one video-edit signal.
+    if sum([do_reframe, do_v2v, do_extend]) > 1:
+        click.echo("❌ choose one video-edit op: --reframe / --v2v / --extend", err=True)
+        raise SystemExit(2)
+
+    op = infer_video_op(bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend)
+
+    # ---- video-edit ops (source VIDEO → video) -----------------------------
+    if op in VIDEO_EDIT_OPS:
+        if not source:
+            click.echo(f"❌ --{op} needs a SOURCE video URL: nazca video CLIP_URL --{op}", err=True)
+            raise SystemExit(2)
+        if start or end:
+            click.echo(f"❌ --start/--end are for frame ops; --{op} takes a SOURCE video, not frames", err=True)
+            raise SystemExit(2)
+        if op in ("v2v", "extend") and not prompt:
+            click.echo(f"❌ --{op} needs -p/--prompt", err=True)
+            raise SystemExit(2)
+        resolved_model = model or default_video_edit_model(op)
+        try:
+            validate_op(resolved_model, op)
+        except CapabilityError as e:
+            click.echo(f"❌ {e}", err=True)
+            raise SystemExit(2) from e
+        try:
+            result = edit_video(
+                out, source, op=op, model=resolved_model,
+                aspect_ratio=aspect_ratio, prompt=prompt, duration=duration, dry_run=dry_run,
+            )
+        except VeoError as e:  # URL-only / bad-duration → clean error, not a traceback
+            click.echo(f"❌ {e}", err=True)
+            raise SystemExit(2) from e
+        click.echo(f"{'📝' if dry_run else '✅'} {result}")
+        return
+
+    # ---- frame ops (t2v / i2v / keyframe) ----------------------------------
+    if source:
+        click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe/--v2v/--extend); use --start for a frame", err=True)
+        raise SystemExit(2)
+    if end and not start:
+        click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
+        raise SystemExit(2)
+    if not prompt:
+        click.echo("❌ -p/--prompt is required for t2v/i2v/keyframe", err=True)
+        raise SystemExit(2)
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
+    # For validation, resolve the implicit default (config.VEO_MODEL is a raw Veo
+    # id) to its shorthand so the default path is validated too. Unknown ids no-op.
+    validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
+    try:
+        validate_op(validate_target, op)
+    except CapabilityError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
 
     result = generate_video(
         out, start, prompt, end=end, model=resolved_model, duration=duration,
@@ -290,10 +587,17 @@ def config_list() -> None:
 @cli.command(name="models")
 def models_cmd() -> None:
     """List all image and video models, including user overrides from models.json."""
+    from nazca.capabilities import ops_str
     from nazca.image import MODEL_TIERS as IMG_TIERS
     from nazca.image import MODELS as IMG_MODELS
     from nazca.registry import all_overrides, models_path
-    from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES, VIDEO_MODEL_TIERS
+    from nazca.video import (
+        ARK_VIDEO_MODELS,
+        FAL_VIDEO_MODELS,
+        VEO_ALIASES,
+        VIDEO_EDIT_MODELS,
+        VIDEO_MODEL_TIERS,
+    )
 
     ov = all_overrides()
     img_ov = ov.get("image", {})
@@ -302,11 +606,11 @@ def models_cmd() -> None:
     SH = 20
     BE = 12
     TI = 10
-    ID = 40
+    ID = 32
 
     def _hdr():
-        click.echo(f"  {'shorthand':<{SH}} {'backend':<{BE}} {'tier':<{TI}} {'model id'}")
-        click.echo(f"  {'-'*SH} {'-'*BE} {'-'*TI} {'-'*(ID)}")
+        click.echo(f"  {'shorthand':<{SH}} {'backend':<{BE}} {'tier':<{TI}} {'model id':<{ID}} {'ops'}")
+        click.echo(f"  {'-'*SH} {'-'*BE} {'-'*TI} {'-'*ID} {'-'*24}")
 
     # ---- IMAGE MODELS ----
     click.echo("\nIMAGE MODELS")
@@ -329,7 +633,7 @@ def models_cmd() -> None:
         mid, region, api, be = all_img[sh]
         tier = img_ov.get(sh, {}).get("tier") or IMG_TIERS.get(sh, "")
         marker = "*" if sh in img_ov else " "
-        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid}")
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh)}")
 
     # ---- VIDEO MODELS ----
     click.echo("\nVIDEO MODELS")
@@ -343,6 +647,8 @@ def models_cmd() -> None:
         all_vid[sh] = (fal_id, "fal")
     for sh, ark_id in ARK_VIDEO_MODELS.items():
         all_vid[sh] = (ark_id, "modelark")
+    for sh, fal_id in VIDEO_EDIT_MODELS.items():
+        all_vid[sh] = (fal_id, "fal")
 
     for sh, entry in vid_ov.items():
         mid = entry.get("id", sh)
@@ -353,13 +659,14 @@ def models_cmd() -> None:
         mid, be = all_vid[sh]
         tier = vid_ov.get(sh, {}).get("tier") or VIDEO_MODEL_TIERS.get(sh, "")
         marker = "*" if sh in vid_ov else " "
-        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid}")
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh)}")
 
     # ---- footer ----
     mp = models_path()
     status = "exists" if mp.exists() else "not found"
     click.echo(f"\nOverride file: {mp} [{status}]")
     click.echo("  * = overridden by user models.json")
+    click.echo("  ops = supported operations (see docs/media-modalities.md)")
 
 
 if __name__ == "__main__":
