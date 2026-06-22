@@ -57,12 +57,19 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     #     modify_image() dispatch. IDs verified against fal.ai docs 2026-06-22. ---
     "upscale":         ("fal-ai/clarity-upscaler", "", "fal-modify", "fal"),  # $0.03/MP
     "rmbg":            ("fal-ai/birefnet/v2",       "", "fal-modify", "fal"),  # free compute
+    "inpaint":         ("fal-ai/flux-pro/v1/fill",  "", "fal-modify", "fal"),  # $0.05/MP; image+mask+prompt
+    "outpaint":        ("fal-ai/flux-2-pro/outpaint", "", "fal-modify", "fal"),  # expand px/side
 }
 DEFAULT_MODEL = "nano-banana"
 
-# Source-image modify ops (no prompt, no refs) and their default models.
-MODIFY_OPS = ("upscale", "bg_remove")
-_MODIFY_DEFAULT_MODEL = {"upscale": "upscale", "bg_remove": "rmbg"}
+# Source-image modify ops and their default models.
+MODIFY_OPS = ("upscale", "bg_remove", "inpaint", "outpaint")
+_MODIFY_DEFAULT_MODEL = {
+    "upscale": "upscale",
+    "bg_remove": "rmbg",
+    "inpaint": "inpaint",
+    "outpaint": "outpaint",
+}
 
 # tier tags: each shorthand → "cheap" | "premium"
 # Vertex-direct models are the tier defaults (direct-first rule).
@@ -78,6 +85,8 @@ MODEL_TIERS: dict[str, str] = {
     "flux-2-dev":      "premium",
     "upscale":         "cheap",   # fal clarity-upscaler
     "rmbg":            "cheap",   # fal birefnet (free compute)
+    "inpaint":         "cheap",   # fal flux-pro/v1/fill
+    "outpaint":        "cheap",   # fal flux-2-pro/outpaint
     "seedream":        "cheap",   # ModelArk $0.03/img — probe brand fidelity vs Gemini before bulk
 }
 
@@ -400,22 +409,35 @@ def default_modify_model(op: str) -> str:
     return _MODIFY_DEFAULT_MODEL[op]
 
 
+def _summarize_data_uri(value: str) -> str:
+    """Shorten a base64 data-URI for readable dry-run plans (leave URLs as-is)."""
+    if isinstance(value, str) and value.startswith("data:"):
+        b64 = value.split(",", 1)[1] if "," in value else ""
+        return f"<data-uri {len(b64)} b64>"
+    return value
+
+
 def modify_image(
     out: str | Path,
     source: str | Path,
     *,
     op: str,
     model: str | None = None,
+    prompt: str | None = None,
+    mask: str | Path | None = None,
     upscale_factor: int = 2,
+    expand: int = 256,
     dry_run: bool = False,
 ) -> Path | dict:
-    """Apply a source-image modify op (no prompt, no refs) via fal.
+    """Apply a source-image modify op via fal. Verified fal schemas (2026-06-22):
 
-    op="upscale"   → fal clarity-upscaler  {image_url, upscale_factor}
-    op="bg_remove" → fal birefnet/v2       {image_url, output_format:"png"} (transparent PNG)
+    upscale   → clarity-upscaler   {image_url, upscale_factor}
+    bg_remove → birefnet/v2        {image_url, output_format:"png"}  (transparent PNG)
+    inpaint   → flux-pro/v1/fill   {image_url, mask_url, prompt}     (mask: white=edit)
+    outpaint  → flux-2-pro/outpaint {image_url, expand_top/bottom/left/right}
 
-    The body is built once and reused for dry-run and real send (only the source
-    data-URI is summarized), so the planned JSON matches what's POSTed.
+    The body is built once and reused for dry-run and real send (only base64
+    data-URIs are summarized), so the planned JSON matches what's POSTed.
     Returns the output path; dry_run returns the plan dict.
     """
     out = Path(out)
@@ -430,15 +452,27 @@ def modify_image(
         body["upscale_factor"] = int(upscale_factor)
     elif op == "bg_remove":
         body["output_format"] = "png"
+    elif op == "inpaint":
+        if not mask:
+            raise ImageError("inpaint needs a --mask image (white pixels = region to edit)")
+        if not prompt:
+            raise ImageError("inpaint needs a prompt describing the masked region")
+        body["mask_url"] = backend.encode_image_data_uri(mask, max_edge=2048)
+        body["prompt"] = prompt
+    elif op == "outpaint":
+        px = int(expand)
+        body.update({"expand_top": px, "expand_bottom": px, "expand_left": px, "expand_right": px})
     else:
         raise ImageError(f"unknown modify op: {op}")
 
     url = backend.build_url(model_id)
     if dry_run:
+        # Summarize ONLY the image-bearing fields — never scalars like prompt
+        # (a prompt starting with "data:" must not be mistaken for a data-URI).
         plan = dict(body)
-        if plan["image_url"].startswith("data:"):
-            data_part = plan["image_url"].split(",", 1)[1] if "," in plan["image_url"] else ""
-            plan["image_url"] = f"<data-uri {len(data_part)} b64>"
+        for k in ("image_url", "mask_url"):
+            if k in plan:
+                plan[k] = _summarize_data_uri(plan[k])
         return {"url": url, "model": model_id, "backend": backend_name, "op": op, "body": plan}
 
     key = backend.auth_token()

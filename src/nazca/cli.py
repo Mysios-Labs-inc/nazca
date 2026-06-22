@@ -118,51 +118,61 @@ def cli() -> None:
 @click.option("--upscale", "do_upscale", is_flag=True, help="Upscale SOURCE image (fal clarity-upscaler).")
 @click.option("--scale", "upscale_factor", default=2, type=click.IntRange(1, 4), help="Upscale factor 1-4 (with --upscale).")
 @click.option("--rmbg", "do_rmbg", is_flag=True, help="Remove background from SOURCE → transparent PNG (fal birefnet).")
+@click.option("--mask", default=None, type=click.Path(), help="Mask image → inpaint SOURCE (white pixels = region to edit). Needs -p.")
+@click.option("--outpaint", "do_outpaint", is_flag=True, help="Outpaint/expand SOURCE canvas (fal flux-2-pro/outpaint).")
+@click.option("--expand", default=256, type=click.IntRange(1, 2048), help="Outpaint pixels per side (with --outpaint).")
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(source, out, prompt, ref, do_upscale, do_rmbg, upscale_factor, model, aspect_ratio, size, tier, dry_run):
-    """Generate, restyle (--ref), or modify (SOURCE --upscale / --rmbg) an image.
+def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, tier, dry_run):
+    """Generate, restyle (--ref), or modify (SOURCE + --upscale/--rmbg/--mask/--outpaint) an image.
 
     \b
-      nazca image -p "a cat"                  # t2i
-      nazca image -p "..." --ref a.png        # i2i (restyle)
-      nazca image photo.png --upscale         # upscale (no prompt)
-      nazca image photo.png --rmbg            # background removal → transparent PNG
+      nazca image -p "a cat"                       # t2i
+      nazca image -p "..." --ref a.png             # i2i (restyle)
+      nazca image photo.png --upscale              # upscale (no prompt)
+      nazca image photo.png --rmbg                 # background removal → transparent PNG
+      nazca image photo.png --mask m.png -p "..."  # inpaint the masked region
+      nazca image photo.png --outpaint --expand 320  # extend the canvas
     """
     from nazca.capabilities import CapabilityError, infer_image_op, validate_op
     from nazca.image import (
         DEFAULT_MODEL,
+        MODIFY_OPS,
         default_modify_model,
         generate_image,
         modify_image,
         select_model,
     )
 
-    if do_upscale and do_rmbg:
-        click.echo("❌ choose one of --upscale / --rmbg", err=True)
+    # At most one modify signal at a time.
+    if sum([do_upscale, do_rmbg, bool(mask), do_outpaint]) > 1:
+        click.echo("❌ choose one modify op: --upscale / --rmbg / --mask (inpaint) / --outpaint", err=True)
         raise SystemExit(2)
 
-    # The op is inferred from the flags: modify flags win, else refs count.
-    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg)
-    modify = op in ("upscale", "bg_remove")
+    # The op is inferred from the flags: modify signals win, else refs count.
+    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg, mask=bool(mask), outpaint=do_outpaint)
+    modify = op in MODIFY_OPS
 
     if modify:
         if not source:
-            click.echo(f"❌ --{'upscale' if do_upscale else 'rmbg'} needs a SOURCE image: nazca image PATH --{'upscale' if do_upscale else 'rmbg'}", err=True)
+            click.echo(f"❌ {op} needs a SOURCE image: nazca image PATH ...", err=True)
             raise SystemExit(2)
         if ref:
-            click.echo("❌ --ref is not used with --upscale/--rmbg (they modify SOURCE)", err=True)
+            click.echo("❌ --ref is not used with modify ops (they modify SOURCE)", err=True)
+            raise SystemExit(2)
+        if op == "inpaint" and not prompt:
+            click.echo("❌ inpaint needs -p/--prompt describing the masked region", err=True)
             raise SystemExit(2)
         resolved_model = model or default_modify_model(op)
     else:
         if source:
-            click.echo("❌ a positional SOURCE image is only for --upscale/--rmbg; use --ref for references", err=True)
+            click.echo("❌ a positional SOURCE image is only for modify ops (--upscale/--rmbg/--mask/--outpaint); use --ref for references", err=True)
             raise SystemExit(2)
         if not prompt:
-            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg)", err=True)
+            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg/--outpaint)", err=True)
             raise SystemExit(2)
         resolved_model = model or select_model(tier)
 
@@ -173,7 +183,10 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, upscale_factor, model, 
         raise SystemExit(2) from e
 
     if modify:
-        result = modify_image(out, source, op=op, model=resolved_model, upscale_factor=upscale_factor, dry_run=dry_run)
+        result = modify_image(
+            out, source, op=op, model=resolved_model, prompt=prompt, mask=mask,
+            upscale_factor=upscale_factor, expand=expand, dry_run=dry_run,
+        )
     else:
         result = generate_image(
             out, prompt, ref=list(ref) or None, model=resolved_model,

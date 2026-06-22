@@ -127,7 +127,83 @@ def test_cli_source_without_modify_flag_errors(tmp_path):
     # a positional SOURCE with a gen op is a usage mistake → clear error
     r = CliRunner().invoke(cli, ["image", _png(tmp_path / "s.png"), "-o", str(tmp_path / "o.png"), "-p", "a cat"])
     assert r.exit_code == 2
-    assert "only for --upscale/--rmbg" in r.output
+    assert "only for modify ops" in r.output
+
+
+# --------------------------------------------------------------------------- inpaint / outpaint (P3b)
+def test_inpaint_caps_and_default_model():
+    assert cap.CAPS["inpaint"].ops == frozenset({"inpaint"})
+    assert cap.CAPS["outpaint"].ops == frozenset({"outpaint"})
+
+
+def test_infer_op_mask_is_inpaint_outpaint_flag():
+    assert cap.infer_image_op(0, mask=True) == "inpaint"
+    assert cap.infer_image_op(0, outpaint=True) == "outpaint"
+    assert cap.infer_image_op(0, upscale=True, mask=True) == "upscale"  # upscale wins
+
+
+def test_modify_inpaint_dry_run(tmp_path):
+    plan = modify_image(
+        tmp_path / "o.png", _png(tmp_path / "s.png"), op="inpaint",
+        mask=_png(tmp_path / "m.png"), prompt="a red hat", dry_run=True,
+    )
+    assert plan["model"] == "fal-ai/flux-pro/v1/fill"
+    assert plan["body"]["prompt"] == "a red hat"
+    assert plan["body"]["image_url"].startswith("<data-uri ")
+    assert plan["body"]["mask_url"].startswith("<data-uri ")  # mask also summarized
+
+
+def test_modify_inpaint_requires_mask_and_prompt(tmp_path):
+    with pytest.raises(ImageError, match="mask"):
+        modify_image(tmp_path / "o.png", _png(tmp_path / "s.png"), op="inpaint", prompt="x", dry_run=True)
+    with pytest.raises(ImageError, match="prompt"):
+        modify_image(tmp_path / "o.png", _png(tmp_path / "s.png"), op="inpaint", mask=_png(tmp_path / "m.png"), dry_run=True)
+
+
+def test_modify_outpaint_dry_run(tmp_path):
+    plan = modify_image(tmp_path / "o.png", _png(tmp_path / "s.png"), op="outpaint", expand=320, dry_run=True)
+    assert plan["model"] == "fal-ai/flux-2-pro/outpaint"
+    b = plan["body"]
+    assert b["expand_top"] == b["expand_bottom"] == b["expand_left"] == b["expand_right"] == 320
+    assert "prompt" not in b and "mask_url" not in b
+
+
+def test_cli_inpaint_dry_run(tmp_path):
+    r = CliRunner().invoke(cli, [
+        "image", _png(tmp_path / "s.png"), "-o", str(tmp_path / "o.png"),
+        "--mask", _png(tmp_path / "m.png"), "-p", "a red hat", "--dry-run",
+    ])
+    assert r.exit_code == 0, r.output
+    assert json.loads(r.output)["op"] == "inpaint"
+
+
+def test_cli_inpaint_without_prompt_errors(tmp_path):
+    r = CliRunner().invoke(cli, ["image", _png(tmp_path / "s.png"), "-o", str(tmp_path / "o.png"), "--mask", _png(tmp_path / "m.png")])
+    assert r.exit_code == 2
+    assert "inpaint needs -p" in r.output
+
+
+def test_cli_outpaint_dry_run(tmp_path):
+    r = CliRunner().invoke(cli, ["image", _png(tmp_path / "s.png"), "-o", str(tmp_path / "o.png"), "--outpaint", "--expand", "300", "--dry-run"])
+    assert r.exit_code == 0, r.output
+    plan = json.loads(r.output)
+    assert plan["op"] == "outpaint" and plan["body"]["expand_left"] == 300
+
+
+def test_inpaint_prompt_starting_with_data_not_summarized(tmp_path):
+    # dry-run must only summarize image fields, never the prompt scalar
+    plan = modify_image(
+        tmp_path / "o.png", _png(tmp_path / "s.png"), op="inpaint",
+        mask=_png(tmp_path / "m.png"), prompt="data: a literal prompt", dry_run=True,
+    )
+    assert plan["body"]["prompt"] == "data: a literal prompt"  # untouched
+    assert plan["body"]["image_url"].startswith("<data-uri ")  # image still summarized
+
+
+def test_cli_two_modify_ops_conflict(tmp_path):
+    r = CliRunner().invoke(cli, ["image", _png(tmp_path / "s.png"), "-o", str(tmp_path / "o.png"), "--outpaint", "--mask", _png(tmp_path / "m.png")])
+    assert r.exit_code == 2
+    assert "choose one modify op" in r.output
 
 
 def test_cli_gen_still_requires_prompt(tmp_path):
