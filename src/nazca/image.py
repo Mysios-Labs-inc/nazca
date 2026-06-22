@@ -9,7 +9,9 @@ fal path (opt-in, requires FAL_KEY env var):
   - Routed when model's backend == "fal".
 
 ModelArk path (opt-in, requires ARK_API_KEY env var):
-  - Seedream — text-to-image; endpoints/IDs UNVERIFIED (dry-run only).
+  - Seedream 4.0 — native multi-reference image-to-image (--ref → `image` field,
+    up to 14 refs); schema verified against BytePlus docs (2026-06-22). $0.03/img,
+    500 IPM. Needs model activation in the BytePlus console (region ap-southeast).
   - Routed when model's backend == "modelark".
 
 Same Vertex auth as video: gcloud token + REST.  No provider SDKs.
@@ -48,7 +50,9 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     "flux-2-dev":      ("fal-ai/flux/dev",     "", "fal", "fal"),  # FLUX 2 dev; higher quality  # verify id
     # --- ByteDance ModelArk: Seedream (id from BytePlus docs; requires model
     #     activation in the BytePlus console, region ap-southeast, before it works) ---
-    "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # ~$0.035/img
+    # $0.03/img, 500 IPM, native multi-ref image-to-image (up to 14 refs). See
+    # _modelark dispatch below + docs/throughput-and-rate-limits.md.
+    "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # $0.03/img
 }
 DEFAULT_MODEL = "nano-banana"
 
@@ -64,7 +68,7 @@ MODEL_TIERS: dict[str, str] = {
     "imagen-3":        "cheap",
     "flux-schnell":    "cheap",
     "flux-2-dev":      "premium",
-    "seedream":        "cheap",   # ModelArk: unverified pricing — benchmark vs fal before spend
+    "seedream":        "cheap",   # ModelArk $0.03/img — probe brand fidelity vs Gemini before bulk
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)
@@ -146,6 +150,81 @@ def _fal_image_body(
             # (caller should have already warned if this matters)
             pass
     return body
+
+
+# ------------------------------------------------------------------ ModelArk / Seedream path
+# Verified against BytePlus ModelArk image-generation API (docs 2026-06-22,
+# docs.byteplus.com/en/docs/ModelArk/1541523). Seedream 4.0 takes refs in the
+# `image` field (string for one, array for many), single-image output via
+# `sequential_image_generation: "disabled"`, and sizing via `size` — either a
+# named resolution ("1K"/"2K"/"4K", Method 1) or "<w>x<h>" pixels (Method 2).
+_SEEDREAM_MAX_REFS = 14  # API ceiling for seedream-4-0 multi-reference input
+
+# Named-resolution square edge (px); the doc's 1:1 dimensions per resolution.
+_SEEDREAM_EDGE: dict[str, int] = {"1K": 1024, "2K": 2048, "4K": 4096}
+# Documented valid total-pixel range for seedream-4-0 Method 2 (w*h).
+_SEEDREAM_MIN_PX = 1280 * 720  # 921,600
+_SEEDREAM_MAX_PX = 4096 * 4096  # 16,777,216
+
+
+def _seedream_size(size: str | None, aspect_ratio: str | None) -> str | None:
+    """Map nazca --size (+ --aspect) to ModelArk's `size` field.
+
+    Seedream has no aspect field — aspect is expressed by giving explicit pixel
+    dimensions. With a named --size and an explicit W:H aspect we compute a
+    "<w>x<h>" that holds the aspect at roughly the resolution's pixel budget
+    (rounded to /16, clamped to the valid range). Without a usable aspect we pass
+    the named resolution and let the model pick dimensions (e.g. follow the ref).
+    """
+    if not size:
+        return None
+    edge = _SEEDREAM_EDGE.get(size.upper()) if isinstance(size, str) else None
+    if edge is None or not aspect_ratio or ":" not in aspect_ratio:
+        return size  # named resolution, or a caller-supplied raw "WxH"
+    try:
+        aw, ah = (float(x) for x in aspect_ratio.split(":", 1))
+        if aw <= 0 or ah <= 0:
+            return size
+    except ValueError:
+        return size
+    budget = edge * edge
+    h = (budget * ah / aw) ** 0.5
+    w = h * aw / ah
+    w = max(16, round(w / 16) * 16)
+    h = max(16, round(h / 16) * 16)
+    if not (_SEEDREAM_MIN_PX <= w * h <= _SEEDREAM_MAX_PX):
+        return size  # fall back to the named resolution rather than an invalid dim
+    return f"{w}x{h}"
+
+
+def _seedream_body(prompt: str, refs: list[str], aspect_ratio: str | None, size: str | None, backend) -> dict:
+    """Build the ModelArk Seedream request body (sends refs as the `image` field)."""
+    body: dict = {
+        "model": None,  # filled by caller (resolved model id)
+        "prompt": prompt,
+        "sequential_image_generation": "disabled",  # one image out (not a batch)
+        "response_format": "url",
+        "watermark": False,  # no "AI generated" stamp on brand assets
+    }
+    sd_size = _seedream_size(size, aspect_ratio)
+    if sd_size:
+        body["size"] = sd_size
+    if refs:
+        encoded = [backend.encode_image_data_uri(r, max_edge=2048) for r in refs[:_SEEDREAM_MAX_REFS]]
+        # one ref → string; many → array (Seedream accepts both)
+        body["image"] = encoded[0] if len(encoded) == 1 else encoded
+    return body
+
+
+def _summarize_data_uris(value):
+    """Replace base64 data-URIs with a short tag so dry-run plans stay readable."""
+    def _one(v):
+        if isinstance(v, str) and v.startswith("data:"):
+            b64 = v.split(",", 1)[1] if "," in v else ""
+            return f"<data-uri {len(b64)} b64>"
+        return v
+
+    return [_one(v) for v in value] if isinstance(value, list) else _one(value)
 
 
 # ------------------------------------------------------------------ Gemini path
@@ -249,28 +328,26 @@ def generate_image(
         out.write_bytes(raw)
         return out
 
-    # ---- ModelArk dispatch -------------------------------------------
-    # WARNING: endpoint, schema, and model IDs are UNVERIFIED (dry-run only).
-    # Benchmark against fal before real spend.
+    # ---- ModelArk / Seedream dispatch --------------------------------
+    # Native multi-reference image-to-image: refs go in the `image` field (the
+    # body is built once and reused for dry-run and real send, so the planned
+    # JSON matches what's POSTed). Requires model activation in the BytePlus
+    # console (region ap-southeast) + balance; auth failure → see backend error.
     if backend_name == "modelark":
-        body = {
-            "model": model_id,
-            "prompt": prompt,
-            "response_format": "url",  # verify against ModelArk docs
-        }
-        if size:
-            body["size"] = size  # verify field name against ModelArk docs
-        if aspect_ratio:
-            body["aspect_ratio"] = aspect_ratio  # verify field name against ModelArk docs
+        body = _seedream_body(prompt, refs, aspect_ratio, size, backend)
+        body["model"] = model_id
 
         if dry_run:
+            plan_body = dict(body)
+            if "image" in plan_body:
+                plan_body["image"] = _summarize_data_uris(plan_body["image"])
             return {
                 "url": backend.image_endpoint(),
                 "model": model_id,
                 "backend": backend_name,
                 "api": api,
                 "refs": len(refs),
-                "body": body,
+                "body": plan_body,
             }
 
         raw = backend.generate_image(model_id, body)
