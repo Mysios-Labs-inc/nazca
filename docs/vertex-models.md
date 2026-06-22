@@ -81,3 +81,22 @@ use the nano-banana family) — it was two defaults:
 
 Recipe for premium DG stills: `nano-banana-pro` + `--size 2K` + brasa-atmosphere,
 restrained-grade prompt. Drafts: `nano-banana` (cheap, 1K).
+
+## Rate limits (2026-06-22) — READ BEFORE ANY BATCH
+Default Vertex image-gen quota is **2 requests/minute, per base model**, on the
+**global** endpoint:
+- Binding quota: `GenContentImageGenRequestsPerMinutePerProjectPerBaseModelGlobal` = **2 RPM**.
+  Token-input quotas (`GenContentImageInputPerMinute...` ~1.7–6.7M/min) never bind.
+- `429 RESOURCE_EXHAUSTED` = pacing, **not** a ban and **not** a daily cap; refills each minute.
+  **Pace ≥30s/call (`THROTTLE=32`) to stay under 2/min.** Bounded retries + exp backoff, never tight loops.
+- **Per-base-model buckets are independent** → `gemini-3-pro-image` and `gemini-3.1-flash-image`
+  each get their own 2/min. Split heroes→pro, bulk→flash for ~4/min combined.
+- At 2/min a large batch is hours (840 imgs ≈ 7h). **Request an RPM quota increase**
+  (GCP Cloud Quotas → `aiplatform.googleapis.com`) before any big run; 60/min ⇒ ~15 min.
+
+Check current limit:
+```bash
+curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://cloudquotas.googleapis.com/v1/projects/<PROJ>/locations/global/services/aiplatform.googleapis.com/quotaInfos?pageSize=2000" \
+  | grep -A4 GenContentImageGenRequestsPerMinute
+```
