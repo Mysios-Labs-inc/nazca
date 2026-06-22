@@ -27,6 +27,7 @@ except ImportError:
 _PROVIDERS: list[tuple[str, str | None]] = [
     ("fal.ai  (FAL_KEY)", "fal_key"),
     ("ByteDance ModelArk  (ARK_API_KEY)", "ark_api_key"),
+    ("OpenAI  (OPENAI_API_KEY)", "openai_api_key"),
     ("Vertex AI  (gcloud — no key needed)", None),
     ("Done", "done"),
 ]
@@ -121,7 +122,7 @@ def cli() -> None:
 @click.option("--mask", default=None, type=click.Path(), help="Mask image → inpaint SOURCE (white pixels = region to edit). Needs -p.")
 @click.option("--outpaint", "do_outpaint", is_flag=True, help="Outpaint/expand SOURCE canvas (fal flux-2-pro/outpaint).")
 @click.option("--expand", default=256, type=click.IntRange(1, 2048), help="Outpaint pixels per side (with --outpaint).")
-@click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
+@click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only) | gpt-image-2 (OpenAI; legible text/ads, ref up to 5)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
