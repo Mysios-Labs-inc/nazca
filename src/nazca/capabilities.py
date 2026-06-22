@@ -102,6 +102,9 @@ CAPS: dict[str, Caps] = {
     "flux-2-dev":      _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
     # --- ModelArk Seedream: t2i + native multi-ref i2i; group-image is a separate axis ---
     "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, note="needs BytePlus activation; 'group' (N/call) not wired"),
+    # --- fal modify ops (source image → image; ids verified against fal.ai 2026-06-22) ---
+    "upscale":         _img({"upscale"}, note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
+    "rmbg":            _img({"bg_remove"}, note="fal birefnet/v2 → transparent PNG (free compute)"),
     # --- Vertex Veo: text-to-video, image-to-video (start), keyframe (start+end).
     #     P2 made --start optional and wires the start-less t2v body, so t2v is now
     #     driven (the instance simply drops the `image` field). ---
@@ -126,11 +129,16 @@ class CapabilityError(ValueError):
     """A requested op isn't supported by the chosen model (raised before dispatch)."""
 
 
-def infer_image_op(n_refs: int) -> str:
-    """Derive the image op from the flags passed: refs count → t2i / i2i / compose.
+def infer_image_op(n_refs: int = 0, *, upscale: bool = False, bg_remove: bool = False) -> str:
+    """Derive the image op from the flags passed.
 
-    (inpaint/outpaint/upscale/bg_remove arrive with their own flags in P3.)
+    Modify flags (--upscale/--rmbg) win; otherwise the refs count picks
+    t2i / i2i / compose. (inpaint/outpaint arrive with mask flags in a later phase.)
     """
+    if upscale:
+        return "upscale"
+    if bg_remove:
+        return "bg_remove"
     if n_refs <= 0:
         return "t2i"
     return "i2i" if n_refs == 1 else "compose"

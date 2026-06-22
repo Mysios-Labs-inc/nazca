@@ -111,35 +111,74 @@ def cli() -> None:
 
 
 @cli.command()
+@click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
-@click.option("-p", "--prompt", required=True, help="Generation prompt.")
+@click.option("-p", "--prompt", default=None, help="Generation prompt (not needed for --upscale/--rmbg).")
 @click.option("--ref", multiple=True, help="Reference image → image-to-image restyle. Repeatable (pro-image: up to 14).")
+@click.option("--upscale", "do_upscale", is_flag=True, help="Upscale SOURCE image (fal clarity-upscaler).")
+@click.option("--scale", "upscale_factor", default=2, type=click.IntRange(1, 4), help="Upscale factor 1-4 (with --upscale).")
+@click.option("--rmbg", "do_rmbg", is_flag=True, help="Remove background from SOURCE → transparent PNG (fal birefnet).")
 @click.option("--model", default=None, help="nano-banana (default,fast,ref) | nano-banana-2 (ref) | nano-banana-pro (ref, legible text, 14 refs) | imagen-4 | imagen-4-fast | imagen-3 (t2i only)")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
-    """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
+def image(source, out, prompt, ref, do_upscale, do_rmbg, upscale_factor, model, aspect_ratio, size, tier, dry_run):
+    """Generate, restyle (--ref), or modify (SOURCE --upscale / --rmbg) an image.
+
+    \b
+      nazca image -p "a cat"                  # t2i
+      nazca image -p "..." --ref a.png        # i2i (restyle)
+      nazca image photo.png --upscale         # upscale (no prompt)
+      nazca image photo.png --rmbg            # background removal → transparent PNG
+    """
     from nazca.capabilities import CapabilityError, infer_image_op, validate_op
-    from nazca.image import DEFAULT_MODEL, generate_image, select_model
+    from nazca.image import (
+        DEFAULT_MODEL,
+        default_modify_model,
+        generate_image,
+        modify_image,
+        select_model,
+    )
 
-    # --model wins; --tier only supplies a default when --model is absent
-    resolved_model = model or select_model(tier)
+    if do_upscale and do_rmbg:
+        click.echo("❌ choose one of --upscale / --rmbg", err=True)
+        raise SystemExit(2)
 
-    # Capability check up front: the op is the refs count (t2i/i2i/compose), and we
-    # reject e.g. imagen + --ref here instead of letting it raise mid-dispatch.
-    op = infer_image_op(len(ref))
+    # The op is inferred from the flags: modify flags win, else refs count.
+    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg)
+    modify = op in ("upscale", "bg_remove")
+
+    if modify:
+        if not source:
+            click.echo(f"❌ --{'upscale' if do_upscale else 'rmbg'} needs a SOURCE image: nazca image PATH --{'upscale' if do_upscale else 'rmbg'}", err=True)
+            raise SystemExit(2)
+        if ref:
+            click.echo("❌ --ref is not used with --upscale/--rmbg (they modify SOURCE)", err=True)
+            raise SystemExit(2)
+        resolved_model = model or default_modify_model(op)
+    else:
+        if source:
+            click.echo("❌ a positional SOURCE image is only for --upscale/--rmbg; use --ref for references", err=True)
+            raise SystemExit(2)
+        if not prompt:
+            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg)", err=True)
+            raise SystemExit(2)
+        resolved_model = model or select_model(tier)
+
     try:
         validate_op(resolved_model or DEFAULT_MODEL, op, n_refs=len(ref))
     except CapabilityError as e:
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(2) from e
 
-    result = generate_image(
-        out, prompt, ref=list(ref) or None, model=resolved_model,
-        aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
-    )
+    if modify:
+        result = modify_image(out, source, op=op, model=resolved_model, upscale_factor=upscale_factor, dry_run=dry_run)
+    else:
+        result = generate_image(
+            out, prompt, ref=list(ref) or None, model=resolved_model,
+            aspect_ratio=aspect_ratio, size=size, dry_run=dry_run,
+        )
     if dry_run:
         click.echo(json.dumps(result, indent=2))
     else:

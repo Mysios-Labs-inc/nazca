@@ -48,6 +48,8 @@ backends that support it, not a new ad-hoc code path.
 | `flux-schnell` | fal | t2i, i2i | **single ref only**; fal id unverified |
 | `flux-2-dev` | fal | t2i, i2i | single ref only; fal id unverified |
 | `seedream` | modelark | t2i, i2i, compose | up to 14 refs; needs BytePlus activation; `group` (N/call) not wired |
+| `upscale` | fal | upscale | clarity-upscaler, `--scale 1-4`, $0.03/MP (verified id) |
+| `rmbg` | fal | bg_remove | birefnet/v2 → transparent PNG, free compute (verified id) |
 
 ### Video
 | shorthand | backend | ops | notes |
@@ -69,6 +71,11 @@ backends that support it, not a new ad-hoc code path.
    the op from flags and checks `op ∈ caps.ops`, erroring with a suggested model.
 3. ⬜ **Seedream `group` mode** (1 call → up to 15 related images) is a real distinct
    axis and is still unwired.
+
+**P3 (done): `upscale` + `bg_remove`** wired on fal (clarity-upscaler, birefnet/v2)
+via the positional `SOURCE` slot — `nazca image photo.png --upscale|--rmbg`.
+Remaining modify ops (`inpaint`/`outpaint`, and video `v2v`/`reframe`/`extend`)
+are next.
 
 ## CLI surface (decided: infer op from flags)
 
@@ -94,10 +101,11 @@ nazca video SOURCE -p "restyle ..."        # v2v
 
 ## Roadmap
 
-- **P1 (this)** — `Caps` descriptor + this doc; encode existing models; `nazca
-  models` shows ops. No behavior change.
-- **P2** — derive op from flags + validate against `CAPS`; make `--start`
+- ✅ **P1** — `Caps` descriptor + this doc; encode existing models; `nazca models`
+  shows ops. No behavior change.
+- ✅ **P2** — derive op from flags + validate against `CAPS`; make `--start`
   optional (unblocks `t2v`); reject imagen+ref up front. Fixes mismatches #1, #2.
-- **P3** — image modify ops: `inpaint`/`outpaint`, then `upscale`/`bg_remove`
-  (shared SOURCE plumbing; mostly fal/Higgsfield body-builders — ids to be probed).
-- **P4** — video-to-video: `v2v`/`reframe`/`extend` (largest lift).
+- 🟡 **P3** — image modify ops via the `SOURCE` slot: `upscale`/`bg_remove` **done**
+  (fal clarity-upscaler / birefnet, verified ids); `inpaint`/`outpaint` (mask/region)
+  next.
+- ⬜ **P4** — video-to-video: `v2v`/`reframe`/`extend` (largest lift).
