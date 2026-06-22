@@ -52,24 +52,23 @@ backends that support it, not a new ad-hoc code path.
 ### Video
 | shorthand | backend | ops | notes |
 |---|---|---|---|
-| `veo-3.1-lite` | vertex | i2v, keyframe | start required; end optional |
-| `veo-3.1-fast` | vertex | i2v, keyframe | |
-| `veo-3.1` | vertex | i2v, keyframe | Veo also supports t2v natively — not driven yet (see mismatch #1) |
+| `veo-3.1-lite` | vertex | t2v, i2v, keyframe | `--start` optional (t2v) / one frame (i2v) / two (keyframe) |
+| `veo-3.1-fast` | vertex | t2v, i2v, keyframe | |
+| `veo-3.1` | vertex | t2v, i2v, keyframe | |
 | `seedance-2-fast` | fal | i2v | fal id unverified |
-| `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video` — see mismatch #1 |
+| `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video`; reachable now (no `--start`) |
 | `seedance-pro` | modelark | i2v | needs BytePlus activation |
 | `seedance-lite` | modelark | i2v | needs BytePlus activation |
 
-## Known mismatches the descriptor exposes (to fix in P2)
+## Mismatches (1 & 2 fixed in P2)
 
-1. **`nazca video` hard-requires `--start` → it's structurally I2V-only.** But
-   `wan-2.6` is `t2v` (and Veo supports t2v too). There is no path to express pure
-   text-to-video today. P2: make `--start` optional and infer `t2v` when absent.
-2. **Imagen rejects `--ref` at *runtime*** (raises mid-call) rather than as a
-   declared capability. P2: validate `inferred_op ∈ caps.ops` up front, with a
-   suggested model that does support it.
-3. **Seedream `group` mode** (1 call → up to 15 related images) is a real distinct
-   axis and is unwired.
+1. ✅ **`nazca video` no longer forces `--start`.** Omit it for pure `t2v` (wan-2.6,
+   and Veo's start-less body); one frame → `i2v`; two → `keyframe`. The op is
+   inferred and validated against the model.
+2. ✅ **Imagen + `--ref` is rejected up front**, not mid-dispatch: the CLI infers
+   the op from flags and checks `op ∈ caps.ops`, erroring with a suggested model.
+3. ⬜ **Seedream `group` mode** (1 call → up to 15 related images) is a real distinct
+   axis and is still unwired.
 
 ## CLI surface (decided: infer op from flags)
 

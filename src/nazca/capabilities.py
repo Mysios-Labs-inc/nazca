@@ -102,12 +102,12 @@ CAPS: dict[str, Caps] = {
     "flux-2-dev":      _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
     # --- ModelArk Seedream: t2i + native multi-ref i2i; group-image is a separate axis ---
     "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, note="needs BytePlus activation; 'group' (N/call) not wired"),
-    # --- Vertex Veo: image-to-video (start req) + keyframe (start+end). Veo also
-    #     natively supports t2v, but nazca's command forces a start today, so we
-    #     encode only what's driven now; P2 can add t2v when the command allows it. ---
-    "veo-3.1-lite":    _vid({"i2v", "keyframe"}),
-    "veo-3.1-fast":    _vid({"i2v", "keyframe"}),
-    "veo-3.1":         _vid({"i2v", "keyframe"}),
+    # --- Vertex Veo: text-to-video, image-to-video (start), keyframe (start+end).
+    #     P2 made --start optional and wires the start-less t2v body, so t2v is now
+    #     driven (the instance simply drops the `image` field). ---
+    "veo-3.1-lite":    _vid({"t2v", "i2v", "keyframe"}),
+    "veo-3.1-fast":    _vid({"t2v", "i2v", "keyframe"}),
+    "veo-3.1":         _vid({"t2v", "i2v", "keyframe"}),
     # --- fal video ---
     "seedance-2-fast": _vid({"i2v"}, note="fal id unverified"),
     "wan-2.6":         _vid({"t2v"}, note="fal id is .../text-to-video — t2v, NOT i2v (current command mismatch)"),
@@ -120,6 +120,54 @@ CAPS: dict[str, Caps] = {
 # Stable display order so `nazca models` ops output is deterministic.
 _OPS_ORDER = ("t2i", "i2i", "compose", "inpaint", "outpaint", "upscale", "bg_remove",
               "t2v", "i2v", "keyframe", "v2v", "reframe", "extend")
+
+
+class CapabilityError(ValueError):
+    """A requested op isn't supported by the chosen model (raised before dispatch)."""
+
+
+def infer_image_op(n_refs: int) -> str:
+    """Derive the image op from the flags passed: refs count → t2i / i2i / compose.
+
+    (inpaint/outpaint/upscale/bg_remove arrive with their own flags in P3.)
+    """
+    if n_refs <= 0:
+        return "t2i"
+    return "i2i" if n_refs == 1 else "compose"
+
+
+def infer_video_op(has_start: bool, has_end: bool) -> str:
+    """Derive the video op from the frames passed: none → t2v, start → i2v, +end → keyframe."""
+    if not has_start:
+        return "t2v"
+    return "keyframe" if has_end else "i2v"
+
+
+def models_supporting(op: str) -> list[str]:
+    """Shorthands whose Caps include `op` — used to suggest an alternative model."""
+    return sorted(sh for sh, c in CAPS.items() if op in c.ops)
+
+
+def validate_op(model_shorthand: str | None, op: str, *, n_refs: int = 0) -> None:
+    """Raise CapabilityError if `model_shorthand` can't do `op`. No-op for unknown
+    models (raw ids, backend:id passthrough, overrides) — we can't know their caps,
+    so we don't block.
+    """
+    if not model_shorthand:
+        return
+    c = CAPS.get(model_shorthand)
+    if c is None:
+        return
+    if op not in c.ops:
+        alts = models_supporting(op)
+        hint = f" — try: {', '.join(alts)}" if alts else ""
+        raise CapabilityError(
+            f"{model_shorthand} does not support '{op}' (it does: {ops_str(model_shorthand)}){hint}"
+        )
+    if op in OPS_NEEDING_REFS and c.max_refs is not None and n_refs > c.max_refs:
+        raise CapabilityError(
+            f"{model_shorthand} accepts at most {c.max_refs} reference image(s), got {n_refs}"
+        )
 
 
 def caps_for(shorthand: str) -> Caps | None:

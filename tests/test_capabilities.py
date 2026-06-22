@@ -7,6 +7,8 @@ the model produces. That keeps the descriptor honest as models are added.
 
 from __future__ import annotations
 
+import pytest
+
 from nazca import capabilities as cap
 from nazca.image import MODELS as IMG_MODELS
 from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES
@@ -101,5 +103,70 @@ def test_caps_for_unknown_is_none():
 def test_ops_str_is_stable_and_ordered():
     # ordered per _OPS_ORDER, comma-joined; unknown → ""
     assert cap.ops_str("nano-banana-pro") == "t2i,i2i,compose"
-    assert cap.ops_str("veo-3.1") == "i2v,keyframe"
+    assert cap.ops_str("veo-3.1") == "t2v,i2v,keyframe"
     assert cap.ops_str("does-not-exist") == ""
+
+
+# --------------------------------------------------------------------------- op inference (P2)
+def test_infer_image_op():
+    assert cap.infer_image_op(0) == "t2i"
+    assert cap.infer_image_op(1) == "i2i"
+    assert cap.infer_image_op(2) == "compose"
+    assert cap.infer_image_op(14) == "compose"
+
+
+def test_infer_video_op():
+    assert cap.infer_video_op(False, False) == "t2v"
+    assert cap.infer_video_op(True, False) == "i2v"
+    assert cap.infer_video_op(True, True) == "keyframe"
+
+
+def test_veo_now_supports_t2v():
+    # P2: start-less Veo body wired → t2v is a declared op.
+    for sh in ("veo-3.1", "veo-3.1-fast", "veo-3.1-lite"):
+        assert "t2v" in cap.CAPS[sh].ops
+
+
+def test_models_supporting_t2v():
+    supp = cap.models_supporting("t2v")
+    assert "wan-2.6" in supp and "veo-3.1" in supp
+    assert "seedance-pro" not in supp  # i2v only
+
+
+# --------------------------------------------------------------------------- validation (P2)
+def test_validate_ok():
+    cap.validate_op("nano-banana-pro", "i2i", n_refs=3)  # no raise
+    cap.validate_op("wan-2.6", "t2v")
+    cap.validate_op("veo-3.1", "t2v")
+
+
+def test_validate_rejects_unsupported_op_with_suggestion():
+    with pytest.raises(cap.CapabilityError) as ei:
+        cap.validate_op("imagen-4", "i2i", n_refs=1)
+    msg = str(ei.value)
+    assert "imagen-4" in msg and "i2i" in msg
+    assert "nano-banana" in msg  # suggests a model that supports i2i
+
+
+def test_validate_rejects_i2v_only_model_for_t2v():
+    with pytest.raises(cap.CapabilityError) as ei:
+        cap.validate_op("seedance-pro", "t2v")
+    assert "wan-2.6" in str(ei.value) or "veo" in str(ei.value)
+
+
+def test_validate_enforces_max_refs():
+    # pro supports compose but caps refs at 14 → 15 is rejected on the count
+    with pytest.raises(cap.CapabilityError, match="at most 14"):
+        cap.validate_op("nano-banana-pro", "compose", n_refs=15)
+
+
+def test_validate_rejects_compose_on_single_ref_model():
+    # flux can't compose at all → rejected on the op, not the count
+    with pytest.raises(cap.CapabilityError, match="compose"):
+        cap.validate_op("flux-schnell", "compose", n_refs=2)
+
+
+def test_validate_unknown_model_is_noop():
+    # raw ids / backend:id passthrough / overrides → can't know caps, don't block
+    cap.validate_op("vertex:some-raw-id", "i2i", n_refs=5)
+    cap.validate_op(None, "t2i")
