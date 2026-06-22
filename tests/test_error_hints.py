@@ -8,9 +8,8 @@ from unittest import mock
 
 import pytest
 
-from nazca.backends.error_hints import hint
 from nazca.backends import fal, modelark, openai
-
+from nazca.backends.error_hints import hint
 
 # ---------------------------------------------------------------------------
 # Unit tests for the hint() helper
