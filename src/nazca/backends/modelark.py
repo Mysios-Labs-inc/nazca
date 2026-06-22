@@ -11,6 +11,7 @@ import urllib.request
 
 from nazca import config, retry
 from nazca.backends.base import Backend
+from nazca.backends.error_hints import hint
 from nazca.backends.vertex import encode_image_b64
 
 ARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"  # verify against ModelArk docs
@@ -69,7 +70,9 @@ class ModelArkBackend(Backend):
             body,
             headers=self._headers(),
             timeout=30,
-            on_http_error=lambda code, detail: ModelArkError(f"ModelArk HTTP {code}: {detail}"),
+            on_http_error=lambda code, detail: ModelArkError(
+                f"ModelArk HTTP {code}: {detail}{hint('modelark', code, detail)}"
+            ),
             on_rate_limited=lambda code, detail: ModelArkRateLimitError(
                 f"ModelArk rate limit (HTTP {code}) persisted after retries: {detail}"
             ),
@@ -82,7 +85,10 @@ class ModelArkBackend(Backend):
             with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
-            raise ModelArkError(f"ModelArk HTTP {exc.code}: {exc.read().decode()[:400]}") from exc
+            detail = exc.read().decode(errors="replace")[:400]
+            raise ModelArkError(
+                f"ModelArk HTTP {exc.code}: {detail}{hint('modelark', exc.code, detail)}"
+            ) from exc
 
     # ------------------------------------------------------------------
     # Image — synchronous (Seedream)  # verify against ModelArk docs
