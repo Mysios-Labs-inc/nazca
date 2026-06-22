@@ -32,3 +32,7 @@ FAL_KEY: str | None = os.getenv("FAL_KEY") or get_value("fal_key")
 # --- ByteDance ModelArk (optional — only required when a modelark model is selected) ---
 # Precedence: ARK_API_KEY env var > ~/.config/nazca/config.ini > None
 ARK_API_KEY: str | None = os.getenv("ARK_API_KEY") or get_value("ark_api_key")
+
+# --- OpenAI Images (optional — only required when an openai model is selected) ---
+# Precedence: OPENAI_API_KEY env var > ~/.config/nazca/config.ini > None
+OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY") or get_value("openai_api_key")

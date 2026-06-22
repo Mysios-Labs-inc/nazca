@@ -49,6 +49,9 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     # --- ByteDance ModelArk: Seedream (id from BytePlus docs; requires model
     #     activation in the BytePlus console, region ap-southeast, before it works) ---
     "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # ~$0.035/img
+    # --- OpenAI: gpt-image-2 (best-in-class legible text; ad creative). t2i only
+    #     in this PR — reference/edit injection (/images/edits) is a follow-up. ---
+    "gpt-image-2":     ("gpt-image-2", "", "openai", "openai"),  # token-billed; cost scales with size×quality
 }
 DEFAULT_MODEL = "nano-banana"
 
@@ -65,6 +68,7 @@ MODEL_TIERS: dict[str, str] = {
     "flux-schnell":    "cheap",
     "flux-2-dev":      "premium",
     "seedream":        "cheap",   # ModelArk: unverified pricing — benchmark vs fal before spend
+    "gpt-image-2":     "premium", # legible text + ad creative; per-token billing
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)
@@ -94,6 +98,8 @@ def _resolve(model: str | None) -> tuple[str, str, str, str]:
             return (raw_id, "", "fal", "fal")
         if prefix in ("ark", "modelark"):
             return (raw_id, "", "modelark", "modelark")
+        if prefix in ("openai", "oai"):
+            return (raw_id, "", "openai", "openai")
 
     # 2. user override file (~/.config/nazca/models.json)
     from nazca.registry import image_override
@@ -145,6 +151,32 @@ def _fal_image_body(
             # fal FLUX does not support multi-ref; silently use only the first
             # (caller should have already warned if this matters)
             pass
+    return body
+
+
+# ------------------------------------------------------------------ OpenAI path
+# gpt-image-2 sizes are pixel strings, not aspect ratios. Map our aspect flag to
+# the nearest supported size; anything unknown falls back to "auto" (model picks).
+_OPENAI_ASPECT_MAP: dict[str, str] = {
+    "1:1":  "1024x1024",
+    "9:16": "1024x1536",
+    "3:4":  "1024x1536",
+    "2:3":  "1024x1536",
+    "16:9": "1536x1024",
+    "4:3":  "1536x1024",
+    "3:2":  "1536x1024",
+}
+
+
+def _openai_image_body(prompt: str, model_id: str, aspect_ratio: str | None) -> dict:
+    """Build the /images/generations body. quality=high for legible text/ads."""
+    body: dict = {
+        "model": model_id,
+        "prompt": prompt,
+        "n": 1,
+        "quality": "high",
+    }
+    body["size"] = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
     return body
 
 
@@ -274,6 +306,30 @@ def generate_image(
             }
 
         raw = backend.generate_image(model_id, body)
+        out.write_bytes(raw)
+        return out
+
+    # ---- OpenAI dispatch (gpt-image-2) -------------------------------
+    if backend_name == "openai":
+        if refs:
+            raise ImageError(
+                f"model '{model}' (openai) is text-to-image only in this build — "
+                "reference/edit injection via /images/edits is a follow-up. "
+                "Drop --ref, or use a nano-banana model for now."
+            )
+        body = _openai_image_body(prompt, model_id, aspect_ratio)
+
+        if dry_run:
+            return {
+                "url": backend.image_endpoint(),
+                "model": model_id,
+                "backend": backend_name,
+                "api": api,
+                "refs": len(refs),
+                "body": body,
+            }
+
+        raw = backend.generate_image(body)
         out.write_bytes(raw)
         return out
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from nazca.backends.base import Backend
 from nazca.backends.fal import FalBackend
 from nazca.backends.modelark import ModelArkBackend
+from nazca.backends.openai import OpenAIBackend
 from nazca.backends.vertex import VertexBackend
 
 # backend name -> implementation. Add one key per provider here.
@@ -21,6 +22,7 @@ BACKENDS: dict[str, Backend] = {
     "vertex": VertexBackend(),
     "fal": FalBackend(),
     "modelark": ModelArkBackend(),
+    "openai": OpenAIBackend(),
 }
 
 
@@ -31,4 +33,12 @@ def get_backend(name: str) -> Backend:
         raise ValueError(f"unknown backend '{name}' (have: {', '.join(BACKENDS)})") from e
 
 
-__all__ = ["Backend", "FalBackend", "ModelArkBackend", "VertexBackend", "BACKENDS", "get_backend"]
+__all__ = [
+    "Backend",
+    "FalBackend",
+    "ModelArkBackend",
+    "OpenAIBackend",
+    "VertexBackend",
+    "BACKENDS",
+    "get_backend",
+]
