@@ -82,6 +82,21 @@ def select_model(tier: str | None) -> str | None:
     return _TIER_DEFAULTS.get(tier)
 
 
+# fal video-EDIT ops (source VIDEO → video). Shorthand == op name. The source
+# enters as a URL (video_url), never inlined — see edit_video(). reframe's id and
+# input field are verified (research workflow, fal.ai 2026-06-22); v2v/extend are
+# deferred pending a live input-field probe.
+VIDEO_EDIT_MODELS: dict[str, str] = {
+    "reframe": "fal-ai/luma-dream-machine/ray-2/reframe",
+}
+VIDEO_EDIT_OPS = tuple(VIDEO_EDIT_MODELS)
+
+
+def default_video_edit_model(op: str) -> str:
+    """Default model shorthand for a video-edit op (the op name is the shorthand)."""
+    return op
+
+
 # Vertex backend name (isolate so future providers stay additive)
 VEO_BACKEND = "vertex"
 
@@ -389,4 +404,55 @@ def generate_video(
             raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
         raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
     out.write_bytes(base64.b64decode(b64))
+    return out
+
+
+def edit_video(
+    out: str | Path,
+    source: str,
+    *,
+    op: str,
+    model: str | None = None,
+    aspect_ratio: str = "9:16",
+    prompt: str | None = None,
+    dry_run: bool = False,
+) -> Path:
+    """Video-edit ops (source VIDEO → video) via fal. P4-A wires `reframe`.
+
+    The source is passed as a URL (`video_url`), NOT inlined as a base64 data-URI
+    — a real clip is MB-scale and fal expects a URL. Local-file → fal-storage
+    upload is a planned follow-up; for now SOURCE must be a public http(s) URL.
+
+      reframe → fal-ai/luma-dream-machine/ray-2/reframe  {video_url, aspect_ratio}
+
+    Returns the output path (or .request.json for dry-run).
+    """
+    out = Path(out)
+    src = str(source)
+    if not (src.startswith("http://") or src.startswith("https://")):
+        raise VeoError(
+            f"{op} SOURCE must be a public https:// video URL "
+            f"(local-file upload to fal storage is a planned follow-up); got: {src}"
+        )
+
+    resolved = model or default_video_edit_model(op)
+    fal_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → fal id, or raw passthrough
+    backend = get_backend("fal")
+    url = backend.build_url(fal_id)
+
+    if op == "reframe":
+        body: dict = {"video_url": src, "aspect_ratio": aspect_ratio}
+        if prompt:
+            body["prompt"] = prompt  # optional: guides inpainting of exposed regions
+    else:
+        raise VeoError(f"video-edit op '{op}' is not wired yet")
+
+    if dry_run:
+        dbg = out.with_suffix(".request.json")
+        dbg.write_text(json.dumps({"url": url, "model": fal_id, "backend": "fal", "op": op, **body}, indent=2))
+        return dbg
+
+    key = backend.auth_token()
+    raw = backend.submit_and_download(url, body, key, media_type="video")
+    out.write_bytes(raw)
     return out

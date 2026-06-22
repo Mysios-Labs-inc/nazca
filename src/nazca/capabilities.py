@@ -119,6 +119,11 @@ CAPS: dict[str, Caps] = {
     # --- ModelArk Seedance i2v variants ---
     "seedance-pro":    _vid({"i2v"}, note="needs BytePlus activation"),
     "seedance-lite":   _vid({"i2v"}, note="needs BytePlus activation"),
+    # --- fal video-edit (source VIDEO → video; URL-only source). reframe id +
+    #     video_url field verified via research workflow (fal.ai 2026-06-22).
+    #     v2v/extend deferred: their input field name was NOT independently
+    #     verified — gate on a live probe before wiring. ---
+    "reframe":         _vid({"reframe"}, note="fal luma ray-2/reframe; --aspect target; SOURCE = video URL"),
 }
 
 
@@ -157,8 +162,14 @@ def infer_image_op(
     return "i2i" if n_refs == 1 else "compose"
 
 
-def infer_video_op(has_start: bool, has_end: bool) -> str:
-    """Derive the video op from the frames passed: none → t2v, start → i2v, +end → keyframe."""
+def infer_video_op(has_start: bool, has_end: bool, *, reframe: bool = False) -> str:
+    """Derive the video op from the signals passed.
+
+    Source-video edit signals win (--reframe; --v2v/--extend arrive in later
+    phases); otherwise the frames pick: none → t2v, start → i2v, +end → keyframe.
+    """
+    if reframe:
+        return "reframe"
     if not has_start:
         return "t2v"
     return "keyframe" if has_end else "i2v"

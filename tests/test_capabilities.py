@@ -11,11 +11,11 @@ import pytest
 
 from nazca import capabilities as cap
 from nazca.image import MODELS as IMG_MODELS
-from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES
+from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES, VIDEO_EDIT_MODELS
 
 
 def _all_video_shorthands():
-    return {*VEO_ALIASES, *FAL_VIDEO_MODELS, *ARK_VIDEO_MODELS}
+    return {*VEO_ALIASES, *FAL_VIDEO_MODELS, *ARK_VIDEO_MODELS, *VIDEO_EDIT_MODELS}
 
 
 # --------------------------------------------------------------------------- coverage
