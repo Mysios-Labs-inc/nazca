@@ -88,6 +88,8 @@ def select_model(tier: str | None) -> str | None:
 # deferred pending a live input-field probe.
 VIDEO_EDIT_MODELS: dict[str, str] = {
     "reframe": "fal-ai/luma-dream-machine/ray-2/reframe",
+    "v2v":     "fal-ai/wan-vace-apps/video-edit",  # video_url field UNVERIFIED — verify before spend
+    "extend":  "fal-ai/pixverse/extend",           # video_url field UNVERIFIED — verify before spend
 }
 VIDEO_EDIT_OPS = tuple(VIDEO_EDIT_MODELS)
 
@@ -415,15 +417,21 @@ def edit_video(
     model: str | None = None,
     aspect_ratio: str = "9:16",
     prompt: str | None = None,
+    duration: int = 8,
     dry_run: bool = False,
 ) -> Path:
-    """Video-edit ops (source VIDEO → video) via fal. P4-A wires `reframe`.
+    """Video-edit ops (source VIDEO → video) via fal.
 
     The source is passed as a URL (`video_url`), NOT inlined as a base64 data-URI
     — a real clip is MB-scale and fal expects a URL. Local-file → fal-storage
     upload is a planned follow-up; for now SOURCE must be a public http(s) URL.
 
       reframe → fal-ai/luma-dream-machine/ray-2/reframe  {video_url, aspect_ratio}
+      v2v     → fal-ai/wan-vace-apps/video-edit          {video_url, prompt}
+      extend  → fal-ai/pixverse/extend                   {video_url, prompt, duration}
+
+    NOTE: the `video_url` field for v2v/extend is fal's convention but UNVERIFIED
+    live — dry-run safe; verify with a real call before spending.
 
     Returns the output path (or .request.json for dry-run).
     """
@@ -444,6 +452,16 @@ def edit_video(
         body: dict = {"video_url": src, "aspect_ratio": aspect_ratio}
         if prompt:
             body["prompt"] = prompt  # optional: guides inpainting of exposed regions
+    elif op == "v2v":
+        if not prompt:
+            raise VeoError("v2v needs a prompt (the edit instruction)")
+        body = {"video_url": src, "prompt": prompt}
+    elif op == "extend":
+        if not prompt:
+            raise VeoError("extend needs a prompt")
+        if int(duration) not in (5, 8):
+            raise VeoError("extend --duration must be 5 or 8 (seconds added to the clip)")
+        body = {"video_url": src, "prompt": prompt, "duration": str(int(duration))}
     else:
         raise VeoError(f"video-edit op '{op}' is not wired yet")
 

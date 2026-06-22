@@ -64,6 +64,8 @@ backends that support it, not a new ad-hoc code path.
 | `seedance-pro` | modelark | i2v | needs BytePlus activation |
 | `seedance-lite` | modelark | i2v | needs BytePlus activation |
 | `reframe` | fal | reframe | luma ray-2/reframe; SOURCE = **video URL**, `--aspect` target (verified id+field) |
+| `v2v` | fal | v2v | wan-vace-apps/video-edit; SOURCE video URL + prompt (`video_url` field unverified) |
+| `extend` | fal | extend | pixverse/extend; SOURCE video URL + prompt, `--duration 5|8` (`video_url` field unverified) |
 
 ## Mismatches (1 & 2 fixed in P2)
 
@@ -111,10 +113,10 @@ nazca video SOURCE -p "restyle ..."        # v2v
 - ✅ **P3** — all four image modify ops via the `SOURCE` slot: `upscale`,
   `bg_remove`, `inpaint` (`--mask` + prompt), `outpaint` (`--expand`) — fal, all ids
   verified.
-- 🟡 **P4** — video-edit ops via a positional `SOURCE` (a **video URL** — fal needs
-  a URL, not an inlined data-URI; `gs://` unsupported). `reframe` **done**
-  (luma ray-2/reframe, verified id + `video_url` field). `v2v`
-  (`fal-ai/wan-vace-apps/video-edit`) and `extend` (`fal-ai/pixverse/extend`) are
-  **researched but deferred** — a research workflow's verifiers could NOT confirm
-  their input field name, so each needs a live `curl`/SDK probe before wiring.
-  Local-file SOURCE (→ fal-storage upload) is a planned follow-up.
+- ✅ **P4** — all three video-edit ops via a positional `SOURCE` (a **video URL** —
+  fal needs a URL, not an inlined data-URI; `gs://` unsupported): `reframe` (luma
+  ray-2, verified field), `v2v` (wan-vace-apps/video-edit) and `extend`
+  (pixverse/extend). For v2v/extend the `video_url` input field is fal's
+  convention but **UNVERIFIED live** — dry-run safe; verify with a real call
+  before spend (same posture as the existing fal video ids). Local-file SOURCE
+  (→ fal-storage upload) is the one remaining follow-up.

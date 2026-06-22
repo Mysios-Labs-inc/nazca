@@ -363,14 +363,16 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("-p", "--prompt", default=None, help="Motion prompt (optional for --reframe).")
 @click.option("--end", default=None, help="Optional end frame (keyframe interpolation).")
 @click.option("--reframe", "do_reframe", is_flag=True, help="Re-aspect a SOURCE video URL to --aspect (fal luma ray-2).")
+@click.option("--v2v", "do_v2v", is_flag=True, help="Restyle/edit a SOURCE video URL from -p (fal wan-vace).")
+@click.option("--extend", "do_extend", is_flag=True, help="Extend a SOURCE video URL by --duration 5|8s (fal pixverse). Needs -p.")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
-@click.option("--duration", default=8, type=int, help="Seconds (4, 6, or 8).")
+@click.option("--duration", default=8, type=int, help="Seconds (Veo: 4/6/8; extend: 5 or 8 added).")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
 @click.option("--resolution", default="720p", help="720p | 1080p.")
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(source, out, start, prompt, end, do_reframe, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
+def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
     """Generate or edit a video.
 
     \b
@@ -378,27 +380,38 @@ def video(source, out, start, prompt, end, do_reframe, model, duration, aspect_r
       nazca video -p "..." --start s.png       # i2v
       nazca video -p "..." --start s.png --end e.png  # keyframe
       nazca video CLIP_URL --reframe --aspect 9:16    # reframe a source video
+      nazca video CLIP_URL --v2v -p "make it neon"    # restyle a source video
+      nazca video CLIP_URL --extend -p "..." --duration 8  # lengthen a clip
     """
     from nazca import config
     from nazca.capabilities import CapabilityError, infer_video_op, validate_op
     from nazca.video import (
         VEO_ALIASES,
         VIDEO_EDIT_OPS,
+        VeoError,
         default_video_edit_model,
         edit_video,
         generate_video,
         select_model,
     )
 
-    op = infer_video_op(bool(start), bool(end), reframe=do_reframe)
+    # At most one video-edit signal.
+    if sum([do_reframe, do_v2v, do_extend]) > 1:
+        click.echo("❌ choose one video-edit op: --reframe / --v2v / --extend", err=True)
+        raise SystemExit(2)
+
+    op = infer_video_op(bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend)
 
     # ---- video-edit ops (source VIDEO → video) -----------------------------
     if op in VIDEO_EDIT_OPS:
         if not source:
-            click.echo("❌ --reframe needs a SOURCE video URL: nazca video CLIP_URL --reframe", err=True)
+            click.echo(f"❌ --{op} needs a SOURCE video URL: nazca video CLIP_URL --{op}", err=True)
             raise SystemExit(2)
         if start or end:
-            click.echo("❌ --start/--end are for frame ops; --reframe takes a SOURCE video, not frames", err=True)
+            click.echo(f"❌ --start/--end are for frame ops; --{op} takes a SOURCE video, not frames", err=True)
+            raise SystemExit(2)
+        if op in ("v2v", "extend") and not prompt:
+            click.echo(f"❌ --{op} needs -p/--prompt", err=True)
             raise SystemExit(2)
         resolved_model = model or default_video_edit_model(op)
         try:
@@ -406,16 +419,20 @@ def video(source, out, start, prompt, end, do_reframe, model, duration, aspect_r
         except CapabilityError as e:
             click.echo(f"❌ {e}", err=True)
             raise SystemExit(2) from e
-        result = edit_video(
-            out, source, op=op, model=resolved_model,
-            aspect_ratio=aspect_ratio, prompt=prompt, dry_run=dry_run,
-        )
+        try:
+            result = edit_video(
+                out, source, op=op, model=resolved_model,
+                aspect_ratio=aspect_ratio, prompt=prompt, duration=duration, dry_run=dry_run,
+            )
+        except VeoError as e:  # URL-only / bad-duration → clean error, not a traceback
+            click.echo(f"❌ {e}", err=True)
+            raise SystemExit(2) from e
         click.echo(f"{'📝' if dry_run else '✅'} {result}")
         return
 
     # ---- frame ops (t2v / i2v / keyframe) ----------------------------------
     if source:
-        click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe); use --start for a frame", err=True)
+        click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe/--v2v/--extend); use --start for a frame", err=True)
         raise SystemExit(2)
     if end and not start:
         click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
