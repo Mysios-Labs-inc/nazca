@@ -212,7 +212,9 @@ def _openai_image_body(
     }
     body["size"] = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
     if output_format and output_format != "png":
-        body["response_format"] = output_format
+        # gpt-image-2 uses `output_format` (png|jpeg|webp); it has NO `response_format`
+        # param (that's a DALL·E-2/3 field) — sending it would 400.
+        body["output_format"] = output_format
     if transparent:
         body["background"] = "transparent"
     return body
