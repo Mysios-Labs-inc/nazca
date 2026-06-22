@@ -144,7 +144,9 @@ class TestModelArkBackendHints:
     def test_404_not_activated_hint(self):
         backend = modelark.ModelArkBackend()
         body = '{"error": {"code": "InvalidEndpointOrModel.NotFound"}}'
-        with mock.patch(
+        # _get() mints the credential internally, so stub auth_token — otherwise the
+        # test depends on a real ARK_API_KEY being present (green locally, red in CI).
+        with mock.patch.object(backend, "auth_token", return_value="tok"), mock.patch(
             "urllib.request.urlopen",
             side_effect=_http_error(404, body),
         ):
