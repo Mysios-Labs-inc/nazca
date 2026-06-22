@@ -211,11 +211,12 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
 @click.option("--models", default=None, help="Comma-separated model shorthands: filter (manifest) or fan-out (--from-dir).")
 @click.option("--aspect", "aspect", default=None, help="Default aspect ratio for rows that omit it.")
 @click.option("--size", default=None, type=click.Choice(["1K", "2K", "4K"]), help="Default size for rows that omit it.")
+@click.option("--quality", default=None, type=click.Choice(["low", "medium", "high", "auto"]), help="gpt-image-2 only: cost/speed lever for rows that omit it (medium ≈ 4× cheaper/faster than high).")
 @click.option("--concurrency", default=None, type=int, help="Max concurrent model lanes (default: one per model).")
 @click.option("--vertex-batch", "vertex_batch", is_flag=True, help="Use async Vertex Batch (no RPM wall, −50%, 1K only). Needs --gcs.")
 @click.option("--gcs", "gcs", default=None, help="gs://bucket/prefix for Vertex Batch input/output (with --vertex-batch).")
 @click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
-def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, concurrency, vertex_batch, gcs, dry_run):
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, quality, concurrency, vertex_batch, gcs, dry_run):
     """Generate many images, paced per model lane (idempotent + resumable).
 
     Two input modes:
@@ -225,12 +226,15 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, co
       nazca batch --from-dir refs/ --prompt "…"  # one row per ref image in a dir
 
     Rows already present at their `out` path are skipped, so a re-run only fills
-    gaps. Each distinct model runs on its own paced lane (the 2/min Vertex cap is
-    per base model), so N models ≈ N×rpm combined.
+    gaps. Pacing is chosen per-lane from the model's backend: Vertex lanes keep
+    the 2/min-per-base-model start throttle (N models ≈ N×rpm combined), while
+    latency-bound gpt-image-2 (openai) lanes run rows concurrently — no rpm wall.
 
     \b
-    --vertex-batch routes Gemini-image rows through async Vertex Batch inference
-    (no per-minute quota, 50% cheaper, 1K-only output) via a --gcs bucket.
+    --quality (low|medium|high|auto) is the gpt-image-2 cost/speed lever and is
+    ignored by other backends. --vertex-batch routes Gemini-image rows through
+    async Vertex Batch inference (no per-minute quota, 50% cheaper, 1K-only
+    output) via a --gcs bucket.
     """
     from nazca.batch import (
         BatchError,
@@ -248,11 +252,12 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, co
             if not prompt:
                 raise BatchError("--from-dir requires --prompt")
             rows = rows_from_dir(
-                from_dir, prompt, out_dir, models=model_list, aspect=aspect, size=size,
+                from_dir, prompt, out_dir, models=model_list,
+                aspect=aspect, size=size, quality=quality,
             )
             only = None  # --models already applied as fan-out
         elif manifest:
-            defaults = {"aspect": aspect, "size": size}
+            defaults = {"aspect": aspect, "size": size, "quality": quality}
             rows = load_manifest(manifest, defaults=defaults)
             only = set(model_list) if model_list else None
         else:
