@@ -102,6 +102,9 @@ CAPS: dict[str, Caps] = {
     "flux-2-dev":      _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
     # --- ModelArk Seedream: t2i + native multi-ref i2i; group-image is a separate axis ---
     "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, note="needs BytePlus activation; 'group' (N/call) not wired"),
+    # --- OpenAI gpt-image-2: t2i (/images/generations) + ref edits (/images/edits, ≤5).
+    #     Legible text / ad creative; --quality is the cost/speed lever; token-billed. ---
+    "gpt-image-2":     _img({"t2i", "i2i", "compose"}, max_refs=5, note="OpenAI; legible text/ads; --quality lever; token-billed"),
     # --- fal modify ops (source image → image; ids verified against fal.ai 2026-06-22) ---
     "upscale":         _img({"upscale"}, note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
     "rmbg":            _img({"bg_remove"}, note="fal birefnet/v2 → transparent PNG (free compute)"),
