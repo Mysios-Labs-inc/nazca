@@ -53,8 +53,16 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
     # $0.03/img, 500 IPM, native multi-ref image-to-image (up to 14 refs). See
     # _modelark dispatch below + docs/throughput-and-rate-limits.md.
     "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # $0.03/img
+    # --- fal modify ops (source image → image). api="fal-modify" routes the
+    #     modify_image() dispatch. IDs verified against fal.ai docs 2026-06-22. ---
+    "upscale":         ("fal-ai/clarity-upscaler", "", "fal-modify", "fal"),  # $0.03/MP
+    "rmbg":            ("fal-ai/birefnet/v2",       "", "fal-modify", "fal"),  # free compute
 }
 DEFAULT_MODEL = "nano-banana"
+
+# Source-image modify ops (no prompt, no refs) and their default models.
+MODIFY_OPS = ("upscale", "bg_remove")
+_MODIFY_DEFAULT_MODEL = {"upscale": "upscale", "bg_remove": "rmbg"}
 
 # tier tags: each shorthand → "cheap" | "premium"
 # Vertex-direct models are the tier defaults (direct-first rule).
@@ -68,6 +76,8 @@ MODEL_TIERS: dict[str, str] = {
     "imagen-3":        "cheap",
     "flux-schnell":    "cheap",
     "flux-2-dev":      "premium",
+    "upscale":         "cheap",   # fal clarity-upscaler
+    "rmbg":            "cheap",   # fal birefnet (free compute)
     "seedream":        "cheap",   # ModelArk $0.03/img — probe brand fidelity vs Gemini before bulk
 }
 
@@ -382,4 +392,56 @@ def generate_image(
     token = backend.auth_token()
     resp = backend.post(url, body, token)
     out.write_bytes(extract(resp))
+    return out
+
+
+def default_modify_model(op: str) -> str:
+    """Default model shorthand for a source-image modify op."""
+    return _MODIFY_DEFAULT_MODEL[op]
+
+
+def modify_image(
+    out: str | Path,
+    source: str | Path,
+    *,
+    op: str,
+    model: str | None = None,
+    upscale_factor: int = 2,
+    dry_run: bool = False,
+) -> Path | dict:
+    """Apply a source-image modify op (no prompt, no refs) via fal.
+
+    op="upscale"   → fal clarity-upscaler  {image_url, upscale_factor}
+    op="bg_remove" → fal birefnet/v2       {image_url, output_format:"png"} (transparent PNG)
+
+    The body is built once and reused for dry-run and real send (only the source
+    data-URI is summarized), so the planned JSON matches what's POSTed.
+    Returns the output path; dry_run returns the plan dict.
+    """
+    out = Path(out)
+    resolved = model or _MODIFY_DEFAULT_MODEL[op]
+    model_id, _location, _api, backend_name = _resolve(resolved)
+    if backend_name != "fal":
+        raise ImageError(f"modify op '{op}' needs a fal model; '{resolved}' resolves to {backend_name}")
+    backend = get_backend(backend_name)
+
+    body: dict = {"image_url": backend.encode_image_data_uri(source, max_edge=2048)}
+    if op == "upscale":
+        body["upscale_factor"] = int(upscale_factor)
+    elif op == "bg_remove":
+        body["output_format"] = "png"
+    else:
+        raise ImageError(f"unknown modify op: {op}")
+
+    url = backend.build_url(model_id)
+    if dry_run:
+        plan = dict(body)
+        if plan["image_url"].startswith("data:"):
+            data_part = plan["image_url"].split(",", 1)[1] if "," in plan["image_url"] else ""
+            plan["image_url"] = f"<data-uri {len(data_part)} b64>"
+        return {"url": url, "model": model_id, "backend": backend_name, "op": op, "body": plan}
+
+    key = backend.auth_token()
+    raw = backend.submit_and_download(url, body, key, media_type="image")
+    out.write_bytes(raw)
     return out
