@@ -45,16 +45,20 @@ def backoff_base() -> float:
         return 20.0
 
 
+def _needs_retry_header(headers: dict | None) -> bool:
+    """fal documents a server-side requeue via this header, sent on a 2xx response.
+
+    The header only appears on fal responses, so the check is a no-op elsewhere.
+    """
+    return bool(headers) and str(headers.get("x-fal-needs-retry", "")).lower() == "true"
+
+
 def _is_retryable(code: int, body: str, headers: dict | None) -> bool:
     if code in RETRYABLE_STATUS:
         return True
     if "RESOURCE_EXHAUSTED" in body:
         return True
-    # fal documents a server-side requeue via this header — honor it generically;
-    # the header only appears on fal responses, so the check is a no-op elsewhere.
-    if headers and str(headers.get("x-fal-needs-retry", "")).lower() == "true":
-        return True
-    return False
+    return _needs_retry_header(headers)
 
 
 def post_json(
@@ -70,29 +74,44 @@ def post_json(
 ) -> dict:
     """POST a JSON body with bounded exponential backoff, return decoded JSON.
 
-    Retries up to `NAZCA_MAX_RETRIES` times on 429/503/RESOURCE_EXHAUSTED (and fal's
-    requeue header). When retries are exhausted on a rate-limit error, raises the
-    exception built by `on_rate_limited(code, detail)`; for any other HTTP error,
-    raises `on_http_error(code, detail)`. Both callbacks receive the status code and
-    the (truncated) response body so callers keep their own error types and messages.
+    Retries up to `NAZCA_MAX_RETRIES` times on 429/503/RESOURCE_EXHAUSTED, and on
+    fal's `x-fal-needs-retry` requeue header — which fal sends on a 2xx response, so
+    it is checked on the success path, not just on HTTP errors. When retries are
+    exhausted on a rate-limit signal, raises the exception built by
+    `on_rate_limited(code, detail)`; for any other HTTP error, raises
+    `on_http_error(code, detail)`. Both callbacks receive the status code and the
+    (truncated) response body so callers keep their own error types and messages.
 
     `_sleep`/`_rand` are injectable for testing.
     """
     data = json.dumps(body).encode()
     retries = max_retries()
     base = backoff_base()
+
+    def _backoff(attempt: int) -> None:
+        delay = base * (2 ** attempt)
+        delay += delay * 0.25 * _rand()  # jitter: up to +25%
+        _sleep(delay)
+
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted provider endpoint)
-                return json.loads(resp.read().decode())
+                payload = resp.read().decode()
+                # fal requeue signal rides on a successful (2xx) response.
+                if _needs_retry_header(dict(resp.headers or {})):
+                    if attempt < retries:
+                        _backoff(attempt)
+                        continue
+                    raise on_rate_limited(
+                        getattr(resp, "status", 0), "server requested retry (x-fal-needs-retry)"
+                    )
+                return json.loads(payload)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
             retryable = _is_retryable(e.code, detail, dict(e.headers or {}))
             if retryable and attempt < retries:
-                delay = base * (2 ** attempt)
-                delay += delay * 0.25 * _rand()  # jitter: up to +25%
-                _sleep(delay)
+                _backoff(attempt)
                 continue
             if retryable:
                 raise on_rate_limited(e.code, detail)

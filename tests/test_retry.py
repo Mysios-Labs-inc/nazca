@@ -18,10 +18,12 @@ def _http_error(code: int, body: str = "", headers: dict | None = None) -> urlli
 
 
 class _Resp:
-    """Minimal context-manager stand-in for a urllib response."""
+    """Minimal context-manager stand-in for a urllib response (2xx success)."""
 
-    def __init__(self, payload: bytes):
+    def __init__(self, payload: bytes, status: int = 200, headers: dict | None = None):
         self._payload = payload
+        self.status = status
+        self.headers = headers or {}
 
     def __enter__(self):
         return self
@@ -136,26 +138,47 @@ def test_zero_retries_is_snappy(monkeypatch):
         importlib.reload(retry)
 
 
-def test_fal_needs_retry_header(fast_retry):
+def _post_fal(slept, urlopen):
+    with mock.patch("urllib.request.urlopen", urlopen):
+        return retry.post_json(
+            "http://x",
+            {},
+            {},
+            on_http_error=lambda c, d: RuntimeError("http"),
+            on_rate_limited=lambda c, d: fal.FalRateLimitError("rl"),
+            _sleep=slept.append,
+            _rand=lambda: 0.0,
+        )
+
+
+def test_fal_needs_retry_header_on_2xx_success(fast_retry):
+    # fal's requeue header rides on a *successful* response — urlopen does NOT
+    # raise. Must be honored on the success path, not just on HTTP errors.
     slept = fast_retry
     calls = {"n": 0}
 
-    def needs_retry(req, timeout=None):
+    def queued(req, timeout=None):
         calls["n"] += 1
-        raise _http_error(202, "queued", {"x-fal-needs-retry": "true"})
+        return _Resp(b'{"queued": true}', status=202, headers={"x-fal-needs-retry": "true"})
 
-    with mock.patch("urllib.request.urlopen", needs_retry):
-        with pytest.raises(fal.FalRateLimitError):
-            retry.post_json(
-                "http://x",
-                {},
-                {},
-                on_http_error=lambda c, d: RuntimeError("http"),
-                on_rate_limited=lambda c, d: fal.FalRateLimitError("rl"),
-                _sleep=slept.append,
-                _rand=lambda: 0.0,
-            )
-    assert calls["n"] == 6
+    with pytest.raises(fal.FalRateLimitError):
+        _post_fal(slept, queued)
+    assert calls["n"] == 6  # retried to exhaustion despite each call "succeeding"
+
+
+def test_fal_needs_retry_header_then_success(fast_retry):
+    slept = fast_retry
+    seq = [
+        _Resp(b'{"queued": true}', status=202, headers={"x-fal-needs-retry": "true"}),
+        _Resp(b'{"ok": true}', status=200),
+    ]
+
+    def flaky(req, timeout=None):
+        return seq.pop(0)
+
+    out = _post_fal(slept, flaky)
+    assert out == {"ok": True}
+    assert slept == [20.0]
 
 
 def test_jitter_adds_up_to_25_percent(fast_retry):
@@ -177,6 +200,17 @@ def test_jitter_adds_up_to_25_percent(fast_retry):
             )
     # base*2**i * 1.25 at full jitter
     assert slept == [25.0, 50.0, 100.0, 200.0, 400.0]
+
+
+def test_malformed_env_falls_back_to_defaults(monkeypatch):
+    monkeypatch.setenv("NAZCA_MAX_RETRIES", "not-a-number")
+    monkeypatch.setenv("NAZCA_BACKOFF_BASE", "garbage")
+    importlib.reload(retry)
+    try:
+        assert retry.max_retries() == 5
+        assert retry.backoff_base() == 20.0
+    finally:
+        importlib.reload(retry)
 
 
 def test_modelark_rate_limit_type_is_distinct():
