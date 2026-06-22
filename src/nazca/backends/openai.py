@@ -52,6 +52,11 @@ class OpenAIBackend(Backend):
 
     name = "openai"
 
+    # Token usage from the most recent real dispatch (set by generate_image /
+    # edit_image). Lets the CLI report the ACTUAL cost after a gpt-image-2 run.
+    # None until a real call lands (dry-runs never touch the backend).
+    last_usage: dict | None = None
+
     # ------------------------------------------------------------------ auth
 
     def auth_token(self) -> str:
@@ -108,6 +113,7 @@ class OpenAIBackend(Backend):
         """POST /images/generations → decode data[0].b64_json to raw bytes."""
         token = self.auth_token()
         resp = self.post(self.image_endpoint(), body, token)
+        self.last_usage = resp.get("usage")  # token counts → actual cost (gpt-image-2)
         return self._extract_b64(resp)
 
     # ------------------------------------------------------------------ edit (multipart)
@@ -144,6 +150,7 @@ class OpenAIBackend(Backend):
             raise OpenAIError(
                 f"HTTP {e.code} from OpenAI: {detail}{hint('openai', e.code, detail)}"
             ) from e
+        self.last_usage = decoded.get("usage")  # token counts → actual cost (gpt-image-2)
         return self._extract_b64(decoded)
 
     # ------------------------------------------------------------------ helpers

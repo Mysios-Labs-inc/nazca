@@ -357,6 +357,15 @@ def generate_image(
     model_id, location, api, backend_name = _resolve(model)
     backend = get_backend(backend_name)
 
+    # Cost estimate (approximate) for the dry-run plan. Keyed by the model
+    # shorthand the user passed; raw ids / overrides return None ("cost unknown").
+    def _est_cost() -> float | None:
+        from nazca.cost import estimate_image_cost
+
+        aspect_size = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto") if backend_name == "openai" else None
+        est = estimate_image_cost(model or DEFAULT_MODEL, size=size, aspect_size=aspect_size, quality=quality)
+        return round(est.usd, 4) if est is not None else None
+
     if ref is None:
         refs = []
     elif isinstance(ref, (list, tuple)):
@@ -381,6 +390,7 @@ def generate_image(
                 "backend": backend_name,
                 "api": api,
                 "refs": len(refs),
+                "est_cost_usd": _est_cost(),
                 "body": plan_body,
             }
 
@@ -408,6 +418,7 @@ def generate_image(
                 "backend": backend_name,
                 "api": api,
                 "refs": len(refs),
+                "est_cost_usd": _est_cost(),
                 "body": plan_body,
             }
 
@@ -434,6 +445,7 @@ def generate_image(
                     "backend": backend_name,
                     "api": api,
                     "refs": len(refs),
+                    "est_cost_usd": _est_cost(),
                     "body": body,  # sent as multipart form fields alongside image[] parts
                 }
             raw = backend.edit_image(body, refs)
@@ -447,6 +459,7 @@ def generate_image(
                 "backend": backend_name,
                 "api": api,
                 "refs": 0,
+                "est_cost_usd": _est_cost(),
                 "body": body,
             }
 
@@ -468,7 +481,7 @@ def generate_image(
         extract = _gemini_extract
 
     if dry_run:
-        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "refs": len(refs), "size": size}
+        info: dict = {"url": url, "model": model_id, "location": location, "api": api, "refs": len(refs), "size": size, "est_cost_usd": _est_cost()}
         if api == "imagen":
             info["parameters"] = body["parameters"]
         else:
@@ -483,6 +496,37 @@ def generate_image(
     resp = backend.post(url, body, token)
     out.write_bytes(extract(resp))
     return out
+
+
+def image_cost_label(
+    model: str | None,
+    *,
+    aspect_ratio: str | None = None,
+    size: str | None = None,
+    quality: str | None = None,
+) -> str | None:
+    """Cost line for a COMPLETED real image run, e.g. "~$0.05" or "$0.04".
+
+    gpt-image-2 is token-billed: if the OpenAI backend captured a `usage` block on
+    the last dispatch, report the ACTUAL cost from it (no "~"). Otherwise fall back
+    to the size×quality estimate. Flat-priced models report their known per-image
+    price. Returns None when we have no pricing (raw ids, fal modify ops).
+    """
+    from nazca.cost import cost_from_openai_usage, estimate_image_cost
+
+    _model_id, _location, _api, backend_name = _resolve(model)
+
+    if backend_name == "openai":
+        backend = get_backend(backend_name)
+        actual = cost_from_openai_usage(getattr(backend, "last_usage", None))
+        if actual is not None:
+            return actual.label()
+        aspect_size = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
+        est = estimate_image_cost(model or DEFAULT_MODEL, aspect_size=aspect_size, quality=quality)
+        return est.label() if est is not None else None
+
+    est = estimate_image_cost(model or DEFAULT_MODEL, size=size)
+    return est.label() if est is not None else None
 
 
 def default_modify_model(op: str) -> str:

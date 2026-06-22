@@ -198,6 +198,15 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         click.echo(json.dumps(result, indent=2))
     else:
         click.echo(f"✅ {result}")
+        if not modify:
+            from nazca.image import image_cost_label
+
+            cost = image_cost_label(
+                resolved_model or DEFAULT_MODEL,
+                aspect_ratio=aspect_ratio, size=size, quality=quality,
+            )
+            if cost:
+                click.echo(f"💵 {cost}")
 
 
 @cli.command(name="batch")
