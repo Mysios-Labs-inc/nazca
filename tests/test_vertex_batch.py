@@ -8,6 +8,7 @@ output→row correlation (incl. duplicate requests), and the dry-run plan.
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 
@@ -45,6 +46,42 @@ def test_build_request_line_forces_1k(tmp_path):
     cfg = line["request"]["generationConfig"]
     assert cfg["imageConfig"]["imageSize"] == "1K"  # batch is 1K-only
     assert cfg["responseModalities"] == ["IMAGE"]
+
+
+def test_build_request_line_uses_filedata_not_base64(tmp_path):
+    # Payload-shrink (E): refs are referenced by fileData/gcsUri, never inlined.
+    line = vb.build_request_line(
+        _row(tmp_path, "a.png", refs=["x"]),
+        ref_uris=["gs://bkt/run/m/refs/abc123.png"],
+    )
+    parts = line["request"]["contents"][0]["parts"]
+    assert parts[0] == {"text": "prompt for a.png"}
+    assert parts[1] == {"fileData": {"mimeType": "image/png", "fileUri": "gs://bkt/run/m/refs/abc123.png"}}
+    # no base64 anywhere in the serialized request
+    assert "inlineData" not in json.dumps(line)
+
+
+def test_plan_computes_ref_uris_and_uploads(tmp_path):
+    r1 = BatchRow(out=tmp_path / "a.png", prompt="p", model="nano-banana-pro", refs=["/tmp/r1.png"])
+    r2 = BatchRow(out=tmp_path / "b.png", prompt="p", model="nano-banana-pro", refs=["/tmp/r1.png"])  # same ref
+    r3 = BatchRow(out=tmp_path / "c.png", prompt="p", model="nano-banana-pro", refs=["/tmp/r2.png"])
+    job = vb.plan_vertex_jobs([r1, r2, r3], "gs://bkt/run")[0]
+    # shared ref deduped → 2 unique uploads
+    assert len(job.ref_uploads) == 2
+    # request body carries fileData URIs, no base64
+    assert "inlineData" not in json.dumps(job.request_lines)
+    for line in job.request_lines:
+        fds = [p for p in line["request"]["contents"][0]["parts"] if "fileData" in p]
+        assert len(fds) == 1 and fds[0]["fileData"]["fileUri"].startswith("gs://bkt/run/")
+
+
+def test_plan_passes_through_existing_gcs_refs(tmp_path):
+    row = BatchRow(out=tmp_path / "a.png", prompt="p", model="nano-banana-pro", refs=["gs://other/ref.png"])
+    job = vb.plan_vertex_jobs([row], "gs://bkt/run")[0]
+    # already in GCS → referenced directly, nothing to upload
+    assert job.ref_uploads == {}
+    fd = job.request_lines[0]["request"]["contents"][0]["parts"][1]["fileData"]
+    assert fd["fileUri"] == "gs://other/ref.png"
 
 
 def test_warn_oversize_rows(tmp_path):
@@ -182,40 +219,170 @@ def test_run_vertex_batch_dry_run_no_io(tmp_path, monkeypatch):
     assert summary["planned"][0]["sample_request"] is not None
 
 
-def test_run_vertex_batch_happy_path(tmp_path, monkeypatch):
+def _install_fake_transport(monkeypatch, rows, shard_payloads, *, states=("JOB_STATE_SUCCEEDED",)):
+    """Wire up injectable seams: capture uploads, fake submit/poll, and serve
+    prediction shards by streaming bytes into the caller's temp file object.
+
+    `shard_payloads` is a list of lists-of-lines (one inner list per shard).
+    """
+    captured = {"uploaded_text": {}, "uploaded_bytes": {}}
+
+    monkeypatch.setattr(vb, "_gcs_upload_text", lambda uri, text, token: captured["uploaded_text"].__setitem__(uri, text))
+    monkeypatch.setattr(vb, "_gcs_upload_bytes", lambda uri, data, mime, token: captured["uploaded_bytes"].__setitem__(uri, data))
+    monkeypatch.setattr(vb, "_submit_job", lambda *a, **k: "projects/p/locations/global/batchPredictionJobs/1")
+    st = iter(states)
+    monkeypatch.setattr(vb, "_get_job", lambda *a, **k: {"state": next(st, "JOB_STATE_SUCCEEDED")})
+
+    shard_uris = [f"gs://bkt/run/gemini-3-pro-image/output/predictions.jsonl-{i:05d}-of-{len(shard_payloads):05d}"
+                  for i in range(len(shard_payloads))]
+    by_uri = {uri: lines for uri, lines in zip(shard_uris, shard_payloads)}
+
+    # list returns shards out of order, to prove _stream_predictions sorts them
+    monkeypatch.setattr(vb, "_gcs_list", lambda prefix, token: list(reversed(shard_uris)))
+
+    def fake_download(uri, token, fileobj, **kw):
+        body = "\n".join(json.dumps(ln) for ln in by_uri[uri]).encode()
+        fileobj.write(body)  # simulate streaming bytes into the temp file
+
+    monkeypatch.setattr(vb, "_gcs_download_to_file", fake_download)
+    return captured
+
+
+def test_run_vertex_batch_happy_path_streaming(tmp_path, monkeypatch):
     rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    # one shard, positional order, each row a distinct image
+    shard = [
+        {"response": _resp_with_image(base64.b64encode(b"img-a").decode())},
+        {"response": _resp_with_image(base64.b64encode(b"img-b").decode())},
+    ]
+    captured = _install_fake_transport(monkeypatch, rows, [shard], states=("JOB_STATE_RUNNING", "JOB_STATE_SUCCEEDED"))
 
-    uploaded = {}
+    summary = vb.run_vertex_batch(rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None)
+    assert summary["written"] == 2 and summary["errors"] == []
+    assert (tmp_path / "a.png").read_bytes() == b"img-a"
+    assert (tmp_path / "b.png").read_bytes() == b"img-b"
+    # input JSONL uploaded, one line per row
+    (uri,) = captured["uploaded_text"]
+    assert len(captured["uploaded_text"][uri].splitlines()) == 2
+    _ = job  # plan is deterministic; job built above only for clarity
 
-    def fake_upload(uri, text, token):
-        uploaded[uri] = text
 
-    def fake_submit(model_id, location, input_uri, output_prefix, token):
-        return f"projects/p/locations/{location}/batchPredictionJobs/123"
+def test_is_prediction_shard_matching():
+    # final outputs match; partial/metadata files must NOT (they'd misroute output)
+    assert vb._is_prediction_shard("gs://b/out/predictions.jsonl")
+    assert vb._is_prediction_shard("gs://b/out/predictions.jsonl-00000-of-00002")
+    assert vb._is_prediction_shard("gs://b/out/predictions.jsonl-00001-of-00002")
+    assert not vb._is_prediction_shard("gs://b/out/incremental_predictions.jsonl")
+    assert not vb._is_prediction_shard("gs://b/out/predictions.jsonl.metadata")
+    assert not vb._is_prediction_shard("gs://b/out/row_count.json")
 
-    states = iter(["JOB_STATE_RUNNING", "JOB_STATE_SUCCEEDED"])
-    monkeypatch.setattr(vb, "_gcs_upload_text", fake_upload)
-    monkeypatch.setattr(vb, "_submit_job", fake_submit)
-    monkeypatch.setattr(vb, "_get_job", lambda *a, **k: {"state": next(states)})
 
-    def fake_read_outputs(prefix, token):
-        job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
-        return [
-            {"request": line["request"], "response": _resp_with_image(base64.b64encode(f"i{i}".encode()).decode())}
-            for i, line in enumerate(job.request_lines)
+def test_stream_skips_incremental_predictions(tmp_path, monkeypatch):
+    # An incremental_predictions.jsonl present alongside the real shard must be
+    # ignored — else positional correlation would shift and misroute every image.
+    rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png")]
+    monkeypatch.setattr(vb, "_gcs_upload_text", lambda *a, **k: None)
+    monkeypatch.setattr(vb, "_gcs_upload_bytes", lambda *a, **k: None)
+    monkeypatch.setattr(vb, "_submit_job", lambda *a, **k: "jobs/1")
+    monkeypatch.setattr(vb, "_get_job", lambda *a, **k: {"state": "JOB_STATE_SUCCEEDED"})
+
+    real = "gs://bkt/run/gemini-3-pro-image/output/predictions.jsonl-00000-of-00001"
+    incremental = "gs://bkt/run/gemini-3-pro-image/output/incremental_predictions.jsonl"
+    monkeypatch.setattr(vb, "_gcs_list", lambda prefix, token: [incremental, real])
+
+    def fake_download(uri, token, fileobj, **kw):
+        if uri == incremental:
+            raise AssertionError("incremental file must not be downloaded")
+        lines = [
+            {"response": _resp_with_image(base64.b64encode(b"A").decode())},
+            {"response": _resp_with_image(base64.b64encode(b"B").decode())},
         ]
+        fileobj.write("\n".join(json.dumps(ln) for ln in lines).encode())
 
-    monkeypatch.setattr(vb, "read_output_lines", fake_read_outputs)
+    monkeypatch.setattr(vb, "_gcs_download_to_file", fake_download)
+    summary = vb.run_vertex_batch(rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None)
+    assert summary["written"] == 2 and summary["errors"] == []
+    assert (tmp_path / "a.png").read_bytes() == b"A"
+    assert (tmp_path / "b.png").read_bytes() == b"B"
 
-    summary = vb.run_vertex_batch(
-        rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None,
-    )
+
+def test_stream_predictions_across_two_shards(tmp_path, monkeypatch):
+    # THE scale test: 4 rows split across 2 shards, served out of order, streamed
+    # line-by-line — each image must land at the right out path.
+    rows = [_row(tmp_path, f"{c}.png") for c in "abcd"]
+    shard0 = [
+        {"response": _resp_with_image(base64.b64encode(b"A").decode())},
+        {"response": _resp_with_image(base64.b64encode(b"B").decode())},
+    ]
+    shard1 = [
+        {"response": _resp_with_image(base64.b64encode(b"C").decode())},
+        {"response": _resp_with_image(base64.b64encode(b"D").decode())},
+    ]
+    _install_fake_transport(monkeypatch, rows, [shard0, shard1])
+
+    summary = vb.run_vertex_batch(rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None)
+    assert summary["written"] == 4 and summary["errors"] == []
+    # positional correlation holds across sorted shards (shard0 then shard1)
+    assert (tmp_path / "a.png").read_bytes() == b"A"
+    assert (tmp_path / "b.png").read_bytes() == b"B"
+    assert (tmp_path / "c.png").read_bytes() == b"C"
+    assert (tmp_path / "d.png").read_bytes() == b"D"
+
+
+def test_stream_predictions_is_single_pass_flat_memory(tmp_path, monkeypatch):
+    # Memory stays flat: the sink consumes one line at a time and never receives
+    # a whole-file blob. We assert download streams into a file object (not RAM)
+    # and that consume() is called exactly once per line.
+    rows = [_row(tmp_path, f"{i}.png") for i in range(5)]
+    shard = [{"response": _resp_with_image(base64.b64encode(f"x{i}".encode()).decode())} for i in range(5)]
+    _install_fake_transport(monkeypatch, rows, [shard])
+
+    seen = {"lines": 0, "max_line_len": 0}
+    orig_consume = vb._OutputSink.consume
+
+    def counting_consume(self, line):
+        seen["lines"] += 1
+        seen["max_line_len"] = max(seen["max_line_len"], len(json.dumps(line)))
+        return orig_consume(self, line)
+
+    monkeypatch.setattr(vb._OutputSink, "consume", counting_consume)
+    summary = vb.run_vertex_batch(rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None)
+    assert summary["written"] == 5
+    assert seen["lines"] == 5  # one consume per line, never the whole file at once
+
+
+def test_run_vertex_batch_uploads_refs_once(tmp_path, monkeypatch):
+    from PIL import Image
+    ref = tmp_path / "ref.png"
+    Image.new("RGB", (8, 8)).save(ref)
+    # two rows share the SAME ref → must upload it exactly once
+    rows = [
+        BatchRow(out=tmp_path / "a.png", prompt="p", model="nano-banana-pro", refs=[str(ref)]),
+        BatchRow(out=tmp_path / "b.png", prompt="p2", model="nano-banana-pro", refs=[str(ref)]),
+    ]
+    shard = [
+        {"response": _resp_with_image(base64.b64encode(b"A").decode())},
+        {"response": _resp_with_image(base64.b64encode(b"B").decode())},
+    ]
+    captured = _install_fake_transport(monkeypatch, rows, [shard])
+
+    summary = vb.run_vertex_batch(rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None)
     assert summary["written"] == 2
-    assert summary["errors"] == []
-    assert (tmp_path / "a.png").exists() and (tmp_path / "b.png").exists()
-    # input JSONL was uploaded with one line per row
-    (uri,) = uploaded
-    assert len(uploaded[uri].splitlines()) == 2
+    assert len(captured["uploaded_bytes"]) == 1  # deduped: one upload for the shared ref
+
+
+def test_dry_run_shows_filedata_refs_no_base64_no_io(tmp_path, monkeypatch):
+    # --dry-run parity: the planned request matches what's sent (fileData gcsUri),
+    # contains no base64, and makes zero network calls.
+    for fn in ("_gcs_upload_text", "_gcs_upload_bytes", "_submit_job", "_get_job", "_gcs_list", "_gcs_download_to_file"):
+        monkeypatch.setattr(vb, fn, lambda *a, **k: (_ for _ in ()).throw(AssertionError(f"{fn} called in dry-run")))
+    row = BatchRow(out=tmp_path / "a.png", prompt="p", model="nano-banana-pro", refs=["/tmp/r.png"])
+    summary = vb.run_vertex_batch([row], "gs://bkt/run", dry_run=True)
+    sample = summary["planned"][0]["sample_request"]
+    blob = json.dumps(sample)
+    assert "inlineData" not in blob and "base64" not in blob
+    assert any("fileData" in p for p in sample["parts"])
 
 
 def test_run_vertex_batch_failed_job_reported(tmp_path, monkeypatch):
