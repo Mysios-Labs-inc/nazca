@@ -10,4 +10,4 @@ docs/media-modalities.md); the CLI infers the op from your flags and validates i
 Claude-driven: each command does one thing and prints the output path.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
