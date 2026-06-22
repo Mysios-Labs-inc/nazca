@@ -357,37 +357,78 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 
 
 @cli.command()
+@click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output video path (.mp4).")
 @click.option("-s", "--start", default=None, help="Start frame image. Omit for text-to-video (t2v).")
-@click.option("-p", "--prompt", required=True, help="Motion prompt.")
+@click.option("-p", "--prompt", default=None, help="Motion prompt (optional for --reframe).")
 @click.option("--end", default=None, help="Optional end frame (keyframe interpolation).")
+@click.option("--reframe", "do_reframe", is_flag=True, help="Re-aspect a SOURCE video URL to --aspect (fal luma ray-2).")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
 @click.option("--duration", default=8, type=int, help="Seconds (4, 6, or 8).")
-@click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9.")
+@click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
 @click.option("--resolution", default="720p", help="720p | 1080p.")
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
-    """Generate a video on Vertex Veo: text-to-video, image-to-video (--start), or keyframe (--start --end)."""
+def video(source, out, start, prompt, end, do_reframe, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
+    """Generate or edit a video.
+
+    \b
+      nazca video -p "..."                     # t2v
+      nazca video -p "..." --start s.png       # i2v
+      nazca video -p "..." --start s.png --end e.png  # keyframe
+      nazca video CLIP_URL --reframe --aspect 9:16    # reframe a source video
+    """
     from nazca import config
     from nazca.capabilities import CapabilityError, infer_video_op, validate_op
-    from nazca.video import VEO_ALIASES, generate_video, select_model
+    from nazca.video import (
+        VEO_ALIASES,
+        VIDEO_EDIT_OPS,
+        default_video_edit_model,
+        edit_video,
+        generate_video,
+        select_model,
+    )
+
+    op = infer_video_op(bool(start), bool(end), reframe=do_reframe)
+
+    # ---- video-edit ops (source VIDEO → video) -----------------------------
+    if op in VIDEO_EDIT_OPS:
+        if not source:
+            click.echo("❌ --reframe needs a SOURCE video URL: nazca video CLIP_URL --reframe", err=True)
+            raise SystemExit(2)
+        if start or end:
+            click.echo("❌ --start/--end are for frame ops; --reframe takes a SOURCE video, not frames", err=True)
+            raise SystemExit(2)
+        resolved_model = model or default_video_edit_model(op)
+        try:
+            validate_op(resolved_model, op)
+        except CapabilityError as e:
+            click.echo(f"❌ {e}", err=True)
+            raise SystemExit(2) from e
+        result = edit_video(
+            out, source, op=op, model=resolved_model,
+            aspect_ratio=aspect_ratio, prompt=prompt, dry_run=dry_run,
+        )
+        click.echo(f"{'📝' if dry_run else '✅'} {result}")
+        return
+
+    # ---- frame ops (t2v / i2v / keyframe) ----------------------------------
+    if source:
+        click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe); use --start for a frame", err=True)
+        raise SystemExit(2)
+    if end and not start:
+        click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
+        raise SystemExit(2)
+    if not prompt:
+        click.echo("❌ -p/--prompt is required for t2v/i2v/keyframe", err=True)
+        raise SystemExit(2)
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
     # For validation, resolve the implicit default (config.VEO_MODEL is a raw Veo
-    # id) to its shorthand so the default path is validated too — symmetric with
-    # the image command. Unknown ids stay unvalidated (validate_op no-ops).
+    # id) to its shorthand so the default path is validated too. Unknown ids no-op.
     validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
-
-    # Infer the op from the frames given (none→t2v, start→i2v, +end→keyframe) and
-    # validate against the model so e.g. an i2v-only model without --start, or a
-    # t2v-only model fed a --start, is rejected with a clear suggestion.
-    if end and not start:
-        click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
-        raise SystemExit(2)
-    op = infer_video_op(bool(start), bool(end))
     try:
         validate_op(validate_target, op)
     except CapabilityError as e:
@@ -532,7 +573,13 @@ def models_cmd() -> None:
     from nazca.image import MODEL_TIERS as IMG_TIERS
     from nazca.image import MODELS as IMG_MODELS
     from nazca.registry import all_overrides, models_path
-    from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES, VIDEO_MODEL_TIERS
+    from nazca.video import (
+        ARK_VIDEO_MODELS,
+        FAL_VIDEO_MODELS,
+        VEO_ALIASES,
+        VIDEO_EDIT_MODELS,
+        VIDEO_MODEL_TIERS,
+    )
 
     ov = all_overrides()
     img_ov = ov.get("image", {})
@@ -582,6 +629,8 @@ def models_cmd() -> None:
         all_vid[sh] = (fal_id, "fal")
     for sh, ark_id in ARK_VIDEO_MODELS.items():
         all_vid[sh] = (ark_id, "modelark")
+    for sh, fal_id in VIDEO_EDIT_MODELS.items():
+        all_vid[sh] = (fal_id, "fal")
 
     for sh, entry in vid_ov.items():
         mid = entry.get("id", sh)

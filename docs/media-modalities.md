@@ -63,6 +63,7 @@ backends that support it, not a new ad-hoc code path.
 | `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video`; reachable now (no `--start`) |
 | `seedance-pro` | modelark | i2v | needs BytePlus activation |
 | `seedance-lite` | modelark | i2v | needs BytePlus activation |
+| `reframe` | fal | reframe | luma ray-2/reframe; SOURCE = **video URL**, `--aspect` target (verified id+field) |
 
 ## Mismatches (1 & 2 fixed in P2)
 
@@ -110,4 +111,10 @@ nazca video SOURCE -p "restyle ..."        # v2v
 - ✅ **P3** — all four image modify ops via the `SOURCE` slot: `upscale`,
   `bg_remove`, `inpaint` (`--mask` + prompt), `outpaint` (`--expand`) — fal, all ids
   verified.
-- ⬜ **P4** — video-to-video: `v2v`/`reframe`/`extend` (largest lift).
+- 🟡 **P4** — video-edit ops via a positional `SOURCE` (a **video URL** — fal needs
+  a URL, not an inlined data-URI; `gs://` unsupported). `reframe` **done**
+  (luma ray-2/reframe, verified id + `video_url` field). `v2v`
+  (`fal-ai/wan-vace-apps/video-edit`) and `extend` (`fal-ai/pixverse/extend`) are
+  **researched but deferred** — a research workflow's verifiers could NOT confirm
+  their input field name, so each needs a live `curl`/SDK probe before wiring.
+  Local-file SOURCE (→ fal-storage upload) is a planned follow-up.
