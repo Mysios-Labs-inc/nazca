@@ -25,6 +25,7 @@ from PIL import Image
 
 from nazca import config, retry
 from nazca.backends.base import Backend
+from nazca.backends.error_hints import hint
 
 
 class FalError(RuntimeError):
@@ -75,7 +76,9 @@ class FalBackend(Backend):
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
-            raise FalError(f"HTTP {e.code} from fal: {detail}") from e
+            raise FalError(
+                f"HTTP {e.code} from fal: {detail}{hint('fal', e.code, detail)}"
+            ) from e
 
     def post(self, url: str, body: dict, token: str) -> dict:
         """POST JSON to fal queue endpoint with bounded backoff (item 1A), return JSON.
@@ -89,7 +92,9 @@ class FalBackend(Backend):
                 "Authorization": f"Key {token}",
                 "Content-Type": "application/json",
             },
-            on_http_error=lambda code, detail: FalError(f"HTTP {code} from fal: {detail}"),
+            on_http_error=lambda code, detail: FalError(
+                f"HTTP {code} from fal: {detail}{hint('fal', code, detail)}"
+            ),
             on_rate_limited=lambda code, detail: FalRateLimitError(
                 f"fal rate limit (HTTP {code}) persisted after retries: {detail}"
             ),

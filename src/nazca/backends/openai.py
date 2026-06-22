@@ -36,6 +36,7 @@ from PIL import Image
 
 from nazca import config
 from nazca.backends.base import Backend
+from nazca.backends.error_hints import hint
 from nazca.backends.vertex import encode_image_b64
 
 OPENAI_BASE = "https://api.openai.com/v1"
@@ -97,7 +98,9 @@ class OpenAIBackend(Backend):
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
-            raise OpenAIError(f"HTTP {e.code} from OpenAI: {detail}") from e
+            raise OpenAIError(
+                f"HTTP {e.code} from OpenAI: {detail}{hint('openai', e.code, detail)}"
+            ) from e
 
     # ------------------------------------------------------------------ image
 
@@ -138,7 +141,9 @@ class OpenAIBackend(Backend):
                 decoded = json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
-            raise OpenAIError(f"HTTP {e.code} from OpenAI: {detail}") from e
+            raise OpenAIError(
+                f"HTTP {e.code} from OpenAI: {detail}{hint('openai', e.code, detail)}"
+            ) from e
         return self._extract_b64(decoded)
 
     # ------------------------------------------------------------------ helpers
