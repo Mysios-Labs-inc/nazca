@@ -1,0 +1,104 @@
+# Media generation modalities — the map
+
+The modality of a model is **`inputs → output`**. It's the axis that decides
+routing, which CLI flags are even legal, and where validation belongs. This doc
+is the human-facing version of `src/nazca/capabilities.py` (the machine-readable
+descriptor). Keep them in sync — a test asserts every model has a `Caps` entry.
+
+## Operation vocabulary
+
+A closed set. Adding a modality = a new entry here + a body-builder on the
+backends that support it, not a new ad-hoc code path.
+
+### Image out
+| op | inputs → output | meaning |
+|---|---|---|
+| `t2i` | text → image | text-to-image |
+| `i2i` | text + ref[1] → image | restyle / edit from one reference |
+| `compose` | text + ref[2..N] → image | multi-subject blend |
+| `inpaint` | source + mask + text → image | edit a masked region |
+| `outpaint` | source (+text) → image | extend the canvas |
+| `upscale` | source → image | enhance / increase resolution |
+| `bg_remove` | source → image+alpha | cutout / transparent background |
+
+### Video out
+| op | inputs → output | meaning |
+|---|---|---|
+| `t2v` | text → video | text-to-video |
+| `i2v` | text + start → video | animate from a start frame |
+| `keyframe` | text + start + end → video | first-last frame interpolation |
+| `v2v` | source video (+text) → video | restyle / motion-transfer |
+| `reframe` | source video + aspect → video | change aspect ratio |
+| `extend` | source video → video | lengthen a clip |
+
+### Audio out
+`tts`, `music`, `dub` — **named but deliberately out of scope** for nazca today.
+
+## Models today (P1 — descriptive, what nazca drives now)
+
+### Image
+| shorthand | backend | ops | notes |
+|---|---|---|---|
+| `nano-banana` | vertex/gemini | t2i, i2i, compose | 2.5-flash-image; ref count unpinned |
+| `nano-banana-2` | vertex/gemini | t2i, i2i, compose | 3.1-flash-image |
+| `nano-banana-pro` | vertex/gemini | t2i, i2i, compose | 3-pro-image; **up to 14 refs**, legible text |
+| `imagen-4-fast` | vertex/imagen | t2i | **t2i only** — rejects refs |
+| `imagen-4` | vertex/imagen | t2i | t2i only |
+| `imagen-3` | vertex/imagen | t2i | t2i only |
+| `flux-schnell` | fal | t2i, i2i | **single ref only**; fal id unverified |
+| `flux-2-dev` | fal | t2i, i2i | single ref only; fal id unverified |
+| `seedream` | modelark | t2i, i2i, compose | up to 14 refs; needs BytePlus activation; `group` (N/call) not wired |
+
+### Video
+| shorthand | backend | ops | notes |
+|---|---|---|---|
+| `veo-3.1-lite` | vertex | i2v, keyframe | start required; end optional |
+| `veo-3.1-fast` | vertex | i2v, keyframe | |
+| `veo-3.1` | vertex | i2v, keyframe | Veo also supports t2v natively — not driven yet (see mismatch #1) |
+| `seedance-2-fast` | fal | i2v | fal id unverified |
+| `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video` — see mismatch #1 |
+| `seedance-pro` | modelark | i2v | needs BytePlus activation |
+| `seedance-lite` | modelark | i2v | needs BytePlus activation |
+
+## Known mismatches the descriptor exposes (to fix in P2)
+
+1. **`nazca video` hard-requires `--start` → it's structurally I2V-only.** But
+   `wan-2.6` is `t2v` (and Veo supports t2v too). There is no path to express pure
+   text-to-video today. P2: make `--start` optional and infer `t2v` when absent.
+2. **Imagen rejects `--ref` at *runtime*** (raises mid-call) rather than as a
+   declared capability. P2: validate `inferred_op ∈ caps.ops` up front, with a
+   suggested model that does support it.
+3. **Seedream `group` mode** (1 call → up to 15 related images) is a real distinct
+   axis and is unwired.
+
+## CLI surface (decided: infer op from flags)
+
+The command stays `nazca image` / `nazca video`; the op is inferred from the flags
+you pass, then validated against the model's `ops`. A positional `SOURCE` is the
+image/video being *modified* (inpaint/outpaint/upscale/bg_remove, v2v/reframe/
+extend), kept distinct from `--ref` (style/subject references). `--prompt` becomes
+optional for ops that don't need it (upscale, bg_remove, reframe).
+
+```
+# image
+nazca image -p "..."                       # t2i
+nazca image -p "..." --ref a.png           # i2i
+nazca image -p "..." --ref a.png --ref b.png   # compose
+nazca image SOURCE --mask m.png -p "..."   # inpaint
+nazca image SOURCE --upscale               # upscale (no prompt)
+# video
+nazca video -p "..."                       # t2v
+nazca video -p "..." --start s.png         # i2v
+nazca video -p "..." --start s.png --end e.png  # keyframe
+nazca video SOURCE -p "restyle ..."        # v2v
+```
+
+## Roadmap
+
+- **P1 (this)** — `Caps` descriptor + this doc; encode existing models; `nazca
+  models` shows ops. No behavior change.
+- **P2** — derive op from flags + validate against `CAPS`; make `--start`
+  optional (unblocks `t2v`); reject imagen+ref up front. Fixes mismatches #1, #2.
+- **P3** — image modify ops: `inpaint`/`outpaint`, then `upscale`/`bg_remove`
+  (shared SOURCE plumbing; mostly fal/Higgsfield body-builders — ids to be probed).
+- **P4** — video-to-video: `v2v`/`reframe`/`extend` (largest lift).
