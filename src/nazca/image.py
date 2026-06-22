@@ -192,13 +192,17 @@ _OPENAI_ASPECT_MAP: dict[str, str] = {
 
 
 def _openai_image_body(
-    prompt: str, model_id: str, aspect_ratio: str | None, quality: str | None = None
+    prompt: str, model_id: str, aspect_ratio: str | None, quality: str | None = None,
+    output_format: str | None = None, transparent: bool = False
 ) -> dict:
     """Build the /images/{generations,edits} body (shared by both ops).
 
     `quality` (low|medium|high|auto) is the main cost/speed lever — output image
     tokens, which dominate the bill, scale ~4× between medium and high. Defaults
     to "high" (best text fidelity) when unset.
+
+    `output_format` (png/jpeg/webp) is passed to gpt-image-2; other models ignore it.
+    `transparent` (bool) sets background:"transparent" for gpt-image-2 only.
     """
     body: dict = {
         "model": model_id,
@@ -207,6 +211,10 @@ def _openai_image_body(
         "quality": quality or "high",
     }
     body["size"] = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
+    if output_format and output_format != "png":
+        body["response_format"] = output_format
+    if transparent:
+        body["background"] = "transparent"
     return body
 
 
@@ -340,6 +348,8 @@ def generate_image(
     aspect_ratio: str | None = "9:16",
     size: str | None = "2K",
     quality: str | None = None,
+    output_format: str | None = None,
+    transparent: bool = False,
     dry_run: bool = False,
 ) -> Path | dict:
     """Generate (or restyle, when ref is given) one image.
@@ -349,7 +359,8 @@ def generate_image(
     Vertex/Imagen: text-to-image only, rejects --ref.
     fal/FLUX: text-to-image; --ref sends the first image as a data-URI.
     OpenAI/gpt-image-2: t2i + edits; `quality` (low|medium|high|auto) sets the
-      cost/speed lever (ignored by other backends).
+      cost/speed lever. `output_format` (png/jpeg/webp) and `transparent` (bool)
+      are gpt-image-2 only. Ignored by other backends.
 
     Returns the output path; dry_run returns the plan dict (no API call, no key needed).
     """
@@ -428,7 +439,7 @@ def generate_image(
 
     # ---- OpenAI dispatch (gpt-image-2) -------------------------------
     if backend_name == "openai":
-        body = _openai_image_body(prompt, model_id, aspect_ratio, quality)
+        body = _openai_image_body(prompt, model_id, aspect_ratio, quality, output_format, transparent)
 
         # With refs → /images/edits (multipart). Without → /images/generations.
         if refs:

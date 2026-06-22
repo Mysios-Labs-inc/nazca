@@ -126,9 +126,11 @@ def cli() -> None:
 @click.option("--aspect", "aspect_ratio", default="9:16", help="Aspect ratio.")
 @click.option("--size", default="2K", type=click.Choice(["1K", "2K", "4K"]), help="Output res (gemini-3 only; 2.5-flash stays 1K).")
 @click.option("--quality", default="high", type=click.Choice(["low", "medium", "high", "auto"]), help="gpt-image-2 only: cost/speed lever (medium ≈ 4× cheaper & faster than high). Ignored by other models.")
+@click.option("--format", "output_format", default="png", type=click.Choice(["png", "jpeg", "webp"]), help="Output image format (gpt-image-2 only for jpeg/webp; default png).")
+@click.option("--transparent", is_flag=True, help="Transparent background (gpt-image-2 only; sets background:transparent).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, quality, tier, dry_run):
+def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, quality, output_format, transparent, tier, dry_run):
     """Generate, restyle (--ref), or modify (SOURCE + --upscale/--rmbg/--mask/--outpaint) an image.
 
     \b
@@ -138,6 +140,8 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
       nazca image photo.png --rmbg                 # background removal → transparent PNG
       nazca image photo.png --mask m.png -p "..."  # inpaint the masked region
       nazca image photo.png --outpaint --expand 320  # extend the canvas
+      nazca image -p "..." --format jpeg           # output as JPEG (gpt-image-2 support varies)
+      nazca image -p "..." --transparent           # transparent bg (gpt-image-2 only)
     """
     from nazca.capabilities import CapabilityError, infer_image_op, validate_op
     from nazca.image import (
@@ -192,7 +196,8 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
     else:
         result = generate_image(
             out, prompt, ref=list(ref) or None, model=resolved_model,
-            aspect_ratio=aspect_ratio, size=size, quality=quality, dry_run=dry_run,
+            aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
+            transparent=transparent, dry_run=dry_run,
         )
     if dry_run:
         click.echo(json.dumps(result, indent=2))
