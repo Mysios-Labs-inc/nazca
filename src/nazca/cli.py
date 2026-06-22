@@ -148,8 +148,10 @@ def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
 @click.option("--aspect", "aspect", default=None, help="Default aspect ratio for rows that omit it.")
 @click.option("--size", default=None, type=click.Choice(["1K", "2K", "4K"]), help="Default size for rows that omit it.")
 @click.option("--concurrency", default=None, type=int, help="Max concurrent model lanes (default: one per model).")
+@click.option("--vertex-batch", "vertex_batch", is_flag=True, help="Use async Vertex Batch (no RPM wall, −50%, 1K only). Needs --gcs.")
+@click.option("--gcs", "gcs", default=None, help="gs://bucket/prefix for Vertex Batch input/output (with --vertex-batch).")
 @click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
-def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, concurrency, dry_run):
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, concurrency, vertex_batch, gcs, dry_run):
     """Generate many images, paced per model lane (idempotent + resumable).
 
     Two input modes:
@@ -161,6 +163,10 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, co
     Rows already present at their `out` path are skipped, so a re-run only fills
     gaps. Each distinct model runs on its own paced lane (the 2/min Vertex cap is
     per base model), so N models ≈ N×rpm combined.
+
+    \b
+    --vertex-batch routes Gemini-image rows through async Vertex Batch inference
+    (no per-minute quota, 50% cheaper, 1K-only output) via a --gcs bucket.
     """
     from nazca.batch import (
         BatchError,
@@ -187,7 +193,16 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, co
             only = set(model_list) if model_list else None
         else:
             raise BatchError("provide a MANIFEST path or --from-dir")
+    except BatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
 
+    # --- Vertex Batch (async, no RPM wall) -------------------------------
+    if vertex_batch:
+        _run_vertex_batch_cmd(rows, gcs, only, dry_run)
+        return
+
+    try:
         plan = plan_batch(rows, rpm=rpm, default_model=DEFAULT_MODEL, only_models=only)
     except BatchError as e:
         click.echo(f"❌ {e}", err=True)
@@ -221,6 +236,61 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, co
 
     click.echo(f"\ndone: {ok} generated · {skipped} skipped · {len(errors)} failed")
     if errors:
+        raise SystemExit(1)
+
+
+def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
+    """Drive an async Vertex Batch run from the `batch` command (with --vertex-batch)."""
+    from nazca.vertex_batch import VertexBatchError, run_vertex_batch
+
+    if not gcs:
+        click.echo("❌ --vertex-batch requires --gcs gs://bucket/prefix", err=True)
+        raise SystemExit(2)
+
+    # Honor the manifest --models filter (resolve each row's model, keep matches).
+    if only_models:
+        from nazca.image import DEFAULT_MODEL, _resolve
+        kept = []
+        for r in rows:
+            mid, _, _, _ = _resolve(r.model or DEFAULT_MODEL)
+            if (r.model in only_models) or (mid in only_models):
+                kept.append(r)
+        rows = kept
+
+    def on_event(stage, detail):
+        if stage == "submit":
+            click.echo(f"  🚀 submitting {detail.model_id} ({len(detail.rows)} rows)")
+        elif stage == "poll":
+            click.echo(f"  ⏳ {detail}")
+        elif stage == "fetch":
+            click.echo(f"  ⬇  fetching {detail.model_id} predictions")
+
+    try:
+        summary = run_vertex_batch(rows, gcs, dry_run=dry_run, on_event=on_event)
+    except VertexBatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    click.echo(
+        f"vertex-batch: {summary['jobs']} job(s) · {summary['pending']} pending · "
+        f"models {', '.join(summary['models']) or '—'}"
+    )
+    if summary["oversize_forced_1k"]:
+        click.echo(f"  ⚠ {summary['oversize_forced_1k']} row(s) asked for 2K/4K — batch is 1K-only, forced to 1K")
+
+    if dry_run:
+        for j in summary.get("planned", []):
+            click.echo(f"  📝 {j['model']} [{j['location']}] {j['rows']} rows → {j['output_prefix']}")
+        click.echo(json.dumps(summary["planned"], indent=2))
+        click.echo("\nno job submitted (--dry-run).")
+        return
+
+    written = summary.get("written", 0)
+    errs = summary.get("errors", [])
+    click.echo(f"\ndone: {written} image(s) written · {len(errs)} error(s)")
+    for e in errs:
+        click.echo(f"  ❌ {e}")
+    if errs:
         raise SystemExit(1)
 
 
