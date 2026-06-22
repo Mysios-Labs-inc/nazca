@@ -6,4 +6,4 @@ video → Vertex Veo 3.1 (image-to-video, start + optional end keyframe)
 Claude-driven: each command does one thing and prints the output path.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

@@ -136,6 +136,94 @@ def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
         click.echo(f"✅ {result}")
 
 
+@cli.command(name="batch")
+@click.argument("manifest", required=False, type=click.Path())
+@click.option("--from-dir", "from_dir", default=None, type=click.Path(exists=True, file_okay=False),
+              help="Build rows from a dir of ref images instead of a manifest.")
+@click.option("--prompt", default=None, help="Prompt for --from-dir (may use {stem}/{name}).")
+@click.option("--out-dir", "out_dir", default="batch-out", type=click.Path(),
+              help="Output dir for --from-dir (default: batch-out).")
+@click.option("--rpm", default=2.0, type=float, help="Per-lane request starts/min (default 2 = Vertex cap).")
+@click.option("--models", default=None, help="Comma-separated model shorthands: filter (manifest) or fan-out (--from-dir).")
+@click.option("--aspect", "aspect", default=None, help="Default aspect ratio for rows that omit it.")
+@click.option("--size", default=None, type=click.Choice(["1K", "2K", "4K"]), help="Default size for rows that omit it.")
+@click.option("--concurrency", default=None, type=int, help="Max concurrent model lanes (default: one per model).")
+@click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, concurrency, dry_run):
+    """Generate many images, paced per model lane (idempotent + resumable).
+
+    Two input modes:
+
+    \b
+      nazca batch jobs.jsonl                     # manifest: one row per image
+      nazca batch --from-dir refs/ --prompt "…"  # one row per ref image in a dir
+
+    Rows already present at their `out` path are skipped, so a re-run only fills
+    gaps. Each distinct model runs on its own paced lane (the 2/min Vertex cap is
+    per base model), so N models ≈ N×rpm combined.
+    """
+    from nazca.batch import (
+        BatchError,
+        load_manifest,
+        plan_batch,
+        rows_from_dir,
+        run_batch,
+    )
+    from nazca.image import DEFAULT_MODEL
+
+    model_list = [m.strip() for m in models.split(",") if m.strip()] if models else None
+
+    try:
+        if from_dir:
+            if not prompt:
+                raise BatchError("--from-dir requires --prompt")
+            rows = rows_from_dir(
+                from_dir, prompt, out_dir, models=model_list, aspect=aspect, size=size,
+            )
+            only = None  # --models already applied as fan-out
+        elif manifest:
+            defaults = {"aspect": aspect, "size": size}
+            rows = load_manifest(manifest, defaults=defaults)
+            only = set(model_list) if model_list else None
+        else:
+            raise BatchError("provide a MANIFEST path or --from-dir")
+
+        plan = plan_batch(rows, rpm=rpm, default_model=DEFAULT_MODEL, only_models=only)
+    except BatchError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+    for line in plan.summary_lines():
+        click.echo(line)
+
+    if plan.pending == 0 and not dry_run:
+        click.echo("nothing to do — all outputs already exist.")
+        return
+
+    icons = {"ok": "✅", "skipped": "⏭", "error": "❌", "planned": "📝"}
+
+    def on_event(status, row, detail):
+        line = f"  {icons.get(status, '?')} {row.out}"
+        if status == "error":
+            line += f"  ({detail})"
+        click.echo(line)
+
+    results = run_batch(plan, dry_run=dry_run, concurrency=concurrency, on_event=on_event)
+
+    ok = sum(1 for r in results if r.status == "ok")
+    skipped = sum(1 for r in results if r.status == "skipped")
+    errors = [r for r in results if r.status == "error"]
+    planned = sum(1 for r in results if r.status == "planned")
+
+    if dry_run:
+        click.echo(f"\nplanned {planned} request(s) ({skipped} already done) — no API calls made.")
+        return
+
+    click.echo(f"\ndone: {ok} generated · {skipped} skipped · {len(errors)} failed")
+    if errors:
+        raise SystemExit(1)
+
+
 @cli.command()
 @click.option("-o", "--out", required=True, help="Output video path (.mp4).")
 @click.option("-s", "--start", required=True, help="Start frame image.")
