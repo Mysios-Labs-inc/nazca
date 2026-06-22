@@ -121,10 +121,20 @@ def cli() -> None:
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
 def image(out, prompt, ref, model, aspect_ratio, size, tier, dry_run):
     """Generate (or restyle with --ref) one image via Vertex Gemini / Imagen."""
-    from nazca.image import generate_image, select_model
+    from nazca.capabilities import CapabilityError, infer_image_op, validate_op
+    from nazca.image import DEFAULT_MODEL, generate_image, select_model
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
+
+    # Capability check up front: the op is the refs count (t2i/i2i/compose), and we
+    # reject e.g. imagen + --ref here instead of letting it raise mid-dispatch.
+    op = infer_image_op(len(ref))
+    try:
+        validate_op(resolved_model or DEFAULT_MODEL, op, n_refs=len(ref))
+    except CapabilityError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
 
     result = generate_image(
         out, prompt, ref=list(ref) or None, model=resolved_model,
@@ -296,7 +306,7 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 
 @cli.command()
 @click.option("-o", "--out", required=True, help="Output video path (.mp4).")
-@click.option("-s", "--start", required=True, help="Start frame image.")
+@click.option("-s", "--start", default=None, help="Start frame image. Omit for text-to-video (t2v).")
 @click.option("-p", "--prompt", required=True, help="Motion prompt.")
 @click.option("--end", default=None, help="Optional end frame (keyframe interpolation).")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
@@ -307,11 +317,30 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
 def video(out, start, prompt, end, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
-    """Generate a Veo clip from a start frame (+ optional end frame) on Vertex."""
-    from nazca.video import generate_video, select_model
+    """Generate a video on Vertex Veo: text-to-video, image-to-video (--start), or keyframe (--start --end)."""
+    from nazca import config
+    from nazca.capabilities import CapabilityError, infer_video_op, validate_op
+    from nazca.video import VEO_ALIASES, generate_video, select_model
 
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
+    # For validation, resolve the implicit default (config.VEO_MODEL is a raw Veo
+    # id) to its shorthand so the default path is validated too — symmetric with
+    # the image command. Unknown ids stay unvalidated (validate_op no-ops).
+    validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
+
+    # Infer the op from the frames given (none→t2v, start→i2v, +end→keyframe) and
+    # validate against the model so e.g. an i2v-only model without --start, or a
+    # t2v-only model fed a --start, is rejected with a clear suggestion.
+    if end and not start:
+        click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
+        raise SystemExit(2)
+    op = infer_video_op(bool(start), bool(end))
+    try:
+        validate_op(validate_target, op)
+    except CapabilityError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
 
     result = generate_video(
         out, start, prompt, end=end, model=resolved_model, duration=duration,

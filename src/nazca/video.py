@@ -88,7 +88,7 @@ VEO_BACKEND = "vertex"
 
 def generate_video(
     out: str | Path,
-    start: str | Path,
+    start: str | Path | None,
     prompt: str,
     end: str | Path | None = None,
     *,
@@ -99,10 +99,13 @@ def generate_video(
     generate_audio: bool = False,
     dry_run: bool = False,
 ) -> Path:
-    """Generate a video clip from a start frame (+ optional end frame).
+    """Generate a video clip — text-to-video, or from a start frame (+ optional end).
 
-    Vertex Veo: start + optional end frame keyframe interpolation.
-    fal: start frame as data-URI; end/resolution/audio support varies by model.
+    Vertex Veo: t2v (no frames), i2v (start), or keyframe (start + end).
+    fal: start frame as data-URI when given; end/resolution/audio support varies.
+
+    `start=None` produces text-to-video; the per-backend image field is simply
+    omitted. (The CLI validates that the chosen model supports the inferred op.)
 
     Returns the output path (or .request.json for Vertex dry-run).
     """
@@ -121,13 +124,13 @@ def generate_video(
             _fal_id = _raw_id
             _backend = get_backend("fal")
             _url = _backend.build_url(_fal_id)
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _body: dict = {
                 "prompt": prompt,
-                "image_url": _start_uri,
                 "duration": int(duration),
                 "aspect_ratio": aspect_ratio,
             }
+            if start:
+                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
             if end:
                 _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
             if dry_run:
@@ -148,9 +151,10 @@ def generate_video(
         elif _prefix in ("ark", "modelark"):
             _ark_id = _raw_id
             _backend = get_backend("modelark")
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _content: list[dict] = [{"type": "text", "text": prompt}]
-            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            if start:
+                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
             _body = {
                 "model": _ark_id,
                 "content": _content,
@@ -189,13 +193,13 @@ def generate_video(
             _fal_model_id = _ov_id
             _backend = get_backend("fal")
             _url = _backend.build_url(_fal_model_id)
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _body = {
                 "prompt": prompt,
-                "image_url": _start_uri,
                 "duration": int(duration),
                 "aspect_ratio": aspect_ratio,
             }
+            if start:
+                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
             if end:
                 _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
             if dry_run:
@@ -216,9 +220,10 @@ def generate_video(
         if _ov_backend == "modelark":
             _ark_model_id = _ov_id
             _backend = get_backend("modelark")
-            _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
             _content = [{"type": "text", "text": prompt}]
-            _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
+            if start:
+                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
+                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
             _body = {
                 "model": _ark_model_id,
                 "content": _content,
@@ -252,14 +257,14 @@ def generate_video(
         backend = get_backend("fal")
         url = backend.build_url(fal_model_id)
 
-        # Build fal video body
-        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+        # Build fal video body (image_url only when a start frame is given → t2v when not)
         body: dict = {
             "prompt": prompt,
-            "image_url": start_uri,
             "duration": int(duration),
             "aspect_ratio": aspect_ratio,
         }
+        if start:
+            body["image_url"] = backend.encode_image_data_uri(start, max_edge=1280)
         if end:
             body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)
 
@@ -287,11 +292,12 @@ def generate_video(
         ark_model_id = ARK_VIDEO_MODELS[resolved_model]
         backend = get_backend("modelark")
 
-        # Build content array: text prompt + seed frame encoded as a data URI
+        # Build content array: text prompt + (optional) seed frame as a data URI
         # (a remote API cannot read a local path). Schema is UNVERIFIED.
-        start_uri = backend.encode_image_data_uri(start, max_edge=1280)
         content: list[dict] = [{"type": "text", "text": prompt}]  # verify schema
-        content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
+        if start:
+            start_uri = backend.encode_image_data_uri(start, max_edge=1280)
+            content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
         body: dict = {
             "model": ark_model_id,
             "content": content,
@@ -326,8 +332,10 @@ def generate_video(
     veo_model = VEO_ALIASES.get(resolved_model, resolved_model)
     backend = get_backend(VEO_BACKEND)
 
-    start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
-    instance: dict = {"prompt": prompt, "image": {"bytesBase64Encoded": start_b64, "mimeType": mime}}
+    instance: dict = {"prompt": prompt}
+    if start:  # omit `image` for text-to-video
+        start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
+        instance["image"] = {"bytesBase64Encoded": start_b64, "mimeType": mime}
     if end:
         end_b64, emime = backend.encode_image_b64(end, max_edge=1280, fmt="JPEG")
         instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
