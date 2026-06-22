@@ -307,6 +307,85 @@ def test_run_batch_respects_concurrency_cap(tmp_path, monkeypatch):
     assert len([r for r in results if r.status == "ok"]) == 3
 
 
+# ----------------------------------------------------- per-provider pacing + quality
+def test_backend_of_keys_off_model():
+    assert batch.backend_of("gpt-image-2") == "openai"
+    assert batch.backend_of("nano-banana") == "vertex"
+
+
+def test_quality_only_passed_when_set(tmp_path, monkeypatch):
+    # Rows without a quality must keep the pre-quality call signature (no kwarg),
+    # so legacy callers/fakes don't break. A row WITH quality threads it through.
+    seen: list[dict] = []
+
+    def fake_generate(out, prompt, *, ref, model, aspect_ratio, size, quality=None, dry_run=False):
+        seen.append({"model": model, "quality": quality})
+        out.write_bytes(b"img")
+        return out
+
+    monkeypatch.setattr(batch, "generate_image", fake_generate)
+
+    rows = [
+        batch.BatchRow(out=tmp_path / "plain.png", prompt="p", model="nano-banana"),
+        batch.BatchRow(out=tmp_path / "hq.png", prompt="p", model="gpt-image-2", quality="medium"),
+    ]
+    # gpt-image-2 lane is concurrent; nano-banana lane is paced. Zero-wait pacer.
+    plan = batch.plan_batch(rows, rpm=600)
+    batch.run_batch(plan, _pacer_factory=lambda i: batch._StartPacer(0.0))
+
+    by_model = {s["model"]: s["quality"] for s in seen}
+    assert by_model["nano-banana"] is None
+    assert by_model["gpt-image-2"] == "medium"
+
+
+def test_quality_call_omits_kwarg_for_legacy_fakes(tmp_path, monkeypatch):
+    # A fake WITHOUT a `quality` param must still work for non-quality rows —
+    # proves the kwarg is omitted, not passed as None.
+    def legacy_fake(out, prompt, *, ref, model, aspect_ratio, size, dry_run=False):
+        out.write_bytes(b"img")
+        return out
+
+    monkeypatch.setattr(batch, "generate_image", legacy_fake)
+    rows = [batch.BatchRow(out=tmp_path / "a.png", prompt="p", model="nano-banana")]
+    plan = batch.plan_batch(rows, rpm=600)
+    results = batch.run_batch(plan, _pacer_factory=lambda i: batch._StartPacer(0.0))
+    assert results[0].status == "ok"
+
+
+def test_openai_lane_runs_concurrently_without_pacing(tmp_path, monkeypatch):
+    # gpt-image-2 is latency-bound: rows should dispatch in parallel (a worker
+    # pool), so a blocking gen on one row overlaps the others. We assert the lane
+    # reaches max in-flight > 1 — impossible with the single-threaded vertex pacer.
+    import threading
+
+    inflight = {"now": 0, "max": 0}
+    lock = threading.Lock()
+    release = threading.Event()
+
+    def fake_generate(out, prompt, *, ref, model, aspect_ratio, size, quality=None, dry_run=False):
+        with lock:
+            inflight["now"] += 1
+            inflight["max"] = max(inflight["max"], inflight["now"])
+        release.wait(timeout=2.0)
+        with lock:
+            inflight["now"] -= 1
+        out.write_bytes(b"img")
+        return out
+
+    monkeypatch.setattr(batch, "generate_image", fake_generate)
+    rows = [batch.BatchRow(out=tmp_path / f"{i}.png", prompt="p", model="gpt-image-2") for i in range(3)]
+    plan = batch.plan_batch(rows, rpm=2)  # rpm wall would serialize a vertex lane
+
+    # Release the gate shortly after start so all three can pile in first.
+    timer = threading.Timer(0.3, release.set)
+    timer.start()
+    results = batch.run_batch(plan, lane_workers=3)
+    timer.cancel()
+
+    assert len([r for r in results if r.status == "ok"]) == 3
+    assert inflight["max"] > 1  # concurrency, not a throttle
+
+
 def test_run_batch_isolates_mkdir_failure(tmp_path, monkeypatch):
     # A filesystem failure (parent path is a regular file, so mkdir fails) must
     # be captured as a per-row error, not escape the lane and sink the batch.

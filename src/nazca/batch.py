@@ -21,6 +21,14 @@ Three ideas do the work:
 
 Per-row dispatch reuses `nazca.image.generate_image`, so it inherits the 429/503
 backoff added in item 1A.
+
+**Pacing is keyed off the model's backend.** Vertex's 2/min-per-base-model wall
+wants throttled *starts* (the `_StartPacer` above). But latency-bound backends
+like OpenAI's gpt-image-2 (~30–105s/img, no req/min wall) want the opposite —
+*concurrency*, not a throttle. So an openai lane runs its rows through a small
+worker pool with no inter-start delay, while vertex lanes keep their paced,
+single-threaded behavior. The strategy is chosen per-lane from the backend, so
+the existing Vertex pacing is untouched.
 """
 
 from __future__ import annotations
@@ -38,6 +46,18 @@ from nazca.image import DEFAULT_MODEL, generate_image
 # A small safety margin (seconds) added to each lane's start interval so we sit
 # *under* the provider's req/min ceiling rather than exactly on it.
 _MARGIN_S = 1.0
+
+# Backends that are latency-bound (no req/min wall) and benefit from concurrent
+# in-lane dispatch instead of start pacing. Default workers per such lane.
+_CONCURRENT_BACKENDS = {"openai"}
+_DEFAULT_LANE_WORKERS = 4
+
+
+def backend_of(model: str) -> str:
+    """The dispatch backend for a model shorthand (e.g. 'openai', 'vertex')."""
+    from nazca.image import _resolve
+
+    return _resolve(model)[3]
 
 # Default ref-image extensions matched by --from-dir.
 _IMAGE_GLOBS = ("*.png", "*.jpg", "*.jpeg", "*.webp")
@@ -57,6 +77,7 @@ class BatchRow:
     model: str | None = None
     aspect: str | None = None
     size: str | None = None
+    quality: str | None = None  # gpt-image-2 cost/speed lever; ignored elsewhere
 
     def resolved_model(self, default_model: str) -> str:
         return self.model or default_model
@@ -130,6 +151,7 @@ def _row_from_mapping(rec: dict, defaults: dict) -> BatchRow:
         model=(rec.get("model") or defaults.get("model")),
         aspect=(rec.get("aspect") or rec.get("aspect_ratio") or defaults.get("aspect")),
         size=(rec.get("size") or defaults.get("size")),
+        quality=(rec.get("quality") or defaults.get("quality")),
     )
 
 
@@ -172,6 +194,7 @@ def rows_from_dir(
     models: list[str] | None = None,
     aspect: str | None = None,
     size: str | None = None,
+    quality: str | None = None,
     globs: Iterable[str] = _IMAGE_GLOBS,
 ) -> list[BatchRow]:
     """Build rows from a directory of ref images. `prompt` may use `{stem}`/`{name}`.
@@ -202,6 +225,7 @@ def rows_from_dir(
                     model=model,
                     aspect=aspect,
                     size=size,
+                    quality=quality,
                 )
             )
     return rows
@@ -220,25 +244,33 @@ class BatchPlan:
         return self.pending + self.skipped
 
     def eta_seconds(self) -> float:
-        """Wall-clock estimate: the slowest lane's start-spacing (lanes run in parallel)."""
+        """Wall-clock estimate from the slowest *rpm-paced* lane's start-spacing.
+
+        Concurrent (latency-bound) lanes have no start throttle, so their wall
+        time is gen latency — which we don't model here — and they're excluded.
+        """
         interval = lane_interval(self.rpm)
         worst = 0
-        for rows in self.lanes.values():
+        for model, rows in self.lanes.items():
+            if backend_of(model) in _CONCURRENT_BACKENDS:
+                continue
             pend = sum(1 for r in rows if not r.out.exists())
             worst = max(worst, pend)
         return max(0, worst - 1) * interval
 
     def summary_lines(self) -> list[str]:
         eta_min = self.eta_seconds() / 60.0
-        combined = self.rpm * len(self.lanes)
+        paced = [m for m in self.lanes if backend_of(m) not in _CONCURRENT_BACKENDS]
+        combined = self.rpm * len(paced)
         lines = [
             f"batch: {self.total} rows · {self.pending} to generate · {self.skipped} already done",
-            f"lanes: {len(self.lanes)} model(s) × {self.rpm:g}/min = {combined:g}/min combined",
-            f"  est. wall time ≈ {eta_min:.1f} min (slowest lane, lanes run in parallel)",
+            f"lanes: {len(paced)} paced model(s) × {self.rpm:g}/min = {combined:g}/min combined",
+            f"  est. wall time ≈ {eta_min:.1f} min (slowest paced lane; lanes run in parallel)",
         ]
         for model, rows in sorted(self.lanes.items()):
             pend = sum(1 for r in rows if not r.out.exists())
-            lines.append(f"  · {model}: {len(rows)} rows ({pend} pending)")
+            mode = "concurrent" if backend_of(model) in _CONCURRENT_BACKENDS else f"{self.rpm:g}/min"
+            lines.append(f"  · {model}: {len(rows)} rows ({pend} pending) [{mode}]")
         return lines
 
 
@@ -265,6 +297,53 @@ def plan_batch(
 
 
 # --------------------------------------------------------------------------- execution
+def _gen_kwargs(row: BatchRow) -> dict:
+    """Per-row kwargs for `generate_image`. `quality` is only included when set,
+    so callers/fakes that predate the quality lever keep their signature."""
+    kwargs = dict(
+        ref=row.refs or None, model=row.model,
+        aspect_ratio=row.aspect, size=row.size,
+    )
+    if row.quality is not None:
+        kwargs["quality"] = row.quality
+    return kwargs
+
+
+def _dispatch_row(
+    row: BatchRow,
+    *,
+    dry_run: bool,
+    on_event: Callable[[str, BatchRow, object], None],
+) -> RowResult:
+    """Generate (or plan) one row. Always returns a RowResult — never raises, so
+    one bad row can't sink the lane or the worker pool it runs in."""
+    if row.out.exists():
+        on_event("skipped", row, None)
+        return RowResult(row, "skipped")
+
+    if dry_run:
+        try:
+            plan = generate_image(
+                row.out, row.prompt, dry_run=True, **_gen_kwargs(row),
+            )
+        except Exception as e:  # a bad row must not sink the whole plan preview
+            on_event("error", row, e)
+            return RowResult(row, "error", str(e))
+        on_event("planned", row, plan)
+        return RowResult(row, "planned", plan)
+
+    try:
+        # mkdir is inside the try so a filesystem failure becomes a per-row
+        # error, not an exception that escapes the lane and sinks the batch.
+        row.out.parent.mkdir(parents=True, exist_ok=True)
+        generate_image(row.out, row.prompt, **_gen_kwargs(row))
+        on_event("ok", row, None)
+        return RowResult(row, "ok")
+    except Exception as e:  # one bad row must not sink the lane
+        on_event("error", row, e)
+        return RowResult(row, "error", str(e))
+
+
 def _run_lane(
     model: str,
     rows: list[BatchRow],
@@ -272,43 +351,32 @@ def _run_lane(
     *,
     dry_run: bool,
     on_event: Callable[[str, BatchRow, object], None],
+    workers: int = 1,
 ) -> list[RowResult]:
-    results: list[RowResult] = []
-    for row in rows:
-        if row.out.exists():
-            results.append(RowResult(row, "skipped"))
-            on_event("skipped", row, None)
-            continue
+    """Run one model lane.
 
-        if dry_run:
-            try:
-                plan = generate_image(
-                    row.out, row.prompt, ref=row.refs or None, model=row.model,
-                    aspect_ratio=row.aspect, size=row.size, dry_run=True,
-                )
-            except Exception as e:  # a bad row must not sink the whole plan preview
-                results.append(RowResult(row, "error", str(e)))
-                on_event("error", row, e)
-                continue
-            results.append(RowResult(row, "planned", plan))
-            on_event("planned", row, plan)
-            continue
+    Default (`workers == 1`): paced, single-threaded — gate each start through
+    `pacer` so vertex lanes honor the 2/min wall (gen time overlaps the wait).
 
-        pacer.wait()  # gate the *start* — gen time overlaps the next interval
-        try:
-            # mkdir is inside the try so a filesystem failure becomes a per-row
-            # error, not an exception that escapes the lane and sinks the batch.
-            row.out.parent.mkdir(parents=True, exist_ok=True)
-            generate_image(
-                row.out, row.prompt, ref=row.refs or None, model=row.model,
-                aspect_ratio=row.aspect, size=row.size,
+    `workers > 1`: latency-bound backend (e.g. openai gpt-image-2) — dispatch
+    rows through a worker pool with no inter-start delay (the pacer is unused).
+    """
+    if dry_run or workers <= 1:
+        results: list[RowResult] = []
+        for row in rows:
+            if not dry_run and not row.out.exists():
+                pacer.wait()  # gate the *start* — gen overlaps the next interval
+            results.append(_dispatch_row(row, dry_run=dry_run, on_event=on_event))
+        return results
+
+    # Concurrent lane: rows run in parallel, no throttle. Preserve input order.
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(
+            pool.map(
+                lambda r: _dispatch_row(r, dry_run=dry_run, on_event=on_event),
+                rows,
             )
-            results.append(RowResult(row, "ok"))
-            on_event("ok", row, None)
-        except Exception as e:  # one bad row must not sink the lane
-            results.append(RowResult(row, "error", str(e)))
-            on_event("error", row, e)
-    return results
+        )
 
 
 def run_batch(
@@ -316,12 +384,20 @@ def run_batch(
     *,
     dry_run: bool = False,
     concurrency: int | None = None,
+    lane_workers: int = _DEFAULT_LANE_WORKERS,
     on_event: Callable[[str, BatchRow, object], None] | None = None,
     _pacer_factory: Callable[[float], _StartPacer] | None = None,
 ) -> list[RowResult]:
-    """Execute a plan: one paced worker thread per model lane, lanes in parallel.
+    """Execute a plan, one worker thread per model lane, lanes in parallel.
 
-    `concurrency` caps simultaneous lanes (default: one thread per lane).
+    Pacing is chosen per-lane from the model's backend:
+      · vertex (and other rpm-walled backends) → paced, single-threaded
+        (`_StartPacer` at `plan.rpm`), preserving the 2/min-per-base-model wall.
+      · latency-bound backends (openai gpt-image-2) → concurrent in-lane
+        dispatch with no throttle, up to `lane_workers` parallel rows.
+
+    `concurrency` caps simultaneous *lanes* (default: one thread per lane).
+    `lane_workers` caps parallel rows within a concurrent (openai) lane.
     `on_event(status, row, detail)` is called as each row resolves.
     """
     on_event = on_event or (lambda *a: None)
@@ -331,7 +407,11 @@ def run_batch(
 
     def lane_task(item: tuple[str, list[BatchRow]]) -> list[RowResult]:
         model, lane_rows = item
-        return _run_lane(model, lane_rows, make_pacer(interval), dry_run=dry_run, on_event=on_event)
+        workers = lane_workers if backend_of(model) in _CONCURRENT_BACKENDS else 1
+        return _run_lane(
+            model, lane_rows, make_pacer(interval),
+            dry_run=dry_run, on_event=on_event, workers=workers,
+        )
 
     results: list[RowResult] = []
     with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
