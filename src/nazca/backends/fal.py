@@ -23,12 +23,19 @@ from pathlib import Path
 
 from PIL import Image
 
-from nazca import config
+from nazca import config, retry
 from nazca.backends.base import Backend
 
 
 class FalError(RuntimeError):
     """Raised when fal dispatch fails (missing key, HTTP error, timeout, etc.)."""
+
+
+class FalRateLimitError(FalError):
+    """429/503/requeue that persisted past NAZCA_MAX_RETRIES retries.
+
+    A distinct type so batch logic can tell "paced wrong" from a real failure.
+    """
 
 
 class FalBackend(Backend):
@@ -71,22 +78,22 @@ class FalBackend(Backend):
             raise FalError(f"HTTP {e.code} from fal: {detail}") from e
 
     def post(self, url: str, body: dict, token: str) -> dict:
-        """POST JSON to fal queue endpoint, return decoded JSON."""
-        req = urllib.request.Request(
+        """POST JSON to fal queue endpoint with bounded backoff (item 1A), return JSON.
+
+        Retries on 429/503 and on fal's `x-fal-needs-retry` server-side requeue signal.
+        """
+        return retry.post_json(
             url,
-            data=json.dumps(body).encode(),
+            body,
             headers={
                 "Authorization": f"Key {token}",
                 "Content-Type": "application/json",
             },
-            method="POST",
+            on_http_error=lambda code, detail: FalError(f"HTTP {code} from fal: {detail}"),
+            on_rate_limited=lambda code, detail: FalRateLimitError(
+                f"fal rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
         )
-        try:
-            with urllib.request.urlopen(req) as resp:  # noqa: S310
-                return json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors="replace")[:600]
-            raise FalError(f"HTTP {e.code} from fal: {detail}") from e
 
     # ------------------------------------------------------------------ queue lifecycle
 
