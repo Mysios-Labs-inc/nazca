@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import io
-import json
 import os
 import shutil
 import subprocess
@@ -23,12 +22,19 @@ from pathlib import Path
 
 from PIL import Image
 
-from nazca import config
+from nazca import config, retry
 from nazca.backends.base import Backend
 
 
 class VertexError(RuntimeError):
     pass
+
+
+class RateLimitError(VertexError):
+    """429/503/RESOURCE_EXHAUSTED that persisted past NAZCA_MAX_RETRIES retries.
+
+    A distinct type so batch logic can tell "paced wrong" from a real failure.
+    """
 
 
 # Common Google Cloud SDK install locations, checked when `gcloud` is not on
@@ -174,18 +180,16 @@ def model_base(model: str, location: str | None = None) -> str:
 
 
 def post(url: str, body: dict, token: str) -> dict:
-    req = urllib.request.Request(
+    """POST to Vertex with bounded backoff on 429/503/RESOURCE_EXHAUSTED (item 1A)."""
+    return retry.post_json(
         url,
-        data=json.dumps(body).encode(),
+        body,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        method="POST",
+        on_http_error=lambda code, detail: VertexError(f"HTTP {code} from Vertex: {detail}"),
+        on_rate_limited=lambda code, detail: RateLimitError(
+            f"Vertex rate limit (HTTP {code}) persisted after retries: {detail}"
+        ),
     )
-    try:
-        with urllib.request.urlopen(req) as resp:  # noqa: S310 (trusted Google endpoint)
-            return json.loads(resp.read().decode())
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:600]
-        raise VertexError(f"HTTP {e.code} from Vertex: {detail}") from e
 
 
 def encode_image_b64(path: str | Path, max_edge: int | None = None, fmt: str = "JPEG") -> tuple[str, str]:
