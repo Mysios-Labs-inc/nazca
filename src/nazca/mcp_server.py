@@ -100,6 +100,7 @@ def generate_image(
     model: str | None = None,
     aspect_ratio: str = "9:16",
     size: str = "2K",
+    quality: str = "high",
     dry_run: bool = False,
 ) -> list:
     """Generate (or restyle, when `ref` is given) one image and save it to disk.
@@ -110,13 +111,20 @@ def generate_image(
             current working directory, which is where the host surfaces files —
             prefer this so the image shows up in chat. An absolute path is used
             as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
-        ref: Optional list of reference image paths. Only nano-banana (Gemini)
-            models support references; nano-banana-pro accepts up to 14. Imagen
-            models are text-to-image only and reject refs.
+        ref: Optional list of reference image paths. Several models support
+            references: nano-banana / nano-banana-2 (Gemini, count unpinned),
+            nano-banana-pro (Gemini, up to 14 refs), gpt-image-2 (OpenAI,
+            up to 5 refs via /images/edits), seedream (ModelArk, up to 14 refs),
+            flux-schnell / flux-2-dev (fal FLUX, 1 ref). Imagen models are
+            text-to-image only and reject refs.
         model: Model shorthand (see list_models) or "<backend>:<raw-id>". Defaults
             to nano-banana.
         aspect_ratio: e.g. "9:16", "16:9", "1:1", "4:3", "3:4".
         size: "1K" | "2K" | "4K" (honored by gemini-3 image models only).
+        quality: gpt-image-2 only — cost/speed lever. One of: low | medium |
+            high | auto. Output image tokens (which dominate the bill) scale ~4×
+            between medium and high; "high" gives the best text fidelity. Ignored
+            by all non-OpenAI backends. Default: "high".
         dry_run: If true, return the request plan without calling any API
             (no credentials needed).
 
@@ -130,6 +138,7 @@ def generate_image(
         model=model,
         aspect_ratio=aspect_ratio,
         size=size,
+        quality=quality,
         dry_run=dry_run,
     )
     if dry_run:
@@ -138,6 +147,78 @@ def generate_image(
         return [f"DRY RUN — no API call made:\n{json.dumps(result, indent=2)}"]
     path = Path(result)
     return [f"Saved image to {path}", Image(path=str(path))]
+
+
+@mcp.tool()
+def modify_image(
+    source: str,
+    filename: str = "modified.png",
+    op: str = "upscale",
+    prompt: str | None = None,
+    mask: str | None = None,
+    scale: int = 2,
+    expand: int = 256,
+    model: str | None = None,
+    dry_run: bool = False,
+) -> list:
+    """Apply a source-image modify operation and save the result to disk.
+
+    Supported ops (mirrors `nazca image SOURCE --<op>`):
+      upscale   — enhance resolution via fal clarity-upscaler ($0.03/MP).
+                  `scale` 1-4 (default 2).
+      rmbg      — remove background → transparent PNG via fal birefnet (free).
+      inpaint   — fill a masked region with AI-generated content via fal
+                  flux-pro/v1/fill ($0.05/MP). Requires `mask` (white = edit
+                  region) and `prompt` describing what to generate there.
+      outpaint  — expand the canvas on all sides via fal flux-2-pro/outpaint.
+                  `expand` = pixels to add per side (default 256).
+
+    Args:
+        source: Path to the source image to modify.
+        filename: Output filename. A bare name is saved in the current working
+            directory so the host can surface the file in chat. An absolute path
+            is used as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
+        op: One of: upscale | rmbg | inpaint | outpaint.
+        prompt: Text describing the inpaint fill region (required for inpaint;
+            ignored by upscale / rmbg / outpaint).
+        mask: Path to a mask image for inpaint (white pixels = region to edit).
+            Required when op="inpaint".
+        scale: Upscale factor 1-4 (only used when op="upscale"). Default: 2.
+        expand: Pixels to add per side (only used when op="outpaint"). Default: 256.
+        model: Override the default fal model for the op. Rarely needed.
+        dry_run: If true, return the request plan without calling any API
+            (no credentials needed).
+
+    Returns the saved path (and an inline preview of the result image).
+    """
+    _op_map = {
+        "upscale": "upscale",
+        "rmbg": "bg_remove",
+        "inpaint": "inpaint",
+        "outpaint": "outpaint",
+    }
+    if op not in _op_map:
+        return [f"Unknown op '{op}'. Choose one of: {', '.join(_op_map)}"]
+    internal_op = _op_map[op]
+
+    out = _resolve_out(filename)
+    result = image_mod.modify_image(
+        out,
+        source,
+        op=internal_op,
+        model=model,
+        prompt=prompt,
+        mask=mask,
+        upscale_factor=scale,
+        expand=expand,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        import json
+
+        return [f"DRY RUN — no API call made:\n{json.dumps(result, indent=2)}"]
+    path = Path(result)
+    return [f"Saved modified image to {path}", Image(path=str(path))]
 
 
 @mcp.tool()
