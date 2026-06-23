@@ -117,6 +117,54 @@ def _estimate_gpt_image(aspect_size: str | None, quality: str | None) -> CostEst
     return CostEstimate(usd, approx=True, basis=f"est {out_tokens} out-tokens @{size_key}")
 
 
+@dataclass(frozen=True)
+class PlanCost:
+    """Aggregate estimate for a multi-step plan — the whole bill before any step runs.
+
+    `total_usd`  sum of priced steps (unpriced steps contribute nothing to the total).
+    `priced`     count of steps (incl. per-step `count`) we could price.
+    `unpriced`   count of steps with no known price (raw ids, modify ops, video) —
+                 surfaced so a total is never silently understated.
+    `approx`     always True; built from per-image estimates that drift.
+    """
+
+    total_usd: float
+    priced: int
+    unpriced: int
+    approx: bool = True
+
+    def label(self) -> str:
+        base = CostEstimate(self.total_usd, approx=self.approx).label()
+        if self.unpriced:
+            return f"{base} ({self.priced} priced, {self.unpriced} unpriced)"
+        return base
+
+
+def estimate_plan_cost(steps: list[dict]) -> PlanCost:
+    """Sum per-step image estimates into one plan total, before anything runs.
+
+    Each step is a dict: `{model, size?, aspect_size?, quality?, count?}` (count
+    defaults to 1). Steps we can't price (None from `estimate_image_cost`) are counted
+    in `unpriced` rather than guessed — the total stays honest, just incomplete. This
+    is the substrate for estimate-then-approve flows: price the entire plan, gate on a
+    budget, only then dispatch.
+    """
+    total = 0.0
+    priced = 0
+    unpriced = 0
+    for s in steps:
+        count = int(s.get("count", 1) or 1)
+        est = estimate_image_cost(
+            s.get("model"), size=s.get("size"), aspect_size=s.get("aspect_size"), quality=s.get("quality")
+        )
+        if est is None:
+            unpriced += count
+        else:
+            total += est.usd * count
+            priced += count
+    return PlanCost(round(total, 4), priced=priced, unpriced=unpriced, approx=True)
+
+
 def cost_from_openai_usage(usage: dict | None) -> CostEstimate | None:
     """Compute the ACTUAL gpt-image-2 cost from an OpenAI `usage` block.
 
