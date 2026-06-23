@@ -229,8 +229,10 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
 @click.option("--concurrency", default=None, type=int, help="Max concurrent model lanes (default: one per model).")
 @click.option("--vertex-batch", "vertex_batch", is_flag=True, help="Use async Vertex Batch (no RPM wall, −50%, 1K only). Needs --gcs.")
 @click.option("--gcs", "gcs", default=None, help="gs://bucket/prefix for Vertex Batch input/output (with --vertex-batch).")
+@click.option("--max-cost", "max_cost", default=None, type=float,
+              help="Budget ceiling in USD: refuse to dispatch if the estimated plan cost exceeds it.")
 @click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
-def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, quality, concurrency, vertex_batch, gcs, dry_run):
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, quality, concurrency, vertex_batch, gcs, max_cost, dry_run):
     """Generate many images, paced per model lane (idempotent + resumable).
 
     Two input modes:
@@ -293,6 +295,21 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, qu
 
     for line in plan.summary_lines():
         click.echo(line)
+
+    # Budget gate: refuse to dispatch a plan that costs more than --max-cost. The
+    # check is on the *priced* total, so unpriced rows (raw ids / video) can't be
+    # bounded — we say so rather than pretend the ceiling is a guarantee.
+    if max_cost is not None:
+        pc = plan.cost()
+        caveat = f" (+{pc.unpriced} row(s) unpriced — actual may be higher)" if pc.unpriced else ""
+        if pc.total_usd > max_cost:
+            verb = "would exceed" if dry_run else "exceeds"
+            click.echo(f"❌ estimated cost {pc.label()} {verb} --max-cost ${max_cost:.2f}{caveat}", err=True)
+            if not dry_run:
+                click.echo("   nothing dispatched — raise --max-cost or trim the batch.", err=True)
+                raise SystemExit(2)
+        else:
+            click.echo(f"  within --max-cost ${max_cost:.2f}{caveat}")
 
     if plan.pending == 0 and not dry_run:
         click.echo("nothing to do — all outputs already exist.")
