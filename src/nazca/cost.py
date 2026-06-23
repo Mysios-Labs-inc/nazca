@@ -17,18 +17,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nazca.models import MODELS as _MODEL_REGISTRY
+
 # --------------------------------------------------------------------------- flat prices
-# USD per generated image. flux-schnell is billed ~$0.003/MP — at a typical 1MP
-# output that's ~$0.003, which we use as the flat estimate.
+# USD per generated image — derived from the canonical registry in nazca.models.
+# flux-schnell is billed ~$0.003/MP — at a typical 1MP output that's ~$0.003.
+# nano-banana-pro is excluded here: its price is size-dependent (see _nano_banana_pro).
+# gpt-image-2 is excluded here: token-billed (see _estimate_gpt_image).
 _FLAT_USD: dict[str, float] = {
-    "imagen-4-fast":   0.02,
-    "imagen-4":        0.04,
-    "imagen-3":        0.02,    # same family as imagen-4-fast tier
-    "nano-banana":     0.039,
-    "nano-banana-2":   0.039,
-    "nano-banana-pro": 0.134,   # @1K/2K; ~$0.24 @4K (see _nano_banana_pro)
-    "seedream":        0.035,
-    "flux-schnell":    0.003,   # ~$0.003/MP, ~1MP typical
+    sh: spec.price_usd
+    for sh, spec in _MODEL_REGISTRY.items()
+    if spec.price_usd is not None
+        and sh not in ("nano-banana-pro", "gpt-image-2")
 }
 
 # --------------------------------------------------------------------------- OpenAI tokens

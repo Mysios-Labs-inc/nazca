@@ -25,6 +25,7 @@ from pathlib import Path
 from nazca.backends import get_backend
 from nazca.errors import BackendError
 from nazca.media import encode_image_b64
+from nazca.models import MODELS as _MODEL_REGISTRY
 
 
 class ImageError(BackendError):
@@ -32,38 +33,13 @@ class ImageError(BackendError):
 
 
 # shorthand -> (model id, location/fal-id, api, backend)
-#   api:     "gemini" | "imagen" | "fal"
-#   backend: "vertex" | "fal"
-# Vertex models verified live, 2026-06-06.
-# fal model IDs are plausible but UNVERIFIED against a live key — check
-# https://fal.ai/models before spending. (dry-run only in this PR)
+# Derived from the canonical registry in nazca.models — do not edit values here;
+# edit nazca/models.py instead.
 MODELS: dict[str, tuple[str, str, str, str]] = {
-    # --- Vertex: Gemini image (supports --ref) ---
-    "nano-banana":     ("gemini-2.5-flash-image",  "us-central1", "gemini", "vertex"),  # fast default; ref/edit
-    "nano-banana-2":   ("gemini-3.1-flash-image",  "global",      "gemini", "vertex"),  # Nano Banana 2 (Gemini 3.1 Flash Image)
-    "nano-banana-pro": ("gemini-3-pro-image",      "global",      "gemini", "vertex"),  # premium: legible text + up to 14 refs
-    # --- Vertex: Imagen (text-to-image only) ---
-    "imagen-4-fast":   ("imagen-4.0-fast-generate-001", "us-central1", "imagen", "vertex"),  # fast t2i
-    "imagen-4":        ("imagen-4.0-generate-001",      "us-central1", "imagen", "vertex"),  # high-fidelity t2i
-    "imagen-3":        ("imagen-3.0-generate-002",      "us-central1", "imagen", "vertex"),
-    # --- fal.ai: FLUX long tail (verify ids against fal docs before spend) ---
-    "flux-schnell":    ("fal-ai/flux/schnell", "", "fal", "fal"),  # ~$0.003/MP; fastest FLUX  # verify id
-    "flux-2-dev":      ("fal-ai/flux/dev",     "", "fal", "fal"),  # FLUX 2 dev; higher quality  # verify id
-    # --- ByteDance ModelArk: Seedream (id from BytePlus docs; requires model
-    #     activation in the BytePlus console, region ap-southeast, before it works) ---
-    # $0.03/img, 500 IPM, native multi-ref image-to-image (up to 14 refs). See
-    # _modelark dispatch below + docs/throughput-and-rate-limits.md.
-    "seedream":        ("seedream-4-0-250828", "", "modelark", "modelark"),  # $0.03/img
-    # --- OpenAI: gpt-image-2 (best-in-class legible text; ad creative). t2i via
-    #     /images/generations; --ref (up to 5) routes to /images/edits. ---
-    "gpt-image-2":     ("gpt-image-2", "", "openai", "openai"),  # token-billed; cost scales with size×quality
-    # --- fal modify ops (source image → image). api="fal-modify" routes the
-    #     modify_image() dispatch. IDs verified against fal.ai docs 2026-06-22. ---
-    "upscale":         ("fal-ai/clarity-upscaler", "", "fal-modify", "fal"),  # $0.03/MP
-    "rmbg":            ("fal-ai/birefnet/v2",       "", "fal-modify", "fal"),  # free compute
-    "inpaint":         ("fal-ai/flux-pro/v1/fill",  "", "fal-modify", "fal"),  # $0.05/MP; image+mask+prompt
-    "outpaint":        ("fal-ai/flux-2-pro/outpaint", "", "fal-modify", "fal"),  # expand px/side
+    sh: (spec.provider_id, spec.region, spec.api, spec.backend)
+    for sh, spec in _MODEL_REGISTRY.items()
 }
+
 DEFAULT_MODEL = "nano-banana"
 
 # Source-image modify ops and their default models.
@@ -76,23 +52,10 @@ _MODIFY_DEFAULT_MODEL = {
 }
 
 # tier tags: each shorthand → "cheap" | "premium"
-# Vertex-direct models are the tier defaults (direct-first rule).
-# fal long-tail models are tagged too but are never auto-selected as tier defaults.
+# Derived from the canonical registry in nazca.models.
 MODEL_TIERS: dict[str, str] = {
-    "nano-banana":     "cheap",
-    "nano-banana-2":   "cheap",
-    "nano-banana-pro": "premium",
-    "imagen-4-fast":   "cheap",
-    "imagen-4":        "premium",
-    "imagen-3":        "cheap",
-    "flux-schnell":    "cheap",
-    "flux-2-dev":      "premium",
-    "gpt-image-2":     "premium", # legible text + ad creative; per-token billing
-    "upscale":         "cheap",   # fal clarity-upscaler
-    "rmbg":            "cheap",   # fal birefnet (free compute)
-    "inpaint":         "cheap",   # fal flux-pro/v1/fill
-    "outpaint":        "cheap",   # fal flux-2-pro/outpaint
-    "seedream":        "cheap",   # ModelArk $0.03/img — probe brand fidelity vs Gemini before bulk
+    sh: spec.tier
+    for sh, spec in _MODEL_REGISTRY.items()
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)

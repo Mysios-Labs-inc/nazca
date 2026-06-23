@@ -18,6 +18,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nazca.models import MODELS as _MODEL_REGISTRY
+from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
+
+
+def _ops(shorthand: str) -> frozenset[str]:
+    """Look up the ops frozenset for *shorthand* from the canonical registry."""
+    spec = _MODEL_REGISTRY.get(shorthand) or _VIDEO_REGISTRY.get(shorthand)
+    if spec is None:
+        raise KeyError(f"No ModelSpec for shorthand {shorthand!r} in models registry")
+    return spec.ops
+
 # --------------------------------------------------------------------------- vocabulary
 # Canonical operations, defined purely by input signature → output. A closed set:
 # adding a modality means adding an entry here (and a body-builder on the backends
@@ -101,12 +112,14 @@ class Caps:
         return role in self.ref_roles
 
 
-def _img(ops, **kw) -> Caps:
-    return Caps(produces="image", ops=frozenset(ops), **kw)
+def _img(shorthand: str, **kw) -> Caps:
+    """Build an image Caps entry, pulling ops from the canonical model registry."""
+    return Caps(produces="image", ops=_ops(shorthand), **kw)
 
 
-def _vid(ops, **kw) -> Caps:
-    return Caps(produces="video", ops=frozenset(ops), **kw)
+def _vid(shorthand: str, **kw) -> Caps:
+    """Build a video Caps entry, pulling ops from the canonical model registry."""
+    return Caps(produces="video", ops=_ops(shorthand), **kw)
 
 
 # --------------------------------------------------------------------------- registry
@@ -116,48 +129,51 @@ def _vid(ops, **kw) -> Caps:
 # them. The clearest example: `wan-2.6` is text-to-video (its fal id literally
 # ends `/text-to-video`), yet `nazca video` forces a start frame — encoded here
 # as t2v, which is what P2 will use to stop forcing the start.
+#
+# ops are sourced from the canonical nazca.models registry; all other fields
+# (max_refs, ref_roles, note) live here as capabilities-specific metadata.
 CAPS: dict[str, Caps] = {
     # --- Vertex Gemini image: text-to-image + reference image-to-image ---
-    "nano-banana":     _img({"t2i", "i2i", "compose"}, ref_roles=REF_ROLES, note="2.5-flash-image; ref/edit, count unpinned"),
-    "nano-banana-2":   _img({"t2i", "i2i", "compose"}, ref_roles=REF_ROLES, note="3.1-flash-image; ref/edit, count unpinned"),
-    "nano-banana-pro": _img({"t2i", "i2i", "compose"}, max_refs=14, ref_roles=REF_ROLES, note="3-pro-image; up to 14 refs, legible text"),
+    "nano-banana":     _img("nano-banana",     ref_roles=REF_ROLES, note="2.5-flash-image; ref/edit, count unpinned"),
+    "nano-banana-2":   _img("nano-banana-2",   ref_roles=REF_ROLES, note="3.1-flash-image; ref/edit, count unpinned"),
+    "nano-banana-pro": _img("nano-banana-pro", max_refs=14, ref_roles=REF_ROLES, note="3-pro-image; up to 14 refs, legible text"),
     # --- Vertex Imagen: text-to-image ONLY (rejects refs — encoded, not runtime) ---
-    "imagen-4-fast":   _img({"t2i"}),
-    "imagen-4":        _img({"t2i"}),
-    "imagen-3":        _img({"t2i"}),
+    "imagen-4-fast":   _img("imagen-4-fast"),
+    "imagen-4":        _img("imagen-4"),
+    "imagen-3":        _img("imagen-3"),
     # --- fal FLUX: text-to-image + single-ref image-to-image (FLUX takes one ref) ---
-    "flux-schnell":    _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
-    "flux-2-dev":      _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
+    "flux-schnell":    _img("flux-schnell",    max_refs=1, note="fal id unverified; single ref only"),
+    "flux-2-dev":      _img("flux-2-dev",      max_refs=1, note="fal id unverified; single ref only"),
     # --- ModelArk Seedream: t2i + native multi-ref i2i; group-image is a separate axis ---
-    "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, ref_roles=REF_ROLES, note="needs BytePlus activation; 'group' (N/call) not wired"),
+    "seedream":        _img("seedream",        max_refs=14, ref_roles=REF_ROLES, note="needs BytePlus activation; 'group' (N/call) not wired"),
     # --- OpenAI gpt-image-2: t2i (/images/generations) + ref edits (/images/edits, ≤5).
     #     Legible text / ad creative; --quality is the cost/speed lever; token-billed. ---
-    "gpt-image-2":     _img({"t2i", "i2i", "compose"}, max_refs=5, ref_roles=REF_ROLES, note="OpenAI; legible text/ads; --quality lever; token-billed"),
+    "gpt-image-2":     _img("gpt-image-2",     max_refs=5, ref_roles=REF_ROLES, note="OpenAI; legible text/ads; --quality lever; token-billed"),
     # --- fal modify ops (source image → image; ids verified against fal.ai 2026-06-22) ---
-    "upscale":         _img({"upscale"}, note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
-    "rmbg":            _img({"bg_remove"}, note="fal birefnet/v2 → transparent PNG (free compute)"),
-    "inpaint":         _img({"inpaint"}, note="fal flux-pro/v1/fill ($0.05/MP); needs --mask (white=edit) + prompt"),
-    "outpaint":        _img({"outpaint"}, note="fal flux-2-pro/outpaint; --expand px/side, no prompt/mask"),
+    "upscale":         _img("upscale",         note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
+    "rmbg":            _img("rmbg",            note="fal birefnet/v2 → transparent PNG (free compute)"),
+    "inpaint":         _img("inpaint",         note="fal flux-pro/v1/fill ($0.05/MP); needs --mask (white=edit) + prompt"),
+    "outpaint":        _img("outpaint",        note="fal flux-2-pro/outpaint; --expand px/side, no prompt/mask"),
     # --- Vertex Veo: text-to-video, image-to-video (start), keyframe (start+end).
     #     P2 made --start optional and wires the start-less t2v body, so t2v is now
     #     driven (the instance simply drops the `image` field). ---
-    "veo-3.1-lite":    _vid({"t2v", "i2v", "keyframe"}),
-    "veo-3.1-fast":    _vid({"t2v", "i2v", "keyframe"}),
-    "veo-3.1":         _vid({"t2v", "i2v", "keyframe"}),
+    "veo-3.1-lite":    _vid("veo-3.1-lite"),
+    "veo-3.1-fast":    _vid("veo-3.1-fast"),
+    "veo-3.1":         _vid("veo-3.1"),
     # --- fal video ---
-    "seedance-2-fast": _vid({"i2v"}, note="fal id unverified"),
-    "wan-2.6":         _vid({"t2v"}, note="fal id is .../text-to-video — t2v, NOT i2v (current command mismatch)"),
+    "seedance-2-fast": _vid("seedance-2-fast", note="fal id unverified"),
+    "wan-2.6":         _vid("wan-2.6",         note="fal id is .../text-to-video — t2v, NOT i2v (current command mismatch)"),
     # --- ModelArk Seedance i2v variants ---
-    "seedance-pro":    _vid({"i2v"}, note="needs BytePlus activation"),
-    "seedance-lite":   _vid({"i2v"}, note="needs BytePlus activation"),
+    "seedance-pro":    _vid("seedance-pro",    note="needs BytePlus activation"),
+    "seedance-lite":   _vid("seedance-lite",   note="needs BytePlus activation"),
     # --- fal video-edit (source VIDEO → video; URL-only source). reframe id +
     #     video_url field verified via research workflow (fal.ai 2026-06-22).
     #     v2v/extend: id verified, but the `video_url` input field is fal's
     #     convention and was NOT independently re-confirmed — UNVERIFIED, dry-run
     #     safe; verify the field with a live call before real spend. ---
-    "reframe":         _vid({"reframe"}, note="fal luma ray-2/reframe; --aspect target; SOURCE = video URL"),
-    "v2v":             _vid({"v2v"}, note="fal wan-vace-apps/video-edit; prompt required; video_url field UNVERIFIED"),
-    "extend":          _vid({"extend"}, note="fal pixverse/extend; prompt + --duration 5|8; video_url field UNVERIFIED"),
+    "reframe":         _vid("reframe",         note="fal luma ray-2/reframe; --aspect target; SOURCE = video URL"),
+    "v2v":             _vid("v2v",             note="fal wan-vace-apps/video-edit; prompt required; video_url field UNVERIFIED"),
+    "extend":          _vid("extend",          note="fal pixverse/extend; prompt + --duration 5|8; video_url field UNVERIFIED"),
 }
 
 
