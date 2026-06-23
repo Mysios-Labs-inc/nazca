@@ -38,6 +38,24 @@ def test_i2v_vertex_dry_run_keeps_image(tmp_path, monkeypatch):
     assert "image" in data["instances"][0]
 
 
+def test_vertex_dry_run_without_project_does_not_crash(tmp_path, monkeypatch):
+    # regression: --dry-run is documented as needing no credentials/config, but
+    # build_url -> model_base used to raise "VERTEX_PROJECT is not set" before the
+    # dry-run guard. A plan must still render, with a placeholder project in the URL.
+    from nazca import image
+
+    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.setattr(config, "VERTEX_PROJECT", None)
+
+    plan = image.generate_image(tmp_path / "o.png", "a red cube", dry_run=True)  # gemini
+    assert "<VERTEX_PROJECT>" in plan["url"]
+
+    out = tmp_path / "v.mp4"
+    res = video.generate_video(out, None, "a flythrough", model="veo-3.1", dry_run=True)
+    data = json.loads(Path(res).read_text())
+    assert "<VERTEX_PROJECT>" in data["url"]
+
+
 def test_t2v_fal_dry_run_omits_image_url(tmp_path):
     out = tmp_path / "v.mp4"
     res = video.generate_video(out, None, "a dancer", model="wan-2.6", dry_run=True)
