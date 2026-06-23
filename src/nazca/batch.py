@@ -258,6 +258,18 @@ class BatchPlan:
             worst = max(worst, pend)
         return max(0, worst - 1) * interval
 
+    def cost(self) -> "PlanCost":
+        """Estimated total for the rows that would actually dispatch (pending only)."""
+        from nazca.cost import estimate_plan_cost
+
+        steps = [
+            {"model": model, "size": r.size, "quality": r.quality}
+            for model, rows in self.lanes.items()
+            for r in rows
+            if not r.out.exists()
+        ]
+        return estimate_plan_cost(steps)
+
     def summary_lines(self) -> list[str]:
         eta_min = self.eta_seconds() / 60.0
         paced = [m for m in self.lanes if backend_of(m) not in _CONCURRENT_BACKENDS]
@@ -266,6 +278,7 @@ class BatchPlan:
             f"batch: {self.total} rows · {self.pending} to generate · {self.skipped} already done",
             f"lanes: {len(paced)} paced model(s) × {self.rpm:g}/min = {combined:g}/min combined",
             f"  est. wall time ≈ {eta_min:.1f} min (slowest paced lane; lanes run in parallel)",
+            f"  est. cost ≈ {self.cost().label()} for {self.pending} pending row(s)",
         ]
         for model, rows in sorted(self.lanes.items()):
             pend = sum(1 for r in rows if not r.out.exists())

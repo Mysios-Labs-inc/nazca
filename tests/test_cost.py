@@ -33,6 +33,52 @@ def test_flat_prices(model, expected):
 def test_nano_banana_pro_tiers_on_size():
     assert cost.estimate_image_cost("nano-banana-pro", size="2K").usd == 0.134
     assert cost.estimate_image_cost("nano-banana-pro", size="1K").usd == 0.134
+
+
+# --------------------------------------------------------------------------- plan cost
+def test_estimate_plan_cost_sums_priced_steps():
+    pc = cost.estimate_plan_cost([
+        {"model": "nano-banana"},      # 0.039
+        {"model": "imagen-4"},         # 0.04
+        {"model": "flux-schnell"},     # 0.003
+    ])
+    assert pc.total_usd == round(0.039 + 0.04 + 0.003, 4)
+    assert pc.priced == 3 and pc.unpriced == 0
+
+
+def test_estimate_plan_cost_applies_count():
+    pc = cost.estimate_plan_cost([{"model": "nano-banana", "count": 10}])
+    assert pc.total_usd == round(0.039 * 10, 4)
+    assert pc.priced == 10
+
+
+def test_estimate_plan_cost_counts_unpriced_without_guessing():
+    pc = cost.estimate_plan_cost([
+        {"model": "nano-banana"},          # priced
+        {"model": "vertex:raw-id"},        # unknown → unpriced
+        {"model": "upscale"},              # fal modify op → no flat price → unpriced
+    ])
+    assert pc.priced == 1
+    assert pc.unpriced == 2
+    assert pc.total_usd == 0.039  # unpriced steps don't inflate the total
+
+
+def test_plan_cost_label_flags_unpriced():
+    pc = cost.estimate_plan_cost([{"model": "nano-banana"}, {"model": "vertex:raw"}])
+    label = pc.label()
+    assert label.startswith("~$")
+    assert "1 priced, 1 unpriced" in label
+
+
+def test_plan_cost_label_clean_when_all_priced():
+    pc = cost.estimate_plan_cost([{"model": "nano-banana"}])
+    assert pc.label() == "~$0.039"
+    assert "priced" not in pc.label()
+
+
+def test_estimate_plan_cost_empty_is_zero():
+    pc = cost.estimate_plan_cost([])
+    assert pc.total_usd == 0 and pc.priced == 0 and pc.unpriced == 0
     assert cost.estimate_image_cost("nano-banana-pro", size="4K").usd == 0.24
 
 
