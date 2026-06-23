@@ -24,6 +24,7 @@ from pathlib import Path
 from nazca import config
 from nazca.backends import get_backend
 from nazca.errors import BackendError
+from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
 
 
 class VeoError(BackendError):
@@ -45,42 +46,35 @@ def video_cost_label(
     return est.label() if est is not None else None
 
 
+# Derived from the canonical registry in nazca.models — do not edit values here;
+# edit nazca/models.py instead.
+
 # Shorthand aliases → full Vertex Veo model ids
 VEO_ALIASES: dict[str, str] = {
-    "veo-3.1-lite": "veo-3.1-lite-generate-001",
-    "veo-3.1-fast": "veo-3.1-fast-generate-001",
-    "veo-3.1": "veo-3.1-generate-001",
+    sh: spec.provider_id
+    for sh, spec in _VIDEO_REGISTRY.items()
+    if spec.backend == "vertex"
 }
 
-# fal video model shorthands → (fal model id, backend)
-# IDs are plausible but UNVERIFIED against a live key — check fal.ai/models.
+# fal video model shorthands → fal model id
+# (excludes video-edit ops which are tracked in VIDEO_EDIT_MODELS)
 FAL_VIDEO_MODELS: dict[str, str] = {
-    "seedance-2-fast": "fal-ai/bytedance/seedance/v2/lite",  # verify id
-    "wan-2.6":         "fal-ai/wan/v2.6/text-to-video",     # verify id
+    sh: spec.provider_id
+    for sh, spec in _VIDEO_REGISTRY.items()
+    if spec.backend == "fal" and not spec.ops.isdisjoint({"i2v", "t2v"})
 }
 
-# ModelArk video model shorthands → BytePlus ModelArk model id.
-# nazca video is image-to-video, so we use the i2v variants.
-# IDs verified against BytePlus ModelArk docs (2026-06-19). NOTE: the endpoint,
-# auth and request shape are confirmed working live; calling these requires the
-# model to be ACTIVATED for your account in the BytePlus console (region
-# ap-southeast), else the API returns 404 InvalidEndpointOrModel.NotFound.
+# ModelArk video model shorthands → BytePlus ModelArk model id
 ARK_VIDEO_MODELS: dict[str, str] = {
-    "seedance-pro":  "bytedance-seedance-1-0-pro-250528",
-    "seedance-lite": "bytedance-seedance-1-0-lite-i2v-250428",
+    sh: spec.provider_id
+    for sh, spec in _VIDEO_REGISTRY.items()
+    if spec.backend == "modelark"
 }
 
 # tier tags: each shorthand → "cheap" | "premium"
-# Vertex-direct models are the tier defaults (direct-first rule).
-# fal and modelark long-tail models are tagged too but never auto-selected as tier defaults.
 VIDEO_MODEL_TIERS: dict[str, str] = {
-    "veo-3.1-lite":    "cheap",
-    "veo-3.1-fast":    "cheap",
-    "veo-3.1":         "premium",
-    "seedance-2-fast": "cheap",
-    "wan-2.6":         "cheap",
-    "seedance-pro":    "premium",  # ModelArk: unverified pricing — benchmark vs fal before spend
-    "seedance-lite":   "cheap",    # ModelArk: unverified pricing — benchmark vs fal before spend
+    sh: spec.tier
+    for sh, spec in _VIDEO_REGISTRY.items()
 }
 
 # tier → default Vertex-direct model (never auto-route to fal)
@@ -101,10 +95,12 @@ def select_model(tier: str | None) -> str | None:
 # enters as a URL (video_url), never inlined — see edit_video(). reframe's id and
 # input field are verified (research workflow, fal.ai 2026-06-22); v2v/extend are
 # deferred pending a live input-field probe.
+# Derived from the canonical registry in nazca.models.
+_VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset({"reframe", "v2v", "extend"})
 VIDEO_EDIT_MODELS: dict[str, str] = {
-    "reframe": "fal-ai/luma-dream-machine/ray-2/reframe",
-    "v2v":     "fal-ai/wan-vace-apps/video-edit",  # video_url field UNVERIFIED — verify before spend
-    "extend":  "fal-ai/pixverse/extend",           # video_url field UNVERIFIED — verify before spend
+    sh: spec.provider_id
+    for sh, spec in _VIDEO_REGISTRY.items()
+    if not spec.ops.isdisjoint(_VIDEO_EDIT_OPS_SET)
 }
 VIDEO_EDIT_OPS = tuple(VIDEO_EDIT_MODELS)
 
