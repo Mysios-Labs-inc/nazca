@@ -13,7 +13,7 @@ Status: ✅ generated successfully · ❌ 404 not available · ⏳ documented, n
 | — | `gemini-2.0-flash-preview-image-generation` | us-central1 | — | — | ❌ 404 |
 
 > **Big deal:** `gemini-3-pro-image` (GA) renders **legible baked-in text** (verified:
-> clean gold "DON GUILLERMO") and accepts **up to 14 reference images** (dish +
+> clean gold wordmark) and accepts **up to 14 reference images** (subject +
 > wordmark + style refs for brand consistency). nano-banana 2.5 cannot render text.
 > → For some designed posts this can replace the separate overlay step; for exact
 > brand fonts/hex/wordmark, the Pillow/Figma overlay is still more controllable.
