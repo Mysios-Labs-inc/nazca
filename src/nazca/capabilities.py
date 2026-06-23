@@ -53,6 +53,25 @@ OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe"})
 OPS_NEEDING_END: frozenset[str] = frozenset({"keyframe"})
 OPS_NEEDING_SOURCE_VIDEO: frozenset[str] = frozenset({"v2v", "reframe", "extend"})
 
+# --------------------------------------------------------------------------- ref roles
+# What a reference image *is* to the model, not just that one was passed. Today refs
+# are positional/untyped — `i2i` (1 ref) vs `compose` (2+) is inferred by count alone,
+# and the backend blends them with no notion of subject-vs-style-vs-identity. This
+# vocabulary is the spine for changing that. Closed set; `ref` is the generic,
+# backward-compatible default (a bare `--ref x.png` is role `ref` and behaves exactly
+# as today). Like CAPS itself, P1 is descriptive: it declares the vocabulary and which
+# models accept which roles. The CLI surface (`--ref path:role`) and per-role backend
+# routing land together in a later phase so the role actually changes output.
+REF_ROLES: frozenset[str] = frozenset(
+    {
+        "ref",       # generic / untyped reference — current behavior (default)
+        "subject",   # the primary thing to keep or edit (the source content)
+        "style",     # match this aesthetic / look, not its content
+        "identity",  # this face / character / wordmark — preserve identity
+    }
+)
+DEFAULT_REF_ROLE = "ref"
+
 
 @dataclass(frozen=True)
 class Caps:
@@ -61,16 +80,25 @@ class Caps:
     `produces`     "image" | "video" (audio deliberately out of scope for now).
     `ops`          the operations this model supports (subset of OPS).
     `max_refs`     ceiling for i2i/compose refs; None = supported, count unpinned.
+    `ref_roles`    which REF_ROLES this model accepts. Every ref-capable model accepts
+                   the generic `ref` role (current behavior); models that genuinely
+                   take semantically-distinct references (e.g. Gemini multi-ref:
+                   subject + style + wordmark) additionally declare the typed roles.
+                   Authority for role validation; per-role backend routing is later.
     `note`         short caveat (e.g. unverified id, activation needed).
     """
 
     produces: str
     ops: frozenset[str]
     max_refs: int | None = None
+    ref_roles: frozenset[str] = frozenset({DEFAULT_REF_ROLE})
     note: str = ""
 
     def supports(self, op: str) -> bool:
         return op in self.ops
+
+    def accepts_role(self, role: str) -> bool:
+        return role in self.ref_roles
 
 
 def _img(ops, **kw) -> Caps:
@@ -90,9 +118,9 @@ def _vid(ops, **kw) -> Caps:
 # as t2v, which is what P2 will use to stop forcing the start.
 CAPS: dict[str, Caps] = {
     # --- Vertex Gemini image: text-to-image + reference image-to-image ---
-    "nano-banana":     _img({"t2i", "i2i", "compose"}, note="2.5-flash-image; ref/edit, count unpinned"),
-    "nano-banana-2":   _img({"t2i", "i2i", "compose"}, note="3.1-flash-image; ref/edit, count unpinned"),
-    "nano-banana-pro": _img({"t2i", "i2i", "compose"}, max_refs=14, note="3-pro-image; up to 14 refs, legible text"),
+    "nano-banana":     _img({"t2i", "i2i", "compose"}, ref_roles=REF_ROLES, note="2.5-flash-image; ref/edit, count unpinned"),
+    "nano-banana-2":   _img({"t2i", "i2i", "compose"}, ref_roles=REF_ROLES, note="3.1-flash-image; ref/edit, count unpinned"),
+    "nano-banana-pro": _img({"t2i", "i2i", "compose"}, max_refs=14, ref_roles=REF_ROLES, note="3-pro-image; up to 14 refs, legible text"),
     # --- Vertex Imagen: text-to-image ONLY (rejects refs — encoded, not runtime) ---
     "imagen-4-fast":   _img({"t2i"}),
     "imagen-4":        _img({"t2i"}),
@@ -101,10 +129,10 @@ CAPS: dict[str, Caps] = {
     "flux-schnell":    _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
     "flux-2-dev":      _img({"t2i", "i2i"}, max_refs=1, note="fal id unverified; single ref only"),
     # --- ModelArk Seedream: t2i + native multi-ref i2i; group-image is a separate axis ---
-    "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, note="needs BytePlus activation; 'group' (N/call) not wired"),
+    "seedream":        _img({"t2i", "i2i", "compose"}, max_refs=14, ref_roles=REF_ROLES, note="needs BytePlus activation; 'group' (N/call) not wired"),
     # --- OpenAI gpt-image-2: t2i (/images/generations) + ref edits (/images/edits, ≤5).
     #     Legible text / ad creative; --quality is the cost/speed lever; token-billed. ---
-    "gpt-image-2":     _img({"t2i", "i2i", "compose"}, max_refs=5, note="OpenAI; legible text/ads; --quality lever; token-billed"),
+    "gpt-image-2":     _img({"t2i", "i2i", "compose"}, max_refs=5, ref_roles=REF_ROLES, note="OpenAI; legible text/ads; --quality lever; token-billed"),
     # --- fal modify ops (source image → image; ids verified against fal.ai 2026-06-22) ---
     "upscale":         _img({"upscale"}, note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
     "rmbg":            _img({"bg_remove"}, note="fal birefnet/v2 → transparent PNG (free compute)"),
@@ -217,6 +245,46 @@ def validate_op(model_shorthand: str | None, op: str, *, n_refs: int = 0) -> Non
         raise CapabilityError(
             f"{model_shorthand} accepts at most {c.max_refs} reference image(s), got {n_refs}"
         )
+
+
+def parse_ref(spec: str) -> tuple[str, str]:
+    """Split a CLI ref spec `path[:role]` into `(path, role)`.
+
+    A trailing `:role` is recognized only when the suffix is a clean role-like token
+    (no slash, dot, or space) — so real paths keep working untouched: `gs://b/x`,
+    `C:/x`, and `logo.png` all parse to role `ref`. A role-shaped suffix that isn't a
+    known role raises CapabilityError rather than silently mangling the path.
+    """
+    head, sep, tail = spec.rpartition(":")
+    if sep and head and tail and not (set("/. ") & set(tail)):
+        if tail not in REF_ROLES:
+            raise CapabilityError(
+                f"unknown ref role '{tail}' (roles: {', '.join(sorted(REF_ROLES))})"
+            )
+        return head, tail
+    return spec, DEFAULT_REF_ROLE
+
+
+def validate_ref_roles(model_shorthand: str | None, roles: list[str]) -> None:
+    """Raise CapabilityError if `model_shorthand` doesn't accept one of `roles`.
+
+    No-op for unknown models (raw ids / passthrough) and for the generic `ref` role,
+    which every ref-capable model accepts. Only typed roles are checked.
+    """
+    if not model_shorthand:
+        return
+    c = CAPS.get(model_shorthand)
+    if c is None:
+        return
+    for role in roles:
+        if role == DEFAULT_REF_ROLE:
+            continue
+        if role not in c.ref_roles:
+            typed = sorted(c.ref_roles - {DEFAULT_REF_ROLE})
+            accepts = f"accepts: {', '.join(typed)}" if typed else "takes only untyped refs"
+            raise CapabilityError(
+                f"{model_shorthand} does not accept ref role '{role}' (it {accepts})"
+            )
 
 
 def caps_for(shorthand: str) -> Caps | None:

@@ -34,6 +34,26 @@ backends that support it, not a new ad-hoc code path.
 ### Audio out
 `tts`, `music`, `dub` — **named but deliberately out of scope** for nazca today.
 
+## Ref roles (P1 — descriptive)
+
+A second axis on `i2i`/`compose`: not just *that* a reference was passed, but *what it
+is*. Today refs are untyped/positional (count alone picks `i2i` vs `compose`, and the
+backend blends them). `REF_ROLES` is the closed vocabulary that will change that:
+
+| role | meaning |
+|---|---|
+| `ref` | generic / untyped — **current behavior**, the default for a bare `--ref x.png` |
+| `subject` | the primary thing to keep or edit (source content) |
+| `style` | match this aesthetic / look, not its content |
+| `identity` | this face / character / wordmark — preserve identity |
+
+`Caps.ref_roles` declares which roles each model accepts: every ref-capable model takes
+the generic `ref`; the multi-semantic-ref models (nano-banana family, `seedream`,
+`gpt-image-2`) additionally accept the typed roles. Single-ref FLUX is generic-only.
+**P1 is descriptive** — the vocabulary + validation land now; the CLI surface
+(`--ref path:role`) and per-role backend routing land together in a later phase so the
+role actually changes output.
+
 ## Models today (P1 — descriptive, what nazca drives now)
 
 ### Image
