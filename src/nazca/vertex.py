@@ -11,11 +11,11 @@ from nazca.backends.vertex import (
     RateLimitError,
     VertexError,
     access_token,
-    encode_image_b64,
     gcloud_token,
     model_base,
     post,
 )
+from nazca.media import encode_image_b64
 
 __all__ = [
     "RateLimitError",

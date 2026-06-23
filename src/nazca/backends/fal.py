@@ -13,19 +13,16 @@ secrets manager, never in code or CLI flags.
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
-from PIL import Image
-
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
+from nazca.media import encode_image_b64, encode_image_data_uri
 
 
 class FalError(RuntimeError):
@@ -161,26 +158,11 @@ class FalBackend(Backend):
     def encode_image_b64(
         self, path: str | Path, max_edge: int | None = None, fmt: str = "JPEG"
     ) -> tuple[str, str]:
-        """Return (base64, mime) for an image, optionally downscaled to max_edge.
-
-        Identical to Vertex's implementation — fal ref inputs are sent as
-        data-URI strings built from this output.
-        """
-        img = Image.open(path)
-        img = img.convert("RGB") if fmt == "JPEG" else img.convert("RGBA")
-        if max_edge:
-            w, h = img.size
-            scale = min(1.0, max_edge / max(w, h))
-            if scale < 1.0:
-                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format=fmt)
-        mime = "image/jpeg" if fmt == "JPEG" else "image/png"
-        return base64.b64encode(buf.getvalue()).decode(), mime
+        """Re-export from media; fal ref inputs are sent as data-URI strings."""
+        return encode_image_b64(path, max_edge=max_edge, fmt=fmt)
 
     def encode_image_data_uri(
         self, path: str | Path, max_edge: int | None = None
     ) -> str:
         """Return a data-URI string for a ref image (fal's expected format for inputs)."""
-        b64, mime = self.encode_image_b64(path, max_edge=max_edge, fmt="PNG")
-        return f"data:{mime};base64,{b64}"
+        return encode_image_data_uri(path, max_edge=max_edge)

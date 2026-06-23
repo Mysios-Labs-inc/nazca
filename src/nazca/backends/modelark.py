@@ -12,7 +12,7 @@ import urllib.request
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
-from nazca.backends.vertex import encode_image_b64
+from nazca.media import encode_image_b64, encode_image_data_uri
 
 ARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"  # verify against ModelArk docs
 
@@ -38,12 +38,12 @@ class ModelArkBackend(Backend):
         return f"{ARK_BASE}/contents/generations/tasks"  # verify against ModelArk docs
 
     def encode_image_b64(self, path, max_edge=None, fmt="PNG"):
+        """Re-export from media for backend interface."""
         return encode_image_b64(path, max_edge=max_edge, fmt=fmt)
 
     def encode_image_data_uri(self, path, max_edge: int | None = None) -> str:
         """ModelArk takes image inputs as data URIs (verify against docs)."""
-        b64, mime = self.encode_image_b64(path, max_edge=max_edge, fmt="PNG")
-        return f"data:{mime};base64,{b64}"
+        return encode_image_data_uri(path, max_edge=max_edge)
 
     def auth_token(self) -> str:
         """Read ARK_API_KEY (env > config file) lazily — never called during dry-run."""
