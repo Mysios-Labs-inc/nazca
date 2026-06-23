@@ -30,6 +30,21 @@ class VeoError(VertexError):
     pass
 
 
+def video_cost_label(
+    model: str | None,
+    *,
+    duration: int = 8,
+    resolution: str = "720p",
+    audio: bool = False,
+) -> str | None:
+    """Cost line for a Veo clip, e.g. "~$1.6". Returns None when we have no pricing
+    (fal/ModelArk video, edit ops, raw ids) — same posture as image_cost_label."""
+    from nazca.cost import estimate_video_cost
+
+    est = estimate_video_cost(model, duration=duration, resolution=resolution, audio=audio)
+    return est.label() if est is not None else None
+
+
 # Shorthand aliases → full Vertex Veo model ids
 VEO_ALIASES: dict[str, str] = {
     "veo-3.1-lite": "veo-3.1-lite-generate-001",

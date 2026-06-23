@@ -79,6 +79,50 @@ def test_plan_cost_label_clean_when_all_priced():
 def test_estimate_plan_cost_empty_is_zero():
     pc = cost.estimate_plan_cost([])
     assert pc.total_usd == 0 and pc.priced == 0 and pc.unpriced == 0
+
+
+# --------------------------------------------------------------------------- video prices
+def test_estimate_video_cost_veo_standard_per_second():
+    # veo-3.1 @720p no-audio = $0.20/s × 8s = $1.60
+    est = cost.estimate_video_cost("veo-3.1", duration=8, resolution="720p", audio=False)
+    assert est is not None and est.usd == 1.6
+    assert est.approx is True
+
+
+def test_estimate_video_cost_audio_costs_more():
+    no_audio = cost.estimate_video_cost("veo-3.1-fast", duration=8, resolution="1080p", audio=False).usd
+    with_audio = cost.estimate_video_cost("veo-3.1-fast", duration=8, resolution="1080p", audio=True).usd
+    assert with_audio > no_audio  # 0.12/s vs 0.10/s
+
+
+def test_estimate_video_cost_scales_with_duration():
+    four = cost.estimate_video_cost("veo-3.1-lite", duration=4, resolution="720p").usd
+    eight = cost.estimate_video_cost("veo-3.1-lite", duration=8, resolution="720p").usd
+    assert eight == round(2 * four, 4)
+
+
+def test_estimate_video_cost_lite_4k_falls_back():
+    # veo-3.1-lite has no 4k tier → falls back to 1080p rate, still priced (not None)
+    est = cost.estimate_video_cost("veo-3.1-lite", duration=8, resolution="4k", audio=False)
+    assert est is not None
+    assert est.usd == round(0.05 * 8, 4)  # 1080p no-audio rate
+
+
+def test_estimate_video_cost_unpriced_models_return_none():
+    # fal / ModelArk video + edit ops have unverified pricing → not guessed
+    for m in ("wan-2.6", "seedance-pro", "reframe", "vertex:raw-id", None):
+        assert cost.estimate_video_cost(m, duration=8) is None
+
+
+def test_estimate_plan_cost_mixes_image_and_video():
+    pc = cost.estimate_plan_cost([
+        {"model": "nano-banana"},                                  # 0.039 image
+        {"model": "veo-3.1", "duration": 8, "resolution": "720p"},  # 1.60 video
+        {"model": "seedance-pro", "duration": 8},                   # unpriced video
+    ])
+    assert pc.priced == 2
+    assert pc.unpriced == 1
+    assert pc.total_usd == round(0.039 + 1.6, 4)
     assert cost.estimate_image_cost("nano-banana-pro", size="4K").usd == 0.24
 
 
