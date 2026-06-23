@@ -39,9 +39,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import TYPE_CHECKING, Callable, Iterable
 
 from nazca.image import DEFAULT_MODEL, generate_image
+
+if TYPE_CHECKING:
+    from nazca.cost import PlanCost
 
 # A small safety margin (seconds) added to each lane's start interval so we sit
 # *under* the provider's req/min ceiling rather than exactly on it.
