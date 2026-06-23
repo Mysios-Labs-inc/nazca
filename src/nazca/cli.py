@@ -111,6 +111,146 @@ def cli() -> None:
     """Thin CLI for AI image + video generation. Claude-driven."""
 
 
+# ---------------------------------------------------------------------------
+# Shared CLI helpers — extracted from command bodies so they can be tested
+# independently without invoking Click plumbing.
+# ---------------------------------------------------------------------------
+
+def _validate_or_exit(model: str | None, op: str, *, n_refs: int = 0) -> None:
+    """Run capability check; on failure echo ❌ to stderr and exit 2.
+
+    This is the verbatim try/except that was duplicated in image() and video().
+    """
+    from nazca.capabilities import CapabilityError, validate_op
+
+    try:
+        validate_op(model, op, n_refs=n_refs)
+    except CapabilityError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+
+
+def _validate_image_inputs(
+    source: str | None,
+    ref: tuple,
+    do_upscale: bool,
+    do_rmbg: bool,
+    mask: str | None,
+    do_outpaint: bool,
+    op: str,
+    prompt: str | None,
+    modify: bool,
+) -> None:
+    """Validate image command mutual-exclusion rules; raise SystemExit(2) on error.
+
+    Preserves the exact message text and err=True stream of the original checks
+    in image() lines 164-189.
+    """
+    # At most one modify signal at a time.
+    if sum([do_upscale, do_rmbg, bool(mask), do_outpaint]) > 1:
+        click.echo("❌ choose one modify op: --upscale / --rmbg / --mask (inpaint) / --outpaint", err=True)
+        raise SystemExit(2)
+
+    if modify:
+        if not source:
+            click.echo(f"❌ {op} needs a SOURCE image: nazca image PATH ...", err=True)
+            raise SystemExit(2)
+        if ref:
+            click.echo("❌ --ref is not used with modify ops (they modify SOURCE)", err=True)
+            raise SystemExit(2)
+        if op == "inpaint" and not prompt:
+            click.echo("❌ inpaint needs -p/--prompt describing the masked region", err=True)
+            raise SystemExit(2)
+    else:
+        if source:
+            click.echo("❌ a positional SOURCE image is only for modify ops (--upscale/--rmbg/--mask/--outpaint); use --ref for references", err=True)
+            raise SystemExit(2)
+        if not prompt:
+            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg/--outpaint)", err=True)
+            raise SystemExit(2)
+
+
+def _validate_video_inputs(
+    source: str | None,
+    start: str | None,
+    end: str | None,
+    prompt: str | None,
+    op: str,
+    in_edit_ops: bool,
+) -> None:
+    """Validate video command mutual-exclusion rules; raise SystemExit(2) on error.
+
+    Preserves the exact message text and err=True stream of the original checks
+    in video() lines 468-504.
+    """
+    if in_edit_ops:
+        if not source:
+            click.echo(f"❌ --{op} needs a SOURCE video URL: nazca video CLIP_URL --{op}", err=True)
+            raise SystemExit(2)
+        if start or end:
+            click.echo(f"❌ --start/--end are for frame ops; --{op} takes a SOURCE video, not frames", err=True)
+            raise SystemExit(2)
+        if op in ("v2v", "extend") and not prompt:
+            click.echo(f"❌ --{op} needs -p/--prompt", err=True)
+            raise SystemExit(2)
+    else:
+        if source:
+            click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe/--v2v/--extend); use --start for a frame", err=True)
+            raise SystemExit(2)
+        if end and not start:
+            click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
+            raise SystemExit(2)
+        if not prompt:
+            click.echo("❌ -p/--prompt is required for t2v/i2v/keyframe", err=True)
+            raise SystemExit(2)
+
+
+def _emit_image_result(
+    result,
+    dry_run: bool,
+    modify: bool,
+    resolved_model: str | None,
+    default_model: str,
+    aspect_ratio: str,
+    size: str,
+    quality: str,
+) -> None:
+    """Print image command success output.
+
+    dry_run path:   json.dumps(result, indent=2)
+    success path:   ✅ {result}
+                    💵 {cost}   (generation ops only, when a cost label exists)
+
+    Preserves the exact output from image() lines 225-237.
+    """
+    if dry_run:
+        click.echo(json.dumps(result, indent=2))
+    else:
+        click.echo(f"✅ {result}")
+        if not modify:
+            from nazca.image import image_cost_label
+
+            cost = image_cost_label(
+                resolved_model or default_model,
+                aspect_ratio=aspect_ratio, size=size, quality=quality,
+            )
+            if cost:
+                click.echo(f"💵 {cost}")
+
+
+def _emit_video_result(result, dry_run: bool) -> None:
+    """Print video command success output (shared by edit ops and frame ops).
+
+    Preserves the exact output from video() lines 492 and 522:
+        📝 {result}   (dry-run)
+        ✅ {result}   (real run)
+    """
+    click.echo(f"{'📝' if dry_run else '✅'} {result}")
+
+
+# ---------------------------------------------------------------------------
+
+
 @cli.command()
 @click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
@@ -148,7 +288,6 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         infer_image_op,
         parse_ref,
         role_annotation,
-        validate_op,
         validate_ref_roles,
     )
     from nazca.image import (
@@ -160,40 +299,20 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         select_model,
     )
 
-    # At most one modify signal at a time.
-    if sum([do_upscale, do_rmbg, bool(mask), do_outpaint]) > 1:
-        click.echo("❌ choose one modify op: --upscale / --rmbg / --mask (inpaint) / --outpaint", err=True)
-        raise SystemExit(2)
-
     # The op is inferred from the flags: modify signals win, else refs count.
     op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg, mask=bool(mask), outpaint=do_outpaint)
     modify = op in MODIFY_OPS
 
+    # Validate mutual-exclusion rules (raises SystemExit(2) on conflict).
+    _validate_image_inputs(source, ref, do_upscale, do_rmbg, mask, do_outpaint, op, prompt, modify)
+
     if modify:
-        if not source:
-            click.echo(f"❌ {op} needs a SOURCE image: nazca image PATH ...", err=True)
-            raise SystemExit(2)
-        if ref:
-            click.echo("❌ --ref is not used with modify ops (they modify SOURCE)", err=True)
-            raise SystemExit(2)
-        if op == "inpaint" and not prompt:
-            click.echo("❌ inpaint needs -p/--prompt describing the masked region", err=True)
-            raise SystemExit(2)
         resolved_model = model or default_modify_model(op)
     else:
-        if source:
-            click.echo("❌ a positional SOURCE image is only for modify ops (--upscale/--rmbg/--mask/--outpaint); use --ref for references", err=True)
-            raise SystemExit(2)
-        if not prompt:
-            click.echo("❌ -p/--prompt is required (omit only for --upscale/--rmbg/--outpaint)", err=True)
-            raise SystemExit(2)
         resolved_model = model or select_model(tier)
 
-    try:
-        validate_op(resolved_model or DEFAULT_MODEL, op, n_refs=len(ref))
-    except CapabilityError as e:
-        click.echo(f"❌ {e}", err=True)
-        raise SystemExit(2) from e
+    # Capability check — raises SystemExit(2) if the model can't perform op.
+    _validate_or_exit(resolved_model or DEFAULT_MODEL, op, n_refs=len(ref))
 
     # Ref roles: parse `path:role` specs, validate against the model, and label each
     # typed ref in the prompt (the only mechanism — no backend has a per-ref role
@@ -222,19 +341,7 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
             aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
             transparent=transparent, dry_run=dry_run,
         )
-    if dry_run:
-        click.echo(json.dumps(result, indent=2))
-    else:
-        click.echo(f"✅ {result}")
-        if not modify:
-            from nazca.image import image_cost_label
-
-            cost = image_cost_label(
-                resolved_model or DEFAULT_MODEL,
-                aspect_ratio=aspect_ratio, size=size, quality=quality,
-            )
-            if cost:
-                click.echo(f"💵 {cost}")
+    _emit_image_result(result, dry_run, modify, resolved_model, DEFAULT_MODEL, aspect_ratio, size, quality)
 
 
 @cli.command(name="batch")
@@ -445,7 +552,7 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
       nazca video CLIP_URL --extend -p "..." --duration 8  # lengthen a clip
     """
     from nazca import config
-    from nazca.capabilities import CapabilityError, infer_video_op, validate_op
+    from nazca.capabilities import infer_video_op
     from nazca.video import (
         VEO_ALIASES,
         VIDEO_EDIT_OPS,
@@ -463,24 +570,15 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
         raise SystemExit(2)
 
     op = infer_video_op(bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend)
+    in_edit_ops = op in VIDEO_EDIT_OPS
+
+    # ---- validate inputs (raises SystemExit(2) on conflict) ----------------
+    _validate_video_inputs(source, start, end, prompt, op, in_edit_ops)
 
     # ---- video-edit ops (source VIDEO → video) -----------------------------
-    if op in VIDEO_EDIT_OPS:
-        if not source:
-            click.echo(f"❌ --{op} needs a SOURCE video URL: nazca video CLIP_URL --{op}", err=True)
-            raise SystemExit(2)
-        if start or end:
-            click.echo(f"❌ --start/--end are for frame ops; --{op} takes a SOURCE video, not frames", err=True)
-            raise SystemExit(2)
-        if op in ("v2v", "extend") and not prompt:
-            click.echo(f"❌ --{op} needs -p/--prompt", err=True)
-            raise SystemExit(2)
+    if in_edit_ops:
         resolved_model = model or default_video_edit_model(op)
-        try:
-            validate_op(resolved_model, op)
-        except CapabilityError as e:
-            click.echo(f"❌ {e}", err=True)
-            raise SystemExit(2) from e
+        _validate_or_exit(resolved_model, op)
         try:
             result = edit_video(
                 out, source, op=op, model=resolved_model,
@@ -489,37 +587,23 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
         except VeoError as e:  # URL-only / bad-duration → clean error, not a traceback
             click.echo(f"❌ {e}", err=True)
             raise SystemExit(2) from e
-        click.echo(f"{'📝' if dry_run else '✅'} {result}")
+        _emit_video_result(result, dry_run)
         return
 
     # ---- frame ops (t2v / i2v / keyframe) ----------------------------------
-    if source:
-        click.echo("❌ a positional SOURCE video is only for video-edit ops (--reframe/--v2v/--extend); use --start for a frame", err=True)
-        raise SystemExit(2)
-    if end and not start:
-        click.echo("❌ --end requires --start (keyframe interpolation needs both frames)", err=True)
-        raise SystemExit(2)
-    if not prompt:
-        click.echo("❌ -p/--prompt is required for t2v/i2v/keyframe", err=True)
-        raise SystemExit(2)
-
     # --model wins; --tier only supplies a default when --model is absent
     resolved_model = model or select_model(tier)
     # For validation, resolve the implicit default (config.VEO_MODEL is a raw Veo
     # id) to its shorthand so the default path is validated too. Unknown ids no-op.
     validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
-    try:
-        validate_op(validate_target, op)
-    except CapabilityError as e:
-        click.echo(f"❌ {e}", err=True)
-        raise SystemExit(2) from e
+    _validate_or_exit(validate_target, op)
 
     result = generate_video(
         out, start, prompt, end=end, model=resolved_model, duration=duration,
         aspect_ratio=aspect_ratio, resolution=resolution,
         generate_audio=audio, dry_run=dry_run,
     )
-    click.echo(f"{'📝' if dry_run else '✅'} {result}")
+    _emit_video_result(result, dry_run)
     if dry_run:
         cost = video_cost_label(validate_target, duration=duration, resolution=resolution, audio=audio)
         if cost:
