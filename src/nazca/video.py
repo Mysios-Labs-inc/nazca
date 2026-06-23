@@ -17,13 +17,11 @@ from pathlib import Path
 
 from nazca import config
 from nazca.backends import get_backend
-from nazca.errors import BackendError
+from nazca.cost import estimate_video_cost
+from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
+from nazca.registry import video_override
 from nazca.request import VideoRequest
-
-
-class VeoError(BackendError):
-    """Raised for video-generation failures that are not provider-specific."""
 
 
 def video_cost_label(
@@ -35,8 +33,6 @@ def video_cost_label(
 ) -> str | None:
     """Cost line for a Veo clip, e.g. "~$1.6". Returns None when we have no pricing
     (fal/ModelArk video, edit ops, raw ids) — same posture as image_cost_label."""
-    from nazca.cost import estimate_video_cost
-
     est = estimate_video_cost(model, duration=duration, resolution=resolution, audio=audio)
     return est.label() if est is not None else None
 
@@ -127,8 +123,6 @@ def _resolve_video(model: str) -> tuple[str, str]:
             return ("modelark", raw_id)
 
     # 2. user override file (~/.config/nazca/models.json)
-    from nazca.registry import video_override
-
     ov = video_override(model)
     if ov is not None:
         ov_backend = ov.get("backend", "vertex")

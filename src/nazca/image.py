@@ -31,17 +31,15 @@ from nazca.backends.modelark import (  # noqa: F401
 )
 from nazca.backends.openai import OPENAI_ASPECT_MAP as _OPENAI_ASPECT_MAP
 from nazca.backends.vertex import VertexBackend as _VertexBackend
-from nazca.errors import BackendError
+from nazca.cost import cost_from_openai_usage, estimate_image_cost
+from nazca.errors import ImageError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import encode_image_b64  # noqa: F401  (re-export for vertex_batch)
 from nazca.models import MODELS as _MODEL_REGISTRY
+from nazca.registry import image_override
 from nazca.request import ImageRequest
 
 # Re-export the Gemini extractor for nazca.vertex_batch (batch decode path).
 _gemini_extract = _VertexBackend._gemini_extract
-
-
-class ImageError(BackendError):
-    """Raised for image-generation failures that are not provider-specific."""
 
 
 # shorthand -> (model id, location/fal-id, api, backend)
@@ -101,8 +99,6 @@ def _resolve(model: str | None) -> tuple[str, str, str, str]:
             return (raw_id, "", "openai", "openai")
 
     # 2. user override file (~/.config/nazca/models.json)
-    from nazca.registry import image_override
-
     ov = image_override(model)
     if ov is not None:
         ov_id = ov.get("id", model)
@@ -132,8 +128,6 @@ def _estimate_image_cost(
     Raw ids / overrides return None ("cost unknown"). Kept in the orchestrator
     because pricing is keyed by the user-facing shorthand the backend never sees.
     """
-    from nazca.cost import estimate_image_cost
-
     aspect_size = _OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto") if backend_name == "openai" else None
     est = estimate_image_cost(model or DEFAULT_MODEL, size=size, aspect_size=aspect_size, quality=quality)
     return round(est.usd, 4) if est is not None else None
@@ -211,8 +205,6 @@ def image_cost_label(
     to the size×quality estimate. Flat-priced models report their known per-image
     price. Returns None when we have no pricing (raw ids, fal modify ops).
     """
-    from nazca.cost import cost_from_openai_usage, estimate_image_cost
-
     _model_id, _location, _api, backend_name = _resolve(model)
 
     if backend_name == "openai":

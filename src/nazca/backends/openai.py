@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 from nazca import config
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
-from nazca.errors import BackendError
+from nazca.errors import BackendError, ImageError
 from nazca.media import encode_image_b64, encode_image_bytes
 
 if TYPE_CHECKING:
@@ -103,8 +103,6 @@ class OpenAIBackend(Backend):
         With refs → multipart /images/edits; without → JSON /images/generations.
         Owns body-building and the per-op dry-run plan.
         """
-        from nazca.image import ImageError
-
         body = self._image_body(
             req.prompt, model_id, req.aspect_ratio, req.quality, req.output_format, req.transparent
         )

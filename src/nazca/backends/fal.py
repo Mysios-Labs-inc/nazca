@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
-from nazca.errors import BackendError
+from nazca.errors import BackendError, ImageError, VeoError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64, encode_image_data_uri, summarize_data_uri
 
@@ -227,8 +227,6 @@ class FalBackend(Backend):
 
     def _run_modify(self, model_id, req: ImageRequest):
         """Source-image modify op (upscale / bg_remove / inpaint / outpaint)."""
-        from nazca.image import ImageError
-
         body: dict = {"image_url": self.encode_image_data_uri(req.source, max_edge=2048)}
         op = req.op
         if op == "upscale":
@@ -290,8 +288,6 @@ class FalBackend(Backend):
 
     def _run_video_edit(self, model_id, req: VideoRequest):
         """Video-edit op (reframe / v2v / extend) — source is a public video URL."""
-        from nazca.video import VeoError
-
         src = str(req.source)
         url = self.build_url(model_id)
         op = req.op
