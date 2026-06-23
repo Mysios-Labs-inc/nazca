@@ -405,3 +405,52 @@ def test_run_batch_isolates_mkdir_failure(tmp_path, monkeypatch):
     plan = batch.plan_batch(rows, rpm=600)
     results = batch.run_batch(plan, _pacer_factory=lambda i: batch._StartPacer(0.0))
     assert {r.status for r in results} == {"error", "ok"}
+
+
+# --------------------------------------------------------------------------- budget gate (CLI)
+def _budget_dir(tmp_path):
+    from PIL import Image
+    d = tmp_path / "refs"
+    d.mkdir()
+    for n in ("a", "b", "c"):
+        Image.new("RGB", (8, 8)).save(d / f"{n}.png")
+    return d
+
+
+def test_batch_max_cost_blocks_real_run_over_budget(tmp_path):
+    from click.testing import CliRunner
+    from nazca.cli import cli
+    # 3 rows × nano-banana-pro @2K ($0.134) = $0.402 > $0.10 → refuse, exit 2, no dispatch
+    r = CliRunner().invoke(cli, [
+        "batch", "--from-dir", str(_budget_dir(tmp_path)), "--prompt", "x",
+        "--models", "nano-banana-pro", "--size", "2K", "--out-dir", str(tmp_path / "out"),
+        "--max-cost", "0.10",
+    ])
+    assert r.exit_code == 2, r.output
+    assert "exceeds --max-cost $0.10" in r.output
+    assert "nothing dispatched" in r.output
+
+
+def test_batch_max_cost_within_budget_passes_gate(tmp_path):
+    from click.testing import CliRunner
+    from nazca.cli import cli
+    # generous ceiling → gate passes; --dry-run avoids real dispatch
+    r = CliRunner().invoke(cli, [
+        "batch", "--from-dir", str(_budget_dir(tmp_path)), "--prompt", "x",
+        "--models", "nano-banana-pro", "--size", "2K", "--out-dir", str(tmp_path / "out"),
+        "--max-cost", "5.00", "--dry-run",
+    ])
+    assert r.exit_code == 0, r.output
+    assert "within --max-cost $5.00" in r.output
+
+
+def test_batch_max_cost_dry_run_over_budget_warns_but_succeeds(tmp_path):
+    from click.testing import CliRunner
+    from nazca.cli import cli
+    r = CliRunner().invoke(cli, [
+        "batch", "--from-dir", str(_budget_dir(tmp_path)), "--prompt", "x",
+        "--models", "nano-banana-pro", "--size", "2K", "--out-dir", str(tmp_path / "out"),
+        "--max-cost", "0.10", "--dry-run",
+    ])
+    assert r.exit_code == 0, r.output            # dry-run is a preview; it warns, doesn't fail
+    assert "would exceed --max-cost $0.10" in r.output
