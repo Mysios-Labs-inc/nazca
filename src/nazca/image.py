@@ -23,12 +23,12 @@ import base64
 from pathlib import Path
 
 from nazca.backends import get_backend
+from nazca.errors import BackendError
 from nazca.media import encode_image_b64
-from nazca.vertex import VertexError
 
 
-class ImageError(VertexError):
-    pass
+class ImageError(BackendError):
+    """Raised for image-generation failures that are not provider-specific."""
 
 
 # shorthand -> (model id, location/fal-id, api, backend)

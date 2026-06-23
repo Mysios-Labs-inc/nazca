@@ -41,6 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Iterable
 
+from nazca.errors import RateLimitError
 from nazca.image import DEFAULT_MODEL, generate_image
 
 if TYPE_CHECKING:
@@ -342,6 +343,9 @@ def _dispatch_row(
             plan = generate_image(
                 row.out, row.prompt, dry_run=True, **_gen_kwargs(row),
             )
+        except RateLimitError as e:  # throttle failure — record but don't treat as a hard error
+            on_event("error", row, e)
+            return RowResult(row, "error", str(e))
         except Exception as e:  # a bad row must not sink the whole plan preview
             on_event("error", row, e)
             return RowResult(row, "error", str(e))
@@ -355,6 +359,9 @@ def _dispatch_row(
         generate_image(row.out, row.prompt, **_gen_kwargs(row))
         on_event("ok", row, None)
         return RowResult(row, "ok")
+    except RateLimitError as e:  # throttle failure — distinguishable from real errors
+        on_event("error", row, e)
+        return RowResult(row, "error", str(e))
     except Exception as e:  # one bad row must not sink the lane
         on_event("error", row, e)
         return RowResult(row, "error", str(e))
