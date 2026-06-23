@@ -3,11 +3,20 @@
 A lightweight base class (not a pure Protocol) so backends can share nothing but
 still be type-checked and registered uniformly. Each method mirrors a piece of
 the original single-provider `vertex.py` plumbing.
+
+The load-bearing seam is `run_image` / `run_video`: each backend owns its own
+body-building, dispatch, extraction, and dry-run plan rendering, so the call sites
+in `image.py` / `video.py` collapse to a single `backend.run_image(...)` call with
+no per-backend branching.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nazca.request import ImageRequest, VideoRequest
 
 
 class Backend:
@@ -32,3 +41,27 @@ class Backend:
     ) -> tuple[str, str]:
         """Return (base64, mime) for an image, optionally downscaled to max_edge."""
         raise NotImplementedError
+
+    # --------------------------------------------------------------- run seam
+
+    def run_image(
+        self, model_id: str, api: str, region: str | None, req: ImageRequest
+    ) -> bytes | dict:
+        """Generate (or modify) one image with the resolved `model_id`.
+
+        `api` and `region` are the resolved routing fields (sub-API within the
+        backend, and provider region for Vertex). Returns raw image bytes on a real
+        run, or the dry-run plan dict when ``req.dry_run`` is set. Backends that do
+        not do images raise.
+        """
+        raise NotImplementedError(f"backend '{self.name}' does not support images")
+
+    def run_video(
+        self, model_id: str, region: str | None, req: VideoRequest
+    ) -> bytes | dict:
+        """Generate (or edit) one video clip with the resolved `model_id`.
+
+        Returns raw video bytes on a real run, or the dry-run plan dict when
+        ``req.dry_run`` is set. Backends that do not do video raise.
+        """
+        raise NotImplementedError(f"backend '{self.name}' does not support video")
