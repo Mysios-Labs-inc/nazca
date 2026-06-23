@@ -92,3 +92,50 @@ def test_cli_rejects_flux_multi_ref(tmp_path):
     )
     assert r.exit_code == 2
     assert "compose" in r.output
+
+
+# --------------------------------------------------------------------------- ref roles (P2/P3)
+def test_cli_typed_role_labels_prompt_in_dry_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VERTEX_PROJECT", "test-proj")
+    r = CliRunner().invoke(
+        cli,
+        ["image", "-o", str(tmp_path / "o.png"), "-p", "make an ad", "--model", "nano-banana",
+         "--ref", f"{_png(tmp_path / 'look.png')}:style", "--dry-run"],
+    )
+    assert r.exit_code == 0, r.output
+    plan = json.loads(r.output)
+    text = plan["parts"][0]["text"]
+    assert "make an ad" in text
+    assert "image 1 is a style reference" in text  # role steered into the prompt
+
+
+def test_cli_bare_ref_leaves_prompt_unchanged(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "VERTEX_PROJECT", "test-proj")
+    r = CliRunner().invoke(
+        cli,
+        ["image", "-o", str(tmp_path / "o.png"), "-p", "just this", "--model", "nano-banana",
+         "--ref", _png(tmp_path / "a.png"), "--dry-run"],
+    )
+    assert r.exit_code == 0, r.output
+    plan = json.loads(r.output)
+    assert plan["parts"][0]["text"] == "just this"  # byte-identical: no annotation
+
+
+def test_cli_rejects_unknown_role(tmp_path):
+    r = CliRunner().invoke(
+        cli,
+        ["image", "-o", str(tmp_path / "o.png"), "-p", "x",
+         "--ref", f"{_png(tmp_path / 'a.png')}:bogus", "--dry-run"],
+    )
+    assert r.exit_code == 2
+    assert "unknown ref role" in r.output
+
+
+def test_cli_rejects_typed_role_on_generic_only_model(tmp_path):
+    r = CliRunner().invoke(
+        cli,
+        ["image", "-o", str(tmp_path / "o.png"), "-p", "x", "--model", "flux-schnell",
+         "--ref", f"{_png(tmp_path / 'a.png')}:style", "--dry-run"],
+    )
+    assert r.exit_code == 2
+    assert "does not accept ref role 'style'" in r.output

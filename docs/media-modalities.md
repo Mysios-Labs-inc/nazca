@@ -34,6 +34,35 @@ backends that support it, not a new ad-hoc code path.
 ### Audio out
 `tts`, `music`, `dub` — **named but deliberately out of scope** for nazca today.
 
+## Ref roles (P1 — descriptive)
+
+A second axis on `i2i`/`compose`: not just *that* a reference was passed, but *what it
+is*. Today refs are untyped/positional (count alone picks `i2i` vs `compose`, and the
+backend blends them). `REF_ROLES` is the closed vocabulary that will change that:
+
+| role | meaning |
+|---|---|
+| `ref` | generic / untyped — **current behavior**, the default for a bare `--ref x.png` |
+| `subject` | the primary thing to keep or edit (source content) |
+| `style` | match this aesthetic / look, not its content |
+| `identity` | this face / character / wordmark — preserve identity |
+
+`Caps.ref_roles` declares which roles each model accepts: every ref-capable model takes
+the generic `ref`; the multi-semantic-ref models (nano-banana family, `seedream`,
+`gpt-image-2`) additionally accept the typed roles. Single-ref FLUX is generic-only.
+
+**CLI surface (live):** `--ref PATH:role`, repeatable — e.g.
+`--ref hero.png:subject --ref look.png:style --ref face.png:identity`. A bare `--ref x.png`
+is untyped (role `ref`) and behaves exactly as before. Unknown roles, and typed roles on a
+model that doesn't accept them, are rejected up front.
+
+**How a role changes output:** no backend exposes a per-ref role field, so roles steer the
+model through the **prompt** — `role_annotation()` appends an ordered legend ("image 1 is
+the subject…; image 2 is a style reference…") to the prompt before dispatch. Untyped refs
+add nothing, so the prompt sent is byte-identical to today. This is provider-agnostic (every
+image backend forwards the prompt). Backends do **not** yet treat the images differently at
+the API level — that's a later, per-provider step where native role fields exist.
+
 ## Models today (P1 — descriptive, what nazca drives now)
 
 ### Image

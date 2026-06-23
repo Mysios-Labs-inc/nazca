@@ -170,3 +170,82 @@ def test_validate_unknown_model_is_noop():
     # raw ids / backend:id passthrough / overrides → can't know caps, don't block
     cap.validate_op("vertex:some-raw-id", "i2i", n_refs=5)
     cap.validate_op(None, "t2i")
+
+
+# --------------------------------------------------------------------------- ref roles (P1)
+def test_default_ref_role_is_in_vocabulary():
+    assert cap.DEFAULT_REF_ROLE in cap.REF_ROLES
+
+
+def test_every_caps_accepts_the_generic_role():
+    # backward compat: a bare `--ref x.png` (role `ref`) is valid on every model
+    for sh, c in cap.CAPS.items():
+        assert cap.DEFAULT_REF_ROLE in c.ref_roles, f"{sh} rejects the generic ref role"
+
+
+def test_multi_ref_models_accept_typed_roles():
+    for sh in ("nano-banana", "nano-banana-2", "nano-banana-pro", "seedream", "gpt-image-2"):
+        c = cap.CAPS[sh]
+        assert {"subject", "style", "identity"} <= c.ref_roles, f"{sh} missing typed roles"
+
+
+def test_single_ref_model_is_generic_only():
+    # FLUX takes one untyped ref → no semantic typing claimed
+    assert cap.CAPS["flux-schnell"].ref_roles == frozenset({"ref"})
+
+
+def test_parse_ref_bare_path_is_generic():
+    assert cap.parse_ref("hero.png") == ("hero.png", "ref")
+
+
+def test_parse_ref_typed_suffix():
+    assert cap.parse_ref("look.png:style") == ("look.png", "style")
+    assert cap.parse_ref("face.png:identity") == ("face.png", "identity")
+
+
+def test_parse_ref_leaves_real_paths_untouched():
+    # colons in real paths must not be mistaken for roles (no role-shaped suffix)
+    assert cap.parse_ref("gs://bucket/a.png") == ("gs://bucket/a.png", "ref")
+    assert cap.parse_ref("C:/tmp/a.png") == ("C:/tmp/a.png", "ref")
+
+
+def test_parse_ref_rejects_unknown_role():
+    with pytest.raises(cap.CapabilityError, match="unknown ref role 'bogus'"):
+        cap.parse_ref("a.png:bogus")
+
+
+def test_validate_ref_roles_ok():
+    cap.validate_ref_roles("nano-banana-pro", ["subject", "style", "identity"])  # no raise
+    cap.validate_ref_roles("flux-schnell", ["ref", "ref"])  # generic always ok
+
+
+def test_validate_ref_roles_rejects_typed_on_generic_only_model():
+    with pytest.raises(cap.CapabilityError, match="style"):
+        cap.validate_ref_roles("flux-schnell", ["style"])
+
+
+def test_validate_ref_roles_unknown_model_is_noop():
+    cap.validate_ref_roles("vertex:raw-id", ["style"])
+    cap.validate_ref_roles(None, ["identity"])
+
+
+# --------------------------------------------------------------------------- role annotation (P2/P3)
+def test_role_annotation_empty_when_all_generic():
+    assert cap.role_annotation([("a.png", "ref"), ("b.png", "ref")]) == ""
+    assert cap.role_annotation([]) == ""
+
+
+def test_role_annotation_labels_typed_refs_by_position():
+    ann = cap.role_annotation([("hero.png", "subject"), ("look.png", "style"), ("face.png", "identity")])
+    assert ann.startswith("Reference images, in order:")
+    assert "image 1 is the subject" in ann
+    assert "image 2 is a style reference" in ann
+    assert "image 3 is an identity reference" in ann
+    assert ann.endswith(".")
+
+
+def test_role_annotation_positions_count_all_refs_not_just_typed():
+    # a generic ref still occupies its position; only typed ones are labelled
+    ann = cap.role_annotation([("plain.png", "ref"), ("look.png", "style")])
+    assert "image 2 is a style reference" in ann
+    assert "image 1" not in ann  # the generic ref is not labelled

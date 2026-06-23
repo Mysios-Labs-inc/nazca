@@ -115,7 +115,7 @@ def cli() -> None:
 @click.argument("source", required=False, type=click.Path())
 @click.option("-o", "--out", required=True, help="Output image path (.png).")
 @click.option("-p", "--prompt", default=None, help="Generation prompt (not needed for --upscale/--rmbg).")
-@click.option("--ref", multiple=True, help="Reference image → image-to-image restyle. Repeatable (pro-image: up to 14).")
+@click.option("--ref", multiple=True, help="Reference image → image-to-image restyle. Repeatable (pro-image: up to 14). Optional role suffix: PATH:subject|style|identity (e.g. look.png:style); bare PATH is untyped.")
 @click.option("--upscale", "do_upscale", is_flag=True, help="Upscale SOURCE image (fal clarity-upscaler).")
 @click.option("--scale", "upscale_factor", default=2, type=click.IntRange(1, 4), help="Upscale factor 1-4 (with --upscale).")
 @click.option("--rmbg", "do_rmbg", is_flag=True, help="Remove background from SOURCE → transparent PNG (fal birefnet).")
@@ -143,7 +143,14 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
       nazca image -p "..." --format jpeg           # output as JPEG (gpt-image-2 support varies)
       nazca image -p "..." --transparent           # transparent bg (gpt-image-2 only)
     """
-    from nazca.capabilities import CapabilityError, infer_image_op, validate_op
+    from nazca.capabilities import (
+        CapabilityError,
+        infer_image_op,
+        parse_ref,
+        role_annotation,
+        validate_op,
+        validate_ref_roles,
+    )
     from nazca.image import (
         DEFAULT_MODEL,
         MODIFY_OPS,
@@ -188,6 +195,22 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(2) from e
 
+    # Ref roles: parse `path:role` specs, validate against the model, and label each
+    # typed ref in the prompt (the only mechanism — no backend has a per-ref role
+    # field). Untyped refs produce no annotation, so output is unchanged from before.
+    eff_prompt, ref_paths = prompt, list(ref)
+    if not modify:
+        try:
+            parsed_refs = [parse_ref(r) for r in ref]
+            validate_ref_roles(resolved_model or DEFAULT_MODEL, [role for _, role in parsed_refs])
+        except CapabilityError as e:
+            click.echo(f"❌ {e}", err=True)
+            raise SystemExit(2) from e
+        ref_paths = [p for p, _ in parsed_refs]
+        annotation = role_annotation(parsed_refs)
+        if annotation:
+            eff_prompt = f"{prompt}\n\n{annotation}"
+
     if modify:
         result = modify_image(
             out, source, op=op, model=resolved_model, prompt=prompt, mask=mask,
@@ -195,7 +218,7 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         )
     else:
         result = generate_image(
-            out, prompt, ref=list(ref) or None, model=resolved_model,
+            out, eff_prompt, ref=ref_paths or None, model=resolved_model,
             aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
             transparent=transparent, dry_run=dry_run,
         )
