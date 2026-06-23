@@ -25,19 +25,15 @@ cost to declare here. Estimate from the requested size/quality if you need it.
 from __future__ import annotations
 
 import base64
-import io
 import json
 import urllib.error
 import urllib.request
 import uuid
-from pathlib import Path
-
-from PIL import Image
 
 from nazca import config
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
-from nazca.backends.vertex import encode_image_b64
+from nazca.media import encode_image_b64, encode_image_bytes
 
 OPENAI_BASE = "https://api.openai.com/v1"
 MAX_EDIT_IMAGES = 5  # gpt-image-2 input-image cap (OpenAI Images API)
@@ -133,7 +129,7 @@ class OpenAIBackend(Backend):
             )
 
         token = self.auth_token()
-        images = [(self._png_bytes(p, max_edge), f"ref{i}.png") for i, p in enumerate(image_paths)]
+        images = [(encode_image_bytes(p, max_edge), f"ref{i}.png") for i, p in enumerate(image_paths)]
         body, content_type = self._multipart(fields, images)
 
         req = urllib.request.Request(
@@ -164,19 +160,6 @@ class OpenAIBackend(Backend):
         if not b64:
             raise OpenAIError(f"no b64_json in OpenAI image entry: {json.dumps(data[0])[:300]}")
         return base64.b64decode(b64)
-
-    @staticmethod
-    def _png_bytes(path: str | Path, max_edge: int | None) -> bytes:
-        """Read an image, optionally downscale to max_edge, return PNG bytes."""
-        img = Image.open(path).convert("RGBA")
-        if max_edge:
-            w, h = img.size
-            scale = min(1.0, max_edge / max(w, h))
-            if scale < 1.0:
-                img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
 
     @staticmethod
     def _multipart(fields: dict, images: list[tuple[bytes, str]]) -> tuple[bytes, str]:

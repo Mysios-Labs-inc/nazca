@@ -11,8 +11,6 @@ top-level `nazca.vertex` shim for back-compat.
 
 from __future__ import annotations
 
-import base64
-import io
 import os
 import shutil
 import subprocess
@@ -20,10 +18,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from PIL import Image
-
 from nazca import config, retry
 from nazca.backends.base import Backend
+from nazca.media import encode_image_b64
 
 
 class VertexError(RuntimeError):
@@ -192,19 +189,6 @@ def post(url: str, body: dict, token: str) -> dict:
     )
 
 
-def encode_image_b64(path: str | Path, max_edge: int | None = None, fmt: str = "JPEG") -> tuple[str, str]:
-    """Return (base64, mime) for an image, optionally downscaled to max_edge."""
-    img = Image.open(path)
-    img = img.convert("RGB") if fmt == "JPEG" else img.convert("RGBA")
-    if max_edge:
-        w, h = img.size
-        scale = min(1.0, max_edge / max(w, h))
-        if scale < 1.0:
-            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format=fmt)
-    mime = "image/jpeg" if fmt == "JPEG" else "image/png"
-    return base64.b64encode(buf.getvalue()).decode(), mime
 
 
 class VertexBackend(Backend):
@@ -224,4 +208,5 @@ class VertexBackend(Backend):
     def encode_image_b64(
         self, path: str | Path, max_edge: int | None = None, fmt: str = "JPEG"
     ) -> tuple[str, str]:
+        # Re-export for the backend interface; actual implementation is in nazca.media
         return encode_image_b64(path, max_edge=max_edge, fmt=fmt)
