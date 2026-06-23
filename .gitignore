@@ -10,6 +10,14 @@ build/
 # Claude Code local agent worktrees/state
 .claude/
 
+# Secrets — never commit (keys come from env vars only)
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+credentials.json
+
 # Local research / scratch notes (not part of the shipped repo)
 claudedocs/
 
