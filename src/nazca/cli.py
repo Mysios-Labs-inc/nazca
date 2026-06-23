@@ -414,6 +414,7 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
         edit_video,
         generate_video,
         select_model,
+        video_cost_label,
     )
 
     # At most one video-edit signal.
@@ -479,6 +480,10 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
         generate_audio=audio, dry_run=dry_run,
     )
     click.echo(f"{'📝' if dry_run else '✅'} {result}")
+    if dry_run:
+        cost = video_cost_label(validate_target, duration=duration, resolution=resolution, audio=audio)
+        if cost:
+            click.echo(f"💵 {cost}")
 
 
 @cli.command()
