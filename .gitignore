@@ -26,3 +26,6 @@ assets/*.mp4
 
 # MCP server output dir when run inside a project (Claude Code)
 nazca-output/
+
+# Dry-run / video plan sidecars written next to outputs (not source)
+*.request.json
