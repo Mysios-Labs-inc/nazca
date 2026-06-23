@@ -117,6 +117,67 @@ def _estimate_gpt_image(aspect_size: str | None, quality: str | None) -> CostEst
     return CostEstimate(usd, approx=True, basis=f"est {out_tokens} out-tokens @{size_key}")
 
 
+# --------------------------------------------------------------------------- video prices
+# Veo is billed per SECOND of output, and the rate depends on resolution and whether
+# audio is generated. Rates are Google Cloud's published Vertex/Veo 3.1 pricing
+# (sourced 2026-06-22); treat as ballpark. fal / ModelArk video and the video-edit
+# ops have unverified pricing (see video.py notes), so we deliberately do NOT price
+# them — they return None ("cost unknown") rather than a guess.
+#   model → {(resolution, audio): usd_per_second}
+_VEO_PER_SEC: dict[str, dict[tuple[str, bool], float]] = {
+    "veo-3.1": {
+        ("720p", False): 0.20, ("720p", True): 0.40,
+        ("1080p", False): 0.20, ("1080p", True): 0.40,
+        ("4k", False): 0.40, ("4k", True): 0.60,
+    },
+    "veo-3.1-fast": {
+        ("720p", False): 0.08, ("720p", True): 0.10,
+        ("1080p", False): 0.10, ("1080p", True): 0.12,
+        ("4k", False): 0.25, ("4k", True): 0.30,
+    },
+    "veo-3.1-lite": {  # no 4k tier published → 4k falls back to 1080p
+        ("720p", False): 0.03, ("720p", True): 0.05,
+        ("1080p", False): 0.05, ("1080p", True): 0.08,
+    },
+}
+_RES_ORDER = {"720p": 0, "1080p": 1, "4k": 2}
+
+
+def _norm_res(resolution: str | None) -> str:
+    r = (resolution or "720p").strip().lower()
+    return "4k" if r in ("4k", "2160p") else r
+
+
+def estimate_video_cost(
+    model_shorthand: str | None,
+    *,
+    duration: int = 8,
+    resolution: str | None = "720p",
+    audio: bool = False,
+) -> CostEstimate | None:
+    """Estimate the cost of one Veo clip (per-second × duration).
+
+    Returns None for models we don't price (fal/ModelArk video, edit ops, raw ids) —
+    the caller treats that as "cost unknown". For a (resolution, audio) the model
+    doesn't list, falls back to the nearest published resolution for that audio mode.
+    """
+    table = _VEO_PER_SEC.get(model_shorthand or "")
+    if table is None:
+        return None
+    res = _norm_res(resolution)
+    rate = table.get((res, audio))
+    if rate is None:
+        avail = [r for (r, a) in table if a == audio]
+        if not avail:
+            return None
+        res = min(avail, key=lambda r: abs(_RES_ORDER.get(r, 1) - _RES_ORDER.get(res, 1)))
+        rate = table[(res, audio)]
+    dur = int(duration or 8)
+    usd = round(rate * dur, 4)
+    basis = f"≈${rate:g}/s × {dur}s @{res}{'+audio' if audio else ''}"
+    return CostEstimate(usd, approx=True, basis=basis)
+
+
 @dataclass(frozen=True)
 class PlanCost:
     """Aggregate estimate for a multi-step plan — the whole bill before any step runs.
@@ -157,6 +218,13 @@ def estimate_plan_cost(steps: list[dict]) -> PlanCost:
         est = estimate_image_cost(
             s.get("model"), size=s.get("size"), aspect_size=s.get("aspect_size"), quality=s.get("quality")
         )
+        if est is None:  # not a priced image model — try video pricing
+            est = estimate_video_cost(
+                s.get("model"),
+                duration=int(s.get("duration", 8) or 8),
+                resolution=s.get("resolution"),
+                audio=bool(s.get("audio")),
+            )
         if est is None:
             unpriced += count
         else:
