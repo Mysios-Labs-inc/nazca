@@ -33,13 +33,14 @@ import uuid
 from nazca import config
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
+from nazca.errors import BackendError
 from nazca.media import encode_image_b64, encode_image_bytes
 
 OPENAI_BASE = "https://api.openai.com/v1"
 MAX_EDIT_IMAGES = 5  # gpt-image-2 input-image cap (OpenAI Images API)
 
 
-class OpenAIError(RuntimeError):
+class OpenAIError(BackendError):
     """Raised when an OpenAI Images dispatch fails (missing key, HTTP error, bad schema)."""
 
 

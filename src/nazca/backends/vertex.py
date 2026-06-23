@@ -20,17 +20,21 @@ from pathlib import Path
 
 from nazca import config, retry
 from nazca.backends.base import Backend
+from nazca.errors import BackendError
+from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64
 
 
-class VertexError(RuntimeError):
-    pass
+class VertexError(BackendError):
+    """Raised when a Vertex AI request fails (auth error, HTTP error, etc.)."""
 
 
-class RateLimitError(VertexError):
+class RateLimitError(VertexError, _SharedRateLimitError):
     """429/503/RESOURCE_EXHAUSTED that persisted past NAZCA_MAX_RETRIES retries.
 
     A distinct type so batch logic can tell "paced wrong" from a real failure.
+    Inherits from both ``VertexError`` and the shared ``nazca.errors.RateLimitError``
+    so callers can catch either.
     """
 
 

@@ -23,11 +23,11 @@ from pathlib import Path
 
 from nazca import config
 from nazca.backends import get_backend
-from nazca.vertex import VertexError
+from nazca.errors import BackendError
 
 
-class VeoError(VertexError):
-    pass
+class VeoError(BackendError):
+    """Raised for video-generation failures that are not provider-specific."""
 
 
 def video_cost_label(

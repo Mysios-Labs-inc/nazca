@@ -22,17 +22,21 @@ from pathlib import Path
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
+from nazca.errors import BackendError
+from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64, encode_image_data_uri
 
 
-class FalError(RuntimeError):
+class FalError(BackendError):
     """Raised when fal dispatch fails (missing key, HTTP error, timeout, etc.)."""
 
 
-class FalRateLimitError(FalError):
+class FalRateLimitError(FalError, _SharedRateLimitError):
     """429/503/requeue that persisted past NAZCA_MAX_RETRIES retries.
 
     A distinct type so batch logic can tell "paced wrong" from a real failure.
+    Inherits from both ``FalError`` and the shared ``nazca.errors.RateLimitError``
+    so callers can catch either.
     """
 
 

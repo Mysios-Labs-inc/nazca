@@ -12,19 +12,23 @@ import urllib.request
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
+from nazca.errors import BackendError
+from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64, encode_image_data_uri
 
 ARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"  # verify against ModelArk docs
 
 
-class ModelArkError(Exception):
-    pass
+class ModelArkError(BackendError):
+    """Raised when a ModelArk request fails (missing key, HTTP error, timeout, etc.)."""
 
 
-class ModelArkRateLimitError(ModelArkError):
+class ModelArkRateLimitError(ModelArkError, _SharedRateLimitError):
     """429/503/RESOURCE_EXHAUSTED that persisted past NAZCA_MAX_RETRIES retries.
 
     A distinct type so batch logic can tell "paced wrong" from a real failure.
+    Inherits from both ``ModelArkError`` and the shared ``nazca.errors.RateLimitError``
+    so callers can catch either.
     """
 
 
