@@ -419,6 +419,7 @@ def _budget_dir(tmp_path):
 
 def test_batch_max_cost_blocks_real_run_over_budget(tmp_path):
     from click.testing import CliRunner
+
     from nazca.cli import cli
     # 3 rows × nano-banana-pro @2K ($0.134) = $0.402 > $0.10 → refuse, exit 2, no dispatch
     r = CliRunner().invoke(cli, [
@@ -433,6 +434,7 @@ def test_batch_max_cost_blocks_real_run_over_budget(tmp_path):
 
 def test_batch_max_cost_within_budget_passes_gate(tmp_path):
     from click.testing import CliRunner
+
     from nazca.cli import cli
     # generous ceiling → gate passes; --dry-run avoids real dispatch
     r = CliRunner().invoke(cli, [
@@ -446,6 +448,7 @@ def test_batch_max_cost_within_budget_passes_gate(tmp_path):
 
 def test_batch_max_cost_dry_run_over_budget_warns_but_succeeds(tmp_path):
     from click.testing import CliRunner
+
     from nazca.cli import cli
     r = CliRunner().invoke(cli, [
         "batch", "--from-dir", str(_budget_dir(tmp_path)), "--prompt", "x",
