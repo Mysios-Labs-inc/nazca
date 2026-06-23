@@ -1,30 +1,25 @@
 """Video generation — Vertex Veo 3.1, fal.ai (Seedance / Wan long tail), ModelArk (Seedance direct).
 
-Vertex path (default, no API key):
-  Start frame + optional end frame (keyframe interpolation).
-  Submit predictLongRunning → poll fetchPredictOperation → decode inline bytes.
+This module is a thin orchestrator: it resolves the model shorthand to a backend +
+model id, builds a typed `VideoRequest`, and hands it to `backend.run_video(...)`.
+Each backend owns its own body-building, polling, extraction, and dry-run plan
+rendering — so there is no per-backend branching here.
 
-fal path (opt-in, requires FAL_KEY):
-  POST to queue.fal.run/{model} with start image as data-URI → poll → download URL.
-  --end is passed if the model supports it; --resolution / --audio may be unsupported
-  (fal model schemas vary — check fal docs).
-
-ModelArk path (opt-in, requires ARK_API_KEY):
-  POST /contents/generations/tasks → poll → download URL.
-  endpoints/IDs UNVERIFIED (dry-run only) — benchmark vs fal before real spend.
+Vertex path (default, no API key): start frame + optional end frame (keyframe).
+fal path (opt-in, FAL_KEY): queue submit/poll/download; plus video-edit ops.
+ModelArk path (opt-in, ARK_API_KEY): Seedance async task — schema UNVERIFIED.
 """
 
 from __future__ import annotations
 
-import base64
 import json
-import time
 from pathlib import Path
 
 from nazca import config
 from nazca.backends import get_backend
 from nazca.errors import BackendError
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
+from nazca.request import VideoRequest
 
 
 class VeoError(BackendError):
@@ -114,6 +109,42 @@ def default_video_edit_model(op: str) -> str:
 VEO_BACKEND = "vertex"
 
 
+def _resolve_video(model: str) -> tuple[str, str]:
+    """Resolve a video model shorthand to (backend_name, model_id).
+
+    Honors the backend:rawid prefix passthrough, the user override file, and the
+    built-in registries. Mirrors the previous dispatch order exactly.
+    """
+    # 1. backend:rawid prefix passthrough
+    if ":" in model:
+        prefix, raw_id = model.split(":", 1)
+        prefix = prefix.lower()
+        if prefix in ("vertex", "veo"):
+            return ("vertex", raw_id)
+        if prefix == "fal":
+            return ("fal", raw_id)
+        if prefix in ("ark", "modelark"):
+            return ("modelark", raw_id)
+
+    # 2. user override file (~/.config/nazca/models.json)
+    from nazca.registry import video_override
+
+    ov = video_override(model)
+    if ov is not None:
+        ov_backend = ov.get("backend", "vertex")
+        ov_id = ov.get("id", model)
+        if ov_backend in ("fal", "modelark"):
+            return (ov_backend, ov_id)
+        return ("vertex", ov_id)  # vertex override: raw Veo id
+
+    # 3. built-in registries (fal, then ModelArk, then Vertex aliases)
+    if model in FAL_VIDEO_MODELS:
+        return ("fal", FAL_VIDEO_MODELS[model])
+    if model in ARK_VIDEO_MODELS:
+        return ("modelark", ARK_VIDEO_MODELS[model])
+    return ("vertex", VEO_ALIASES.get(model, model))
+
+
 def generate_video(
     out: str | Path,
     start: str | Path | None,
@@ -135,288 +166,31 @@ def generate_video(
     `start=None` produces text-to-video; the per-backend image field is simply
     omitted. (The CLI validates that the chosen model supports the inferred op.)
 
-    Returns the output path (or .request.json for Vertex dry-run).
+    Returns the output path (or .request.json for dry-run).
     """
     out = Path(out)
     resolved_model = model or config.VEO_MODEL
+    backend_name, model_id = _resolve_video(resolved_model)
+    backend = get_backend(backend_name)
 
-    # ---- 1. backend:rawid prefix passthrough --------------------------
-    if ":" in resolved_model:
-        _prefix, _raw_id = resolved_model.split(":", 1)
-        _prefix = _prefix.lower()
-        if _prefix in ("vertex", "veo"):
-            # treat as raw Vertex Veo id; fall through to Vertex dispatch below
-            resolved_model = _raw_id
-        elif _prefix == "fal":
-            # inject into FAL_VIDEO_MODELS logic via a temporary local mapping
-            _fal_id = _raw_id
-            _backend = get_backend("fal")
-            _url = _backend.build_url(_fal_id)
-            _body: dict = {
-                "prompt": prompt,
-                "duration": int(duration),
-                "aspect_ratio": aspect_ratio,
-            }
-            if start:
-                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
-            if end:
-                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
-            if dry_run:
-                _plan = dict(_body)
-                for _k in ("image_url", "end_image_url"):
-                    if _k in _plan and _plan[_k].startswith("data:"):
-                        _dp = _plan[_k].split(",", 1)[1] if "," in _plan[_k] else ""
-                        _plan[_k] = f"<data-uri {len(_dp)} b64>"
-                _dbg = out.with_suffix(".request.json")
-                _dbg.write_text(
-                    json.dumps({"url": _url, "model": _fal_id, "backend": "fal", **_plan}, indent=2)
-                )
-                return _dbg
-            _fal_key = _backend.auth_token()
-            _raw = _backend.submit_and_download(_url, _body, _fal_key, media_type="video")
-            out.write_bytes(_raw)
-            return out
-        elif _prefix in ("ark", "modelark"):
-            _ark_id = _raw_id
-            _backend = get_backend("modelark")
-            _content: list[dict] = [{"type": "text", "text": prompt}]
-            if start:
-                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
-                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
-            _body = {
-                "model": _ark_id,
-                "content": _content,
-                "duration": int(duration),
-                "aspect_ratio": aspect_ratio,
-            }
-            if end:
-                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
-            if dry_run:
-                _dbg = out.with_suffix(".request.json")
-                _preview = json.loads(json.dumps(_body))
-                for _part in _preview["content"]:
-                    _u = _part.get("image_url", {}).get("url", "")
-                    if isinstance(_u, str) and _u.startswith("data:"):
-                        _part["image_url"]["url"] = f"<data-uri {len(_u.split(',', 1)[-1])} b64>"
-                if isinstance(_preview.get("end_image_url"), str) and _preview["end_image_url"].startswith("data:"):
-                    _preview["end_image_url"] = f"<data-uri {len(_preview['end_image_url'].split(',', 1)[-1])} b64>"
-                _dbg.write_text(
-                    json.dumps({"url": _backend.video_endpoint(), "backend": "modelark", **_preview}, indent=2)
-                )
-                return _dbg
-            _raw = _backend.generate_video(_ark_id, _body)
-            out.write_bytes(_raw)
-            return out
+    req = VideoRequest(
+        prompt=prompt,
+        start=str(start) if start is not None else None,
+        end=str(end) if end is not None else None,
+        aspect_ratio=aspect_ratio,
+        resolution=resolution,
+        duration=int(duration),
+        audio=generate_audio,
+        dry_run=dry_run,
+    )
 
-    # ---- 2. user override file (~/.config/nazca/models.json) -----------
-    from nazca.registry import video_override
-
-    _ov = video_override(resolved_model)
-    if _ov is not None:
-        _ov_backend = _ov.get("backend", "vertex")
-        _ov_id = _ov.get("id", resolved_model)
-        if _ov_backend == "fal":
-            # Reroute to fal dispatch using the overridden model id
-            _FAL_VIDEO_MODELS_TEMP = {resolved_model: _ov_id}
-            _fal_model_id = _ov_id
-            _backend = get_backend("fal")
-            _url = _backend.build_url(_fal_model_id)
-            _body = {
-                "prompt": prompt,
-                "duration": int(duration),
-                "aspect_ratio": aspect_ratio,
-            }
-            if start:
-                _body["image_url"] = _backend.encode_image_data_uri(start, max_edge=1280)
-            if end:
-                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
-            if dry_run:
-                _plan = dict(_body)
-                for _k in ("image_url", "end_image_url"):
-                    if _k in _plan and _plan[_k].startswith("data:"):
-                        _dp = _plan[_k].split(",", 1)[1] if "," in _plan[_k] else ""
-                        _plan[_k] = f"<data-uri {len(_dp)} b64>"
-                _dbg = out.with_suffix(".request.json")
-                _dbg.write_text(
-                    json.dumps({"url": _url, "model": _fal_model_id, "backend": "fal", **_plan}, indent=2)
-                )
-                return _dbg
-            _fal_key = _backend.auth_token()
-            _raw = _backend.submit_and_download(_url, _body, _fal_key, media_type="video")
-            out.write_bytes(_raw)
-            return out
-        if _ov_backend == "modelark":
-            _ark_model_id = _ov_id
-            _backend = get_backend("modelark")
-            _content = [{"type": "text", "text": prompt}]
-            if start:
-                _start_uri = _backend.encode_image_data_uri(start, max_edge=1280)
-                _content.append({"type": "image_url", "image_url": {"url": _start_uri}})
-            _body = {
-                "model": _ark_model_id,
-                "content": _content,
-                "duration": int(duration),
-                "aspect_ratio": aspect_ratio,
-            }
-            if end:
-                _body["end_image_url"] = _backend.encode_image_data_uri(end, max_edge=1280)
-            if dry_run:
-                _dbg = out.with_suffix(".request.json")
-                _preview = json.loads(json.dumps(_body))
-                for _part in _preview["content"]:
-                    _u = _part.get("image_url", {}).get("url", "")
-                    if isinstance(_u, str) and _u.startswith("data:"):
-                        _part["image_url"]["url"] = f"<data-uri {len(_u.split(',', 1)[-1])} b64>"
-                if isinstance(_preview.get("end_image_url"), str) and _preview["end_image_url"].startswith("data:"):
-                    _preview["end_image_url"] = f"<data-uri {len(_preview['end_image_url'].split(',', 1)[-1])} b64>"
-                _dbg.write_text(
-                    json.dumps({"url": _backend.video_endpoint(), "backend": "modelark", **_preview}, indent=2)
-                )
-                return _dbg
-            _raw = _backend.generate_video(_ark_model_id, _body)
-            out.write_bytes(_raw)
-            return out
-        # vertex override: _ov_id is the raw Veo model id
-        resolved_model = _ov_id
-
-    # ---- 3. fal dispatch ------------------------------------------------
-    if resolved_model in FAL_VIDEO_MODELS:
-        fal_model_id = FAL_VIDEO_MODELS[resolved_model]
-        backend = get_backend("fal")
-        url = backend.build_url(fal_model_id)
-
-        # Build fal video body (image_url only when a start frame is given → t2v when not)
-        body: dict = {
-            "prompt": prompt,
-            "duration": int(duration),
-            "aspect_ratio": aspect_ratio,
-        }
-        if start:
-            body["image_url"] = backend.encode_image_data_uri(start, max_edge=1280)
-        if end:
-            body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)
-
-        if dry_run:
-            plan_body = dict(body)
-            for key in ("image_url", "end_image_url"):
-                if key in plan_body and plan_body[key].startswith("data:"):
-                    data_part = plan_body[key].split(",", 1)[1] if "," in plan_body[key] else ""
-                    plan_body[key] = f"<data-uri {len(data_part)} b64>"
-            dbg = out.with_suffix(".request.json")
-            dbg.write_text(
-                json.dumps({"url": url, "model": fal_model_id, "backend": "fal", **plan_body}, indent=2)
-            )
-            return dbg
-
-        fal_key = backend.auth_token()
-        raw = backend.submit_and_download(url, body, fal_key, media_type="video")
-        out.write_bytes(raw)
-        return out
-
-    # ---- 4. ModelArk dispatch -------------------------------------------
-    # WARNING: endpoint, schema, and model IDs are UNVERIFIED (dry-run only).
-    # Benchmark against fal (seedance-2-fast) before real spend.
-    if resolved_model in ARK_VIDEO_MODELS:
-        ark_model_id = ARK_VIDEO_MODELS[resolved_model]
-        backend = get_backend("modelark")
-
-        # Build content array: text prompt + (optional) seed frame as a data URI
-        # (a remote API cannot read a local path). Schema is UNVERIFIED.
-        content: list[dict] = [{"type": "text", "text": prompt}]  # verify schema
-        if start:
-            start_uri = backend.encode_image_data_uri(start, max_edge=1280)
-            content.append({"type": "image_url", "image_url": {"url": start_uri}})  # verify schema
-        body: dict = {
-            "model": ark_model_id,
-            "content": content,
-            "duration": int(duration),
-            "aspect_ratio": aspect_ratio,
-        }
-        if end:
-            body["end_image_url"] = backend.encode_image_data_uri(end, max_edge=1280)  # verify field
-
-        if dry_run:
-            dbg = out.with_suffix(".request.json")
-            # Summarize data URIs so the plan stays readable.
-            preview = json.loads(json.dumps(body))
-            for part in preview["content"]:
-                u = part.get("image_url", {}).get("url", "")
-                if isinstance(u, str) and u.startswith("data:"):
-                    part["image_url"]["url"] = f"<data-uri {len(u.split(',', 1)[-1])} b64>"
-            if isinstance(preview.get("end_image_url"), str) and preview["end_image_url"].startswith("data:"):
-                preview["end_image_url"] = f"<data-uri {len(preview['end_image_url'].split(',', 1)[-1])} b64>"
-            dbg.write_text(
-                json.dumps(
-                    {"url": backend.video_endpoint(), "backend": "modelark", **preview}, indent=2
-                )
-            )
-            return dbg
-
-        raw = backend.generate_video(ark_model_id, body)
-        out.write_bytes(raw)
-        return out
-
-    # ---- 5. Vertex dispatch (unchanged) ---------------------------------
-    veo_model = VEO_ALIASES.get(resolved_model, resolved_model)
-    backend = get_backend(VEO_BACKEND)
-
-    instance: dict = {"prompt": prompt}
-    if start:  # omit `image` for text-to-video
-        start_b64, mime = backend.encode_image_b64(start, max_edge=1280, fmt="JPEG")
-        instance["image"] = {"bytesBase64Encoded": start_b64, "mimeType": mime}
-    if end:
-        end_b64, emime = backend.encode_image_b64(end, max_edge=1280, fmt="JPEG")
-        instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
-
-    body = {
-        "instances": [instance],
-        "parameters": {
-            "sampleCount": 1,
-            "aspectRatio": aspect_ratio,
-            "resolution": resolution,
-            "durationSeconds": int(duration),
-            "generateAudio": generate_audio,
-        },
-    }
+    result = backend.run_video(model_id, "", req)
 
     if dry_run:
         dbg = out.with_suffix(".request.json")
-        preview = json.loads(json.dumps(body))
-        for inst in preview["instances"]:
-            for k in ("image", "lastFrame"):
-                if k in inst:
-                    inst[k]["bytesBase64Encoded"] = f"<{len(instance[k]['bytesBase64Encoded'])} b64 chars>"
-        dbg.write_text(json.dumps({"url": backend.build_url(veo_model, "predictLongRunning"), **preview}, indent=2))
+        dbg.write_text(json.dumps(result, indent=2))
         return dbg
-
-    token = backend.auth_token()
-    submit = backend.post(backend.build_url(veo_model, "predictLongRunning"), body, token)
-    op = submit.get("name")
-    if not op:
-        raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
-
-    for _ in range(config.POLL_MAX_TRIES):
-        time.sleep(config.POLL_INTERVAL)
-        poll = backend.post(backend.build_url(veo_model, "fetchPredictOperation"), {"operationName": op}, token)
-        if poll.get("done"):
-            break
-    else:
-        raise VeoError("timed out waiting for video generation")
-
-    if poll.get("error"):
-        raise VeoError(f"generation error: {poll['error'].get('message')}")
-    resp = poll.get("response", {})
-    vids = resp.get("videos") or resp.get("generatedSamples") or []
-    if not vids:
-        raise VeoError(f"no video in response: {json.dumps(resp)[:500]}")
-    v = vids[0]
-    b64 = v.get("bytesBase64Encoded") or v.get("video", {}).get("bytesBase64Encoded")
-    if not b64:
-        gcs = v.get("gcsUri")
-        if gcs:
-            raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
-        raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
-    out.write_bytes(base64.b64decode(b64))
+    out.write_bytes(result)
     return out
 
 
@@ -457,31 +231,20 @@ def edit_video(
     resolved = model or default_video_edit_model(op)
     fal_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → fal id, or raw passthrough
     backend = get_backend("fal")
-    url = backend.build_url(fal_id)
 
-    if op == "reframe":
-        body: dict = {"video_url": src, "aspect_ratio": aspect_ratio}
-        if prompt:
-            body["prompt"] = prompt  # optional: guides inpainting of exposed regions
-    elif op == "v2v":
-        if not prompt:
-            raise VeoError("v2v needs a prompt (the edit instruction)")
-        body = {"video_url": src, "prompt": prompt}
-    elif op == "extend":
-        if not prompt:
-            raise VeoError("extend needs a prompt")
-        if int(duration) not in (5, 8):
-            raise VeoError("extend --duration must be 5 or 8 (seconds added to the clip)")
-        body = {"video_url": src, "prompt": prompt, "duration": str(int(duration))}
-    else:
-        raise VeoError(f"video-edit op '{op}' is not wired yet")
+    req = VideoRequest(
+        prompt=prompt or "",
+        op=op,
+        source=src,
+        aspect_ratio=aspect_ratio,
+        duration=int(duration),
+        dry_run=dry_run,
+    )
 
+    result = backend.run_video(fal_id, "", req)
     if dry_run:
         dbg = out.with_suffix(".request.json")
-        dbg.write_text(json.dumps({"url": url, "model": fal_id, "backend": "fal", "op": op, **body}, indent=2))
+        dbg.write_text(json.dumps(result, indent=2))
         return dbg
-
-    key = backend.auth_token()
-    raw = backend.submit_and_download(url, body, key, media_type="video")
-    out.write_bytes(raw)
+    out.write_bytes(result)
     return out

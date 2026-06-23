@@ -11,18 +11,25 @@ top-level `nazca.vertex` shim for back-compat.
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.errors import BackendError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64
+
+if TYPE_CHECKING:
+    from nazca.request import ImageRequest, VideoRequest
 
 
 class VertexError(BackendError):
@@ -214,3 +221,158 @@ class VertexBackend(Backend):
     ) -> tuple[str, str]:
         # Re-export for the backend interface; actual implementation is in nazca.media
         return encode_image_b64(path, max_edge=max_edge, fmt=fmt)
+
+    # ------------------------------------------------------------------ image
+
+    def run_image(self, model_id, api, region, req: ImageRequest):
+        """Gemini (:generateContent) or Imagen (:predict) — owns body + extract + plan."""
+        from nazca.image import ImageError
+
+        if api == "imagen" and req.refs:
+            raise ImageError(
+                f"model '{model_id}' (imagen) is text-to-image only — drop --ref or use a nano-banana model"
+            )
+
+        if api == "imagen":
+            url = self.build_url(model_id, "predict", region)
+            body = self._imagen_body(req.prompt, req.aspect_ratio)
+            extract = self._imagen_extract
+        else:
+            url = self.build_url(model_id, "generateContent", region)
+            body = self._gemini_body(req.prompt, req.refs, req.aspect_ratio, req.size)
+            extract = self._gemini_extract
+
+        if req.dry_run:
+            info: dict = {
+                "url": url,
+                "model": model_id,
+                "location": region,
+                "api": api,
+                "refs": len(req.refs),
+                "size": req.size,
+                "est_cost_usd": req.est_cost_usd,
+            }
+            if api == "imagen":
+                info["parameters"] = body["parameters"]
+            else:
+                info["generationConfig"] = body["generationConfig"]
+                info["parts"] = [
+                    ({"inlineData": f"<{len(p['inlineData']['data'])} b64>"} if "inlineData" in p else p)
+                    for p in body["contents"][0]["parts"]
+                ]
+            return info
+
+        token = self.auth_token()
+        resp = self.post(url, body, token)
+        return extract(resp)
+
+    @staticmethod
+    def _gemini_body(prompt: str, refs: list[str], aspect_ratio: str | None, size: str | None) -> dict:
+        parts: list[dict] = [{"text": prompt}]
+        for r in refs:  # gemini-3-pro-image accepts up to 14 reference images
+            b64, mime = encode_image_b64(r, max_edge=2048, fmt="PNG")
+            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+        gen_cfg: dict = {"responseModalities": ["IMAGE"]}
+        img_cfg: dict = {}
+        if aspect_ratio:
+            img_cfg["aspectRatio"] = aspect_ratio
+        if size:
+            # 1K/2K/4K — honored by gemini-3 image models; 2.5-flash-image ignores it (1K)
+            img_cfg["imageSize"] = size
+        if img_cfg:
+            gen_cfg["imageConfig"] = img_cfg
+        return {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen_cfg}
+
+    @staticmethod
+    def _gemini_extract(resp: dict) -> bytes:
+        from nazca.image import ImageError
+
+        for cand in resp.get("candidates", []):
+            for part in cand.get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline and inline.get("data"):
+                    return base64.b64decode(inline["data"])
+        raise ImageError(f"no image part in response: {str(resp)[:400]}")
+
+    @staticmethod
+    def _imagen_body(prompt: str, aspect_ratio: str | None) -> dict:
+        params: dict = {"sampleCount": 1}
+        if aspect_ratio:
+            params["aspectRatio"] = aspect_ratio
+        return {"instances": [{"prompt": prompt}], "parameters": params}
+
+    @staticmethod
+    def _imagen_extract(resp: dict) -> bytes:
+        from nazca.image import ImageError
+
+        preds = resp.get("predictions") or []
+        if not preds:
+            raise ImageError(f"no prediction in imagen response: {str(resp)[:400]}")
+        b64 = preds[0].get("bytesBase64Encoded")
+        if not b64:
+            raise ImageError(f"no image bytes in imagen prediction: {str(preds[0])[:300]}")
+        return base64.b64decode(b64)
+
+    # ------------------------------------------------------------------ video (Veo)
+
+    def run_video(self, model_id, region, req: VideoRequest):
+        """Veo predictLongRunning + poll — owns body + poll + extract + plan."""
+        from nazca.video import VeoError
+
+        instance: dict = {"prompt": req.prompt}
+        if req.start:  # omit `image` for text-to-video
+            start_b64, mime = self.encode_image_b64(req.start, max_edge=1280, fmt="JPEG")
+            instance["image"] = {"bytesBase64Encoded": start_b64, "mimeType": mime}
+        if req.end:
+            end_b64, emime = self.encode_image_b64(req.end, max_edge=1280, fmt="JPEG")
+            instance["lastFrame"] = {"bytesBase64Encoded": end_b64, "mimeType": emime}
+
+        body = {
+            "instances": [instance],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": req.aspect_ratio,
+                "resolution": req.resolution,
+                "durationSeconds": int(req.duration),
+                "generateAudio": req.audio,
+            },
+        }
+
+        if req.dry_run:
+            preview = json.loads(json.dumps(body))
+            for inst in preview["instances"]:
+                for k in ("image", "lastFrame"):
+                    if k in inst:
+                        inst[k]["bytesBase64Encoded"] = f"<{len(instance[k]['bytesBase64Encoded'])} b64 chars>"
+            return {"url": self.build_url(model_id, "predictLongRunning"), **preview}
+
+        token = self.auth_token()
+        submit = self.post(self.build_url(model_id, "predictLongRunning"), body, token)
+        op = submit.get("name")
+        if not op:
+            raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
+
+        for _ in range(config.POLL_MAX_TRIES):
+            time.sleep(config.POLL_INTERVAL)
+            poll = self.post(
+                self.build_url(model_id, "fetchPredictOperation"), {"operationName": op}, token
+            )
+            if poll.get("done"):
+                break
+        else:
+            raise VeoError("timed out waiting for video generation")
+
+        if poll.get("error"):
+            raise VeoError(f"generation error: {poll['error'].get('message')}")
+        resp = poll.get("response", {})
+        vids = resp.get("videos") or resp.get("generatedSamples") or []
+        if not vids:
+            raise VeoError(f"no video in response: {json.dumps(resp)[:500]}")
+        v = vids[0]
+        b64 = v.get("bytesBase64Encoded") or v.get("video", {}).get("bytesBase64Encoded")
+        if not b64:
+            gcs = v.get("gcsUri")
+            if gcs:
+                raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
+            raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
+        return base64.b64decode(b64)

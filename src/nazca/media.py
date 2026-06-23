@@ -58,6 +58,22 @@ def encode_image_data_uri(path: str | Path, max_edge: int | None = None) -> str:
     return f"data:{mime};base64,{b64}"
 
 
+def summarize_data_uri(value):
+    """Shorten a base64 data-URI to ``<data-uri N b64>`` for readable dry-run plans.
+
+    Non-string values and plain URLs/paths are returned unchanged (so a prompt that
+    happens to start with "data:" is only summarized when the caller passes it here
+    explicitly for an image-bearing field). A list maps element-wise.
+    """
+    def _one(v):
+        if isinstance(v, str) and v.startswith("data:"):
+            b64 = v.split(",", 1)[1] if "," in v else ""
+            return f"<data-uri {len(b64)} b64>"
+        return v
+
+    return [_one(v) for v in value] if isinstance(value, list) else _one(value)
+
+
 def encode_image_bytes(path: str | Path, max_edge: int | None = None, fmt: str = "PNG") -> bytes:
     """Read an image, optionally downscale to max_edge, return raw format bytes.
 

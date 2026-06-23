@@ -29,6 +29,7 @@ import json
 import urllib.error
 import urllib.request
 import uuid
+from typing import TYPE_CHECKING
 
 from nazca import config
 from nazca.backends.base import Backend
@@ -36,8 +37,23 @@ from nazca.backends.error_hints import hint
 from nazca.errors import BackendError
 from nazca.media import encode_image_b64, encode_image_bytes
 
+if TYPE_CHECKING:
+    from nazca.request import ImageRequest
+
 OPENAI_BASE = "https://api.openai.com/v1"
 MAX_EDIT_IMAGES = 5  # gpt-image-2 input-image cap (OpenAI Images API)
+
+# gpt-image-2 sizes are pixel strings, not aspect ratios. Map our aspect flag to
+# the nearest supported size; anything unknown falls back to "auto" (model picks).
+OPENAI_ASPECT_MAP: dict[str, str] = {
+    "1:1":  "1024x1024",
+    "9:16": "1024x1536",
+    "3:4":  "1024x1536",
+    "2:3":  "1024x1536",
+    "16:9": "1536x1024",
+    "4:3":  "1536x1024",
+    "3:2":  "1536x1024",
+}
 
 
 class OpenAIError(BackendError):
@@ -78,6 +94,78 @@ class OpenAIBackend(Backend):
     def encode_image_b64(self, path, max_edge=None, fmt="PNG"):
         """Shared image (de)coding — reused from the Vertex helper for parity."""
         return encode_image_b64(path, max_edge=max_edge, fmt=fmt)
+
+    # ------------------------------------------------------------------ run seam
+
+    def run_image(self, model_id, api, region, req: ImageRequest):
+        """gpt-image-2 text-to-image (/generations) or reference edit (/edits).
+
+        With refs → multipart /images/edits; without → JSON /images/generations.
+        Owns body-building and the per-op dry-run plan.
+        """
+        from nazca.image import ImageError
+
+        body = self._image_body(
+            req.prompt, model_id, req.aspect_ratio, req.quality, req.output_format, req.transparent
+        )
+
+        if req.refs:
+            if len(req.refs) > MAX_EDIT_IMAGES:
+                raise ImageError(
+                    f"gpt-image-2 accepts at most {MAX_EDIT_IMAGES} reference images, got {len(req.refs)}"
+                )
+            if req.dry_run:
+                return {
+                    "url": self.edit_endpoint(),
+                    "model": model_id,
+                    "backend": self.name,
+                    "api": api,
+                    "refs": len(req.refs),
+                    "est_cost_usd": req.est_cost_usd,
+                    "body": body,  # sent as multipart form fields alongside image[] parts
+                }
+            return self.edit_image(body, req.refs)
+
+        if req.dry_run:
+            return {
+                "url": self.image_endpoint(),
+                "model": model_id,
+                "backend": self.name,
+                "api": api,
+                "refs": 0,
+                "est_cost_usd": req.est_cost_usd,
+                "body": body,
+            }
+        return self.generate_image(body)
+
+    @staticmethod
+    def _image_body(
+        prompt: str, model_id: str, aspect_ratio: str | None, quality: str | None = None,
+        output_format: str | None = None, transparent: bool = False
+    ) -> dict:
+        """Build the /images/{generations,edits} body (shared by both ops).
+
+        `quality` (low|medium|high|auto) is the main cost/speed lever — output image
+        tokens, which dominate the bill, scale ~4× between medium and high. Defaults
+        to "high" (best text fidelity) when unset.
+
+        `output_format` (png/jpeg/webp) is passed to gpt-image-2; other models ignore it.
+        `transparent` (bool) sets background:"transparent" for gpt-image-2 only.
+        """
+        body: dict = {
+            "model": model_id,
+            "prompt": prompt,
+            "n": 1,
+            "quality": quality or "high",
+        }
+        body["size"] = OPENAI_ASPECT_MAP.get(aspect_ratio or "", "auto")
+        if output_format and output_format != "png":
+            # gpt-image-2 uses `output_format` (png|jpeg|webp); it has NO `response_format`
+            # param (that's a DALL·E-2/3 field) — sending it would 400.
+            body["output_format"] = output_format
+        if transparent:
+            body["background"] = "transparent"
+        return body
 
     # ------------------------------------------------------------------ HTTP
 
