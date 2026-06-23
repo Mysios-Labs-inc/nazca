@@ -212,6 +212,20 @@ class VertexBackend(Backend):
     def build_url(self, model: str, op: str, location: str | None = None) -> str:
         return f"{model_base(model, location)}:{op}"
 
+    def _plan_url(self, model: str, op: str, location: str | None = None) -> str:
+        """URL for a --dry-run plan. Tolerates an unset VERTEX_PROJECT: dry-run is
+        documented as needing no credentials/config, so substitute a placeholder
+        project instead of raising. Real dispatch keeps build_url's helpful error."""
+        try:
+            return self.build_url(model, op, location)
+        except VertexError:
+            loc = location or config.VERTEX_LOCATION
+            host = "aiplatform.googleapis.com" if loc == "global" else f"{loc}-aiplatform.googleapis.com"
+            return (
+                f"https://{host}/v1/projects/<VERTEX_PROJECT>/locations/{loc}"
+                f"/publishers/google/models/{model}:{op}"
+            )
+
     def post(self, url: str, body: dict, token: str) -> dict:
         return post(url, body, token)
 
@@ -231,17 +245,17 @@ class VertexBackend(Backend):
             )
 
         if api == "imagen":
-            url = self.build_url(model_id, "predict", region)
+            op = "predict"
             body = self._imagen_body(req.prompt, req.aspect_ratio)
             extract = self._imagen_extract
         else:
-            url = self.build_url(model_id, "generateContent", region)
+            op = "generateContent"
             body = self._gemini_body(req.prompt, req.refs, req.aspect_ratio, req.size)
             extract = self._gemini_extract
 
         if req.dry_run:
             info: dict = {
-                "url": url,
+                "url": self._plan_url(model_id, op, region),
                 "model": model_id,
                 "location": region,
                 "api": api,
@@ -260,7 +274,7 @@ class VertexBackend(Backend):
             return info
 
         token = self.auth_token()
-        resp = self.post(url, body, token)
+        resp = self.post(self.build_url(model_id, op, region), body, token)
         return extract(resp)
 
     @staticmethod
@@ -335,7 +349,7 @@ class VertexBackend(Backend):
                 for k in ("image", "lastFrame"):
                     if k in inst:
                         inst[k]["bytesBase64Encoded"] = f"<{len(instance[k]['bytesBase64Encoded'])} b64 chars>"
-            return {"url": self.build_url(model_id, "predictLongRunning"), **preview}
+            return {"url": self._plan_url(model_id, "predictLongRunning"), **preview}
 
         token = self.auth_token()
         submit = self.post(self.build_url(model_id, "predictLongRunning"), body, token)
