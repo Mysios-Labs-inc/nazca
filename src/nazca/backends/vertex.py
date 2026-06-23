@@ -5,8 +5,7 @@ One auth path for everything: `gcloud auth print-access-token` against the
 configured project. No API keys, no provider SDKs.
 
 The module-level functions (`gcloud_token`, `model_base`, `post`,
-`encode_image_b64`) are kept as the implementation and re-exported by the
-top-level `nazca.vertex` shim for back-compat.
+`access_token`) are the implementation; import them from here directly.
 """
 
 from __future__ import annotations
@@ -24,7 +23,7 @@ from typing import TYPE_CHECKING
 
 from nazca import config, retry
 from nazca.backends.base import Backend
-from nazca.errors import BackendError
+from nazca.errors import BackendError, ImageError, VeoError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_b64
 
@@ -226,8 +225,6 @@ class VertexBackend(Backend):
 
     def run_image(self, model_id, api, region, req: ImageRequest):
         """Gemini (:generateContent) or Imagen (:predict) — owns body + extract + plan."""
-        from nazca.image import ImageError
-
         if api == "imagen" and req.refs:
             raise ImageError(
                 f"model '{model_id}' (imagen) is text-to-image only — drop --ref or use a nano-banana model"
@@ -285,8 +282,6 @@ class VertexBackend(Backend):
 
     @staticmethod
     def _gemini_extract(resp: dict) -> bytes:
-        from nazca.image import ImageError
-
         for cand in resp.get("candidates", []):
             for part in cand.get("content", {}).get("parts", []):
                 inline = part.get("inlineData") or part.get("inline_data")
@@ -303,8 +298,6 @@ class VertexBackend(Backend):
 
     @staticmethod
     def _imagen_extract(resp: dict) -> bytes:
-        from nazca.image import ImageError
-
         preds = resp.get("predictions") or []
         if not preds:
             raise ImageError(f"no prediction in imagen response: {str(resp)[:400]}")
@@ -317,8 +310,6 @@ class VertexBackend(Backend):
 
     def run_video(self, model_id, region, req: VideoRequest):
         """Veo predictLongRunning + poll — owns body + poll + extract + plan."""
-        from nazca.video import VeoError
-
         instance: dict = {"prompt": req.prompt}
         if req.start:  # omit `image` for text-to-video
             start_b64, mime = self.encode_image_b64(req.start, max_edge=1280, fmt="JPEG")

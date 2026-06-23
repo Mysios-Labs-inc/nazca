@@ -50,8 +50,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from nazca import config, retry
+from nazca.backends.vertex import VertexError, access_token
 from nazca.image import _gemini_extract, _resolve, encode_image_b64
-from nazca.vertex import VertexError, access_token
 
 # Gemini image models documented as batch-eligible (2026-06-22). Others may work
 # but we warn so callers know they're off the verified list.
