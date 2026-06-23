@@ -265,6 +265,33 @@ def parse_ref(spec: str) -> tuple[str, str]:
     return spec, DEFAULT_REF_ROLE
 
 
+_ROLE_DESC: dict[str, str] = {
+    "subject": "the subject — keep this content",
+    "style": "a style reference — apply its look only, not its content",
+    "identity": "an identity reference — preserve this face/character/wordmark",
+}
+
+
+def role_annotation(refs: list[tuple[str, str]]) -> str:
+    """Build a prompt suffix labelling each typed reference by position, or "" if all
+    refs are generic.
+
+    This is the mechanism by which a role changes output: no backend exposes a per-ref
+    role field, so refs steer the model through the prompt text. Backward-compatible —
+    bare/untyped refs (role `ref`) produce no annotation, so the prompt sent is
+    byte-identical to today. `refs` must be in the same order they are passed to the
+    backend (positions in the label match the image order).
+    """
+    labels = [
+        f"image {i} is {_ROLE_DESC[role]}"
+        for i, (_, role) in enumerate(refs, 1)
+        if role != DEFAULT_REF_ROLE and role in _ROLE_DESC
+    ]
+    if not labels:
+        return ""
+    return "Reference images, in order: " + "; ".join(labels) + "."
+
+
 def validate_ref_roles(model_shorthand: str | None, roles: list[str]) -> None:
     """Raise CapabilityError if `model_shorthand` doesn't accept one of `roles`.
 

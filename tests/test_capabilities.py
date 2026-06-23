@@ -227,3 +227,25 @@ def test_validate_ref_roles_rejects_typed_on_generic_only_model():
 def test_validate_ref_roles_unknown_model_is_noop():
     cap.validate_ref_roles("vertex:raw-id", ["style"])
     cap.validate_ref_roles(None, ["identity"])
+
+
+# --------------------------------------------------------------------------- role annotation (P2/P3)
+def test_role_annotation_empty_when_all_generic():
+    assert cap.role_annotation([("a.png", "ref"), ("b.png", "ref")]) == ""
+    assert cap.role_annotation([]) == ""
+
+
+def test_role_annotation_labels_typed_refs_by_position():
+    ann = cap.role_annotation([("hero.png", "subject"), ("look.png", "style"), ("face.png", "identity")])
+    assert ann.startswith("Reference images, in order:")
+    assert "image 1 is the subject" in ann
+    assert "image 2 is a style reference" in ann
+    assert "image 3 is an identity reference" in ann
+    assert ann.endswith(".")
+
+
+def test_role_annotation_positions_count_all_refs_not_just_typed():
+    # a generic ref still occupies its position; only typed ones are labelled
+    ann = cap.role_annotation([("plain.png", "ref"), ("look.png", "style")])
+    assert "image 2 is a style reference" in ann
+    assert "image 1" not in ann  # the generic ref is not labelled

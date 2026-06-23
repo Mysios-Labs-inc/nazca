@@ -50,9 +50,18 @@ backend blends them). `REF_ROLES` is the closed vocabulary that will change that
 `Caps.ref_roles` declares which roles each model accepts: every ref-capable model takes
 the generic `ref`; the multi-semantic-ref models (nano-banana family, `seedream`,
 `gpt-image-2`) additionally accept the typed roles. Single-ref FLUX is generic-only.
-**P1 is descriptive** — the vocabulary + validation land now; the CLI surface
-(`--ref path:role`) and per-role backend routing land together in a later phase so the
-role actually changes output.
+
+**CLI surface (live):** `--ref PATH:role`, repeatable — e.g.
+`--ref hero.png:subject --ref look.png:style --ref face.png:identity`. A bare `--ref x.png`
+is untyped (role `ref`) and behaves exactly as before. Unknown roles, and typed roles on a
+model that doesn't accept them, are rejected up front.
+
+**How a role changes output:** no backend exposes a per-ref role field, so roles steer the
+model through the **prompt** — `role_annotation()` appends an ordered legend ("image 1 is
+the subject…; image 2 is a style reference…") to the prompt before dispatch. Untyped refs
+add nothing, so the prompt sent is byte-identical to today. This is provider-agnostic (every
+image backend forwards the prompt). Backends do **not** yet treat the images differently at
+the API level — that's a later, per-provider step where native role fields exist.
 
 ## Models today (P1 — descriptive, what nazca drives now)
 
