@@ -38,9 +38,12 @@ reachable email. PRs without sign-off can't be merged.
 ## Making a change
 
 - **Keep PRs small and focused** — one logical change per PR.
-- **Match existing conventions** — read the surrounding code; follow its naming, structure,
-  and the descriptors in `src/nazca/capabilities.py` (a test asserts every model has a
-  `Caps` entry).
+- **Match existing conventions** — read the surrounding code; follow its naming and structure.
+- **Adding a model?** Add one `ModelSpec` to `src/nazca/models.py` — the single source of truth
+  for id/backend/api/tier/price/ops. `cost.py`, `capabilities.py`, and the CLI all derive from it,
+  and a test asserts key-set parity (every model also needs its `Caps` entry in `capabilities.py`).
+- **Adding a provider?** Implement a `Backend` subclass (`src/nazca/backends/`) with `run_image` /
+  `run_video` and register it in `backends/__init__.py` — no edits to `image.py` / `video.py`.
 - **Run checks before pushing** — lint and tests must pass.
 - **Never commit secrets.** Provider keys come from environment variables only
   (`FAL_KEY`, `ARK_API_KEY`, `OPENAI_API_KEY`, Vertex ADC). `.env` files are gitignored.

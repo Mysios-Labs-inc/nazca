@@ -69,6 +69,7 @@ ModelArk, and OpenAI are *dotted* because they're opt-in: a Vertex-only run neve
 |---|---|---|
 | **Terminal / Claude Code** | the `nazca` CLI (below) | this section |
 | **Claude Desktop app** | the MCP server | [Use with Claude Desktop](#use-with-claude-desktop-mcp) |
+| **Your own Python code** | `import nazca` | [Python library](#python-library) |
 
 > **How it's distributed:** nazca is **not on PyPI** — you install it straight from the GitHub repo
 > with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a released version with `@v0.1.0`;
@@ -136,6 +137,35 @@ nazca video -o dish.mp4 -s dish.png -p "slow push-in, embers glow" --tier cheap 
 
 nazca makes **clean media only** — no baked-in text/logos (overlays belong in Figma). Google/Vertex
 models (the defaults) are proven live; fal is dry-run-tested; ModelArk needs [console activation](#bytedance-modelark-opt-in).
+
+---
+
+## Python library
+
+Beyond the CLI, nazca exposes a small typed API for use inside your own scripts, agents, or services:
+
+```python
+from nazca import generate_image, generate_video, modify_image, ModelSpec, BackendError
+
+# Generate — returns the written Path; pass dry_run=True to get the request plan dict instead.
+out = generate_image("dish.png", "grilled anticuchos, warm amber light", aspect_ratio="9:16")
+
+# Restyle from references, pick a model, preview without spending:
+plan = generate_image("out.png", "...", ref=["photo.jpg"], model="nano-banana-pro", dry_run=True)
+
+# Animate a still (start frame, prompt; pick a model by name):
+generate_video("dish.mp4", "dish.png", "slow push-in, embers glow", model="veo-3.1-fast")
+
+try:
+    generate_image("o.png", "...", model="flux-schnell")   # opt-in backend (needs FAL_KEY)
+except BackendError as e:
+    ...  # every provider failure subclasses BackendError; rate limits are RateLimitError
+```
+
+Credentials resolve the same way as the CLI (env var → `~/.config/nazca/config.ini`) and are read
+**lazily** — importing nazca or running a dry-run never touches a key. `ModelSpec` (from `nazca.models`)
+is the typed record for every built-in model. (The `--tier cheap|premium` convenience is CLI-only; from
+Python, pass `model=` explicitly.)
 
 ---
 
@@ -447,38 +477,48 @@ posting belongs in MCP. nazca is just the **hands**.
 
 ```
 src/nazca/
-├── cli.py            click entrypoint: image · video · login · config · models
+├── cli.py            click entrypoint: image · video · batch · login · config · models
+├── __init__.py       public library API (generate_image/_video, ModelSpec, errors)
+├── models.py         ModelSpec registry — single source of truth (id/backend/api/tier/price/ops)
+├── request.py        ImageRequest / VideoRequest — the value objects backends receive
+├── media.py          one image codec (encode b64 / data-URI / bytes)
+├── errors.py         BackendError → RateLimitError hierarchy (all providers subclass)
 ├── backends/
-│   ├── base.py       Backend interface (auth_token, build_url, post, encode)
-│   ├── vertex.py     Vertex AI — gcloud OAuth token + REST
+│   ├── base.py       Backend interface — run_image() / run_video() (+ auth_token, post, encode)
+│   ├── vertex.py     Vertex AI — gcloud OAuth token + REST (Gemini · Imagen · Veo)
 │   ├── fal.py        fal.ai — FAL_KEY + queue submit→poll→download
-│   └── modelark.py   ByteDance ModelArk — ARK_API_KEY + REST
-├── image.py          Gemini/Imagen (Vertex) · FLUX (fal) · Seedream (ModelArk) dispatch
-├── video.py          Veo (Vertex) · Seedance/Wan (fal) · Seedance (ModelArk) dispatch
+│   ├── modelark.py   ByteDance ModelArk — ARK_API_KEY + REST
+│   └── openai.py     OpenAI Images — OPENAI_API_KEY + generations/edits
+├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
+├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
+├── cost.py           price estimation (reads ModelSpec.price_usd)
+├── capabilities.py   per-model op support (reads ModelSpec.ops)
 ├── registry.py       ~/.config/nazca/models.json override loader
 ├── credstore.py      ~/.config/nazca/config.ini credential store
-└── config.py         env-overridable defaults
+└── config.py         env-overridable defaults (read fresh per access)
 ```
 
-**Routing is data, not code:** a `backend` field in the `MODELS` map selects the provider. Adding a model
-is a one-line entry (or a `models.json` override); adding a provider is a new `Backend` + one registry key.
-Auth is **lazy** — a Vertex-only run never reads `FAL_KEY` or `ARK_API_KEY`.
+**Routing is data, not code:** one `ModelSpec` per model in `models.py` carries its backend, api, tier,
+price, and ops — `cost.py`, `capabilities.py`, and the CLI all derive from it (a test guards key-set
+parity). Adding a model is one registry entry (or a `models.json` override); **adding a provider is one new
+`Backend` that implements `run_image`/`run_video`** — no edits to `image.py`/`video.py`. Auth is **lazy** —
+a Vertex-only run never reads `FAL_KEY`, `ARK_API_KEY`, or `OPENAI_API_KEY`.
 
 ```mermaid
 sequenceDiagram
     participant U as you / Claude
     participant C as cli.py
     participant D as image.py / video.py
-    participant B as backend
+    participant B as backend (run_image / run_video)
     participant P as provider API
     U->>C: nazca image/video … [--dry-run]
-    C->>D: resolve --model / --tier
+    C->>D: resolve --model / --tier → ModelSpec
+    D->>B: run_image / run_video(req)
     alt --dry-run
-        D-->>U: print request JSON (no auth, no spend)
+        B-->>U: print request plan JSON (no auth, no spend)
     else real call
-        D->>B: build_url + body
-        B->>B: auth_token()  (lazy: gcloud / FAL_KEY / ARK_API_KEY)
-        B->>P: POST  (video = submit → poll → download)
+        B->>B: build body + auth_token()  (lazy: gcloud / FAL_KEY / ARK_API_KEY / OPENAI_API_KEY)
+        B->>P: POST  (video / fal = submit → poll → download)
         P-->>B: bytes (or media URL)
         B-->>U: ✅ writes output file, prints path
     end
