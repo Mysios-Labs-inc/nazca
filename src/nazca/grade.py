@@ -175,16 +175,16 @@ def load_lut(spec: str) -> ImageFilter.Color3DLUT:
        - .png   → load_hald
        - other  → ValueError
     2. Otherwise treat *spec* as a NAME and search for
-       ``<name>.cube`` then ``<name>.png`` in (in order):
-       a. $NAZCA_LUT_DIR       (if the env var is set)
+       ``<name>.cube`` then ``<name>.png`` in (in order, first match wins):
+       a. $NAZCA_LUT_DIR                     (if the env var is set)
        b. ~/.config/nazca/luts
+       c. <package>/luts                     (bundled CC0 looks, lowest precedence)
 
-       # TODO (PR2 / bundled looks): also search the package-internal
-       #   looks directory once it is shipped with the wheel.  The hook
-       #   belongs here — simply prepend or append to search_dirs below.
+       User directories (a, b) always take precedence over the bundled looks,
+       so a custom 'warm-editorial.cube' in $NAZCA_LUT_DIR overrides the built-in.
 
-    3. If unresolved, raise ValueError listing the directories that were
-       searched and any look names available in them.
+    3. If unresolved, raise ValueError listing the directories searched and
+       any look names found in them (including bundled names).
     """
     # --- path branch ---------------------------------------------------------
     candidate = Path(spec)
@@ -200,11 +200,14 @@ def load_lut(spec: str) -> ImageFilter.Color3DLUT:
         )
 
     # --- name branch ---------------------------------------------------------
+    # User directories first (highest precedence), then bundled package looks.
     search_dirs: list[Path] = []
     env_dir = os.environ.get("NAZCA_LUT_DIR")
     if env_dir:
         search_dirs.append(Path(env_dir))
     search_dirs.append(Path.home() / ".config" / "nazca" / "luts")
+    # Bundled CC0 looks shipped with the wheel (lowest precedence — user dirs win).
+    search_dirs.append(Path(__file__).resolve().parent / "luts")
 
     # Collect available names for a helpful error message.
     available: list[str] = []
