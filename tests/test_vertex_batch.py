@@ -205,6 +205,86 @@ def test_map_outputs_reports_rows_with_no_output(tmp_path):
     assert any("no output line returned" in e for e in errors)
 
 
+def _normalized_echo(request_line):
+    """Mimic Vertex echoing our request back with an added/normalized field — which
+    breaks a full-body hash but must NOT break signature correlation."""
+    req = json.loads(json.dumps(request_line["request"]))
+    req["generationConfig"]["candidateCount"] = 1  # field we never sent
+    return req
+
+
+def test_map_outputs_signature_survives_reordering_and_echo_normalization(tmp_path):
+    # THE production bug: Vertex Batch returns predictions OUT OF INPUT ORDER and
+    # echoes a normalized request. Positional/full-hash mapping scrambled every
+    # image across rows. Signature (prompt+refs) must place each image correctly.
+    rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png"), _row(tmp_path, "c.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    # outputs served REVERSED, each carrying a normalized echo of its own request
+    out_lines = [
+        {"request": _normalized_echo(job.request_lines[2]),
+         "response": _resp_with_image(base64.b64encode(b"C").decode())},
+        {"request": _normalized_echo(job.request_lines[0]),
+         "response": _resp_with_image(base64.b64encode(b"A").decode())},
+        {"request": _normalized_echo(job.request_lines[1]),
+         "response": _resp_with_image(base64.b64encode(b"B").decode())},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 3 and errors == []
+    assert (tmp_path / "a.png").read_bytes() == b"A"  # not scrambled
+    assert (tmp_path / "b.png").read_bytes() == b"B"
+    assert (tmp_path / "c.png").read_bytes() == b"C"
+
+
+def test_map_outputs_signature_distinguishes_rows_sharing_a_prompt_by_ref(tmp_path):
+    # Same prompt, different ref → distinct signatures → no cross-contamination.
+    r1 = BatchRow(out=tmp_path / "x.png", prompt="hero", model="nano-banana-pro", refs=["gs://b/r1.png"])
+    r2 = BatchRow(out=tmp_path / "y.png", prompt="hero", model="nano-banana-pro", refs=["gs://b/r2.png"])
+    job = vb.plan_vertex_jobs([r1, r2], "gs://bkt/run")[0]
+    assert len(job.key_to_outs) == 2  # refs disambiguate identical prompts
+    out_lines = [  # reversed order
+        {"request": _normalized_echo(job.request_lines[1]),
+         "response": _resp_with_image(base64.b64encode(b"Y").decode())},
+        {"request": _normalized_echo(job.request_lines[0]),
+         "response": _resp_with_image(base64.b64encode(b"X").decode())},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 2 and errors == []
+    assert (tmp_path / "x.png").read_bytes() == b"X"
+    assert (tmp_path / "y.png").read_bytes() == b"Y"
+
+
+def test_map_outputs_reports_image_safety_with_correct_row(tmp_path):
+    # A safety-filtered row must be reported by its CORRECT identity, even when the
+    # filtered prediction is returned out of order.
+    rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    safety = {"candidates": [{"finishReason": "IMAGE_SAFETY", "content": {"parts": []}}]}
+    out_lines = [  # b is safety-filtered, returned first (out of order)
+        {"request": _normalized_echo(job.request_lines[1]), "response": safety},
+        {"request": _normalized_echo(job.request_lines[0]), "response": _resp_with_image()},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 1
+    assert (tmp_path / "a.png").exists()
+    assert not (tmp_path / "b.png").exists()  # filtered → not written
+    assert any("b.png" in e and "IMAGE_SAFETY" in e for e in errors)
+    assert not any("a.png" in e for e in errors)  # a is fine — not mislabeled
+
+
+def test_map_outputs_signature_mismatch_is_error_not_silent_misplace(tmp_path):
+    # An output line whose signature matches nothing must surface as an error, not
+    # get silently dropped into a positional slot.
+    rows = [_row(tmp_path, "a.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    bogus = {"contents": [{"role": "user", "parts": [{"text": "never requested"}]}],
+             "generationConfig": {}}
+    out_lines = [{"request": bogus, "response": _resp_with_image()}]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 0
+    assert not (tmp_path / "a.png").exists()
+    assert any("signature mismatch" in e for e in errors)
+
+
 # --------------------------------------------------------------------------- orchestrator
 def test_run_vertex_batch_dry_run_no_io(tmp_path, monkeypatch):
     # Any live call would blow up — assert none happens in dry-run.

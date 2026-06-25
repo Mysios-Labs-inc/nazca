@@ -457,3 +457,65 @@ def test_batch_max_cost_dry_run_over_budget_warns_but_succeeds(tmp_path):
     ])
     assert r.exit_code == 0, r.output            # dry-run is a preview; it warns, doesn't fail
     assert "would exceed --max-cost $0.10" in r.output
+
+
+# --------------------------------------------------------------------------- status / verify
+def test_batch_status_splits_done_and_pending(tmp_path):
+    done = tmp_path / "done.png"
+    done.write_bytes(b"x")
+    rows = [
+        batch.BatchRow(out=done, prompt="p", model="nano-banana"),
+        batch.BatchRow(out=tmp_path / "missing.png", prompt="p", model="nano-banana"),
+    ]
+    status = batch.batch_status(rows)
+    assert status.total == 2
+    assert [r.out for r in status.done] == [done]
+    assert [r.out for r in status.pending] == [tmp_path / "missing.png"]
+
+
+def test_batch_status_all_done_is_empty_pending(tmp_path):
+    a, b = tmp_path / "a.png", tmp_path / "b.png"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+    status = batch.batch_status([
+        batch.BatchRow(out=a, prompt="p"),
+        batch.BatchRow(out=b, prompt="p"),
+    ])
+    assert status.pending == []
+    assert "2 done · 0 pending" in status.summary_lines()[0]
+
+
+def _status_manifest(tmp_path, done_names, all_names):
+    """Write a JSONL manifest and create the `out` files for done_names only."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    lines = []
+    for n in all_names:
+        out_path = out_dir / f"{n}.png"
+        lines.append(json.dumps({"out": str(out_path), "prompt": "x", "model": "nano-banana"}))
+        if n in done_names:
+            out_path.write_bytes(b"x")
+    manifest = tmp_path / "jobs.jsonl"
+    manifest.write_text("\n".join(lines))
+    return manifest
+
+
+def test_batch_status_cli_exits_1_when_pending(tmp_path):
+    from click.testing import CliRunner
+
+    from nazca.cli import cli
+    manifest = _status_manifest(tmp_path, done_names={"a"}, all_names=["a", "b", "c"])
+    r = CliRunner().invoke(cli, ["batch", str(manifest), "--status"])
+    assert r.exit_code == 1, r.output
+    assert "3 rows · 1 done · 2 pending" in r.output
+    assert "b.png" in r.output and "c.png" in r.output
+
+
+def test_batch_status_cli_exits_0_when_complete(tmp_path):
+    from click.testing import CliRunner
+
+    from nazca.cli import cli
+    manifest = _status_manifest(tmp_path, done_names={"a", "b"}, all_names=["a", "b"])
+    r = CliRunner().invoke(cli, ["batch", str(manifest), "--status"])
+    assert r.exit_code == 0, r.output
+    assert "2 done · 0 pending" in r.output

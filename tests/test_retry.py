@@ -74,6 +74,43 @@ def test_persistent_429_exhausts_to_rate_limit_error(fast_retry):
     assert slept == [20.0, 40.0, 80.0, 160.0, 320.0]  # geometric, no jitter
 
 
+def test_retry_after_header_raises_backoff_floor(fast_retry):
+    """A server `Retry-After: 90` overrides a shorter computed delay (20s → 90s)."""
+    slept = fast_retry
+
+    def with_retry_after(req, timeout=None):
+        raise _http_error(429, "slow down", headers={"Retry-After": "90"})
+
+    with pytest.raises(vertex.RateLimitError):
+        _call(slept, with_retry_after)
+    # First computed delay is 20s; Retry-After=90 is the floor, so we sleep 90.
+    assert slept[0] == 90.0
+
+
+def test_retry_after_smaller_than_backoff_is_ignored(fast_retry):
+    """When the computed delay already exceeds Retry-After, keep the larger one."""
+    slept = fast_retry
+
+    def with_small_retry_after(req, timeout=None):
+        raise _http_error(429, "slow down", headers={"Retry-After": "5"})
+
+    with pytest.raises(vertex.RateLimitError):
+        _call(slept, with_small_retry_after)
+    assert slept == [20.0, 40.0, 80.0, 160.0, 320.0]  # Retry-After=5 never wins
+
+
+def test_retry_after_unparseable_falls_back(fast_retry):
+    """An HTTP-date (non-integer) Retry-After is ignored, not an error."""
+    slept = fast_retry
+
+    def http_date(req, timeout=None):
+        raise _http_error(429, "x", headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"})
+
+    with pytest.raises(vertex.RateLimitError):
+        _call(slept, http_date)
+    assert slept == [20.0, 40.0, 80.0, 160.0, 320.0]
+
+
 def test_resource_exhausted_in_body_is_retryable(fast_retry):
     slept = fast_retry
     calls = {"n": 0}
