@@ -221,6 +221,33 @@ def _get_job(job_name: str, location: str, token: str) -> dict:
     return json.loads(_send(req, f"get job {job_name}"))
 
 
+# Auth-token lifetime guard. ADC/gcloud access tokens live ~1h; a long batch
+# (queue + run can exceed that) outlives a single token, after which control-plane
+# and GCS calls 401 with UNAUTHENTICATED / ACCESS_TOKEN_TYPE_UNSUPPORTED. The fix
+# is twofold: mint a FRESH token before each long-phase call (prevention), and, if
+# one still 401s, re-mint and retry once (resilience) instead of abandoning a job
+# that is still running — and succeeding — server-side.
+_AUTH_ERROR_MARKERS = ("HTTP 401", "UNAUTHENTICATED", "ACCESS_TOKEN_TYPE_UNSUPPORTED")
+
+
+def _is_auth_error(e: Exception) -> bool:
+    msg = str(e)
+    return any(m in msg for m in _AUTH_ERROR_MARKERS)
+
+
+def _with_fresh_token(token_fn, call, *, on_event=None):
+    """Run `call(token)` with a freshly minted token; on a single auth 401, re-mint
+    and retry once. Non-auth errors propagate unchanged."""
+    try:
+        return call(token_fn())
+    except VertexBatchError as e:
+        if not _is_auth_error(e):
+            raise
+        if on_event:
+            on_event("reauth", str(e)[:120])
+        return call(token_fn())  # token expired mid-run — mint a fresh one and retry
+
+
 # --------------------------------------------------------------------------- request building
 def request_key(request: dict) -> str:
     """Full-body hash of a request — exact, but brittle as an output-correlation key.
@@ -507,20 +534,26 @@ def _is_prediction_shard(uri: str) -> bool:
     return bool(_SHARD_RE.match(name))
 
 
-def _stream_predictions(job: VertexBatchJob, token: str, sink: _OutputSink) -> None:
+def _stream_predictions(job: VertexBatchJob, token_fn, sink: _OutputSink, *, on_event=None) -> None:
     """Stream EVERY output shard through the sink, never holding a file in RAM.
 
     Each shard is downloaded chunk-by-chunk to a temp file, then iterated
     line-by-line; each line's image is decoded to disk and discarded. Shards are
     processed in sorted name order so positional correlation stays in input order.
+
+    A fresh token is minted per GCS call (list + each shard download), with a single
+    re-auth retry, so a download after a long poll can't 401 on an expired token.
     """
-    shards = sorted(u for u in _gcs_list(job.output_prefix, token) if _is_prediction_shard(u))
+    shards = sorted(
+        u for u in _with_fresh_token(token_fn, lambda t: _gcs_list(job.output_prefix, t), on_event=on_event)
+        if _is_prediction_shard(u)
+    )
     if not shards:
         sink.errors.append(f"no prediction shards under {job.output_prefix}")
         return
     for shard in shards:
         with tempfile.NamedTemporaryFile(suffix=".jsonl") as tmp:
-            _gcs_download_to_file(shard, token, tmp)
+            _with_fresh_token(token_fn, lambda t: _gcs_download_to_file(shard, t, tmp), on_event=on_event)
             tmp.flush()
             tmp.seek(0)
             for raw in tmp:  # file iteration = one line in memory at a time
@@ -578,34 +611,51 @@ def run_vertex_batch(
         summary["written"] = 0
         return summary
 
-    token = token_fn()
     written_total = 0
     all_errors: list[str] = []
+    submitted: list[dict] = []  # job ids surfaced for manual resume of a finished job
     for job in jobs:
+        # Mint per job: an earlier job's long poll may have aged the token past the
+        # quick upload/submit calls below.
+        token = token_fn()
         on_event("upload", job)
         upload_refs(job, token)  # refs once, by gcsUri (keeps requests + echo tiny)
         _gcs_upload_text(job.input_uri, "\n".join(json.dumps(ln) for ln in job.request_lines), token)
         on_event("submit", job)
         job_name = _submit_job(job.model_id, job.location, job.input_uri, job.output_prefix, token)
-        state = _poll(job_name, job.location, token, poll_interval, poll_max_tries, on_event, _sleep)
+        # Surface the job id + output dir BEFORE the long poll, so a killed/expired
+        # run can be recovered against the already-running (and billed) job.
+        submitted.append({"model": job.model_id, "location": job.location,
+                          "job_name": job_name, "output_prefix": job.output_prefix})
+        on_event("submitted", submitted[-1])
+        state = _poll(job_name, job.location, token_fn, poll_interval, poll_max_tries, on_event, _sleep)
         if state != _DONE:
-            all_errors.append(f"{job.model_id}: job ended {state}")
+            all_errors.append(f"{job.model_id}: job {job_name} ended {state}")
             continue
         on_event("fetch", job)
         sink = _OutputSink(job)
-        _stream_predictions(job, token, sink)  # streams every shard, flat memory
+        _stream_predictions(job, token_fn, sink, on_event=on_event)  # fresh token per shard
         written, errors = sink.result()
         written_total += written
         all_errors.extend(errors)
 
     summary["written"] = written_total
     summary["errors"] = all_errors
+    summary["submitted"] = submitted
     return summary
 
 
-def _poll(job_name, location, token, interval, max_tries, on_event, _sleep) -> str:
+def _poll(job_name, location, token_fn, interval, max_tries, on_event, _sleep) -> str:
+    """Poll a batch job to a terminal state, re-authing each iteration.
+
+    Mints a fresh token for every GetBatchPredictionJob (with a single 401 retry),
+    so a poll loop spanning longer than the ~1h token lifetime keeps working instead
+    of crashing on UNAUTHENTICATED and losing a job that is still running.
+    """
     for _ in range(max_tries):
-        job = _get_job(job_name, location, token)
+        job = _with_fresh_token(
+            token_fn, lambda t: _get_job(job_name, location, t), on_event=on_event
+        )
         state = job.get("state", "")
         on_event("poll", state)
         if state == _DONE or state in _FAILED:

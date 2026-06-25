@@ -544,6 +544,11 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
     def on_event(stage, detail):
         if stage == "submit":
             click.echo(f"  🚀 submitting {detail.model_id} ({len(detail.rows)} rows)")
+        elif stage == "submitted":
+            # Surface the job id + output dir so a killed/expired run is recoverable.
+            click.echo(f"  🔖 job {detail['job_name']} [{detail['location']}] → {detail['output_prefix']}")
+        elif stage == "reauth":
+            click.echo(f"  🔑 token expired mid-run — re-authenticated and retrying ({detail})")
         elif stage == "poll":
             click.echo(f"  ⏳ {detail}")
         elif stage == "fetch":
