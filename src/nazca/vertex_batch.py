@@ -18,6 +18,14 @@ fileData/gcsUri, not inlined base64) → upload to GCS → create a
 prediction shard from the job's GCS output dir → decode images back to each
 row's `out`.
 
+Correlation (the production-correctness fix): Vertex Batch returns predictions
+**out of input order** and echoes each request with extra/normalized fields, so
+mapping a prediction back to its row by *position* (or by a full-body request
+hash) silently writes every image to the wrong `out` path and mislabels which row
+was safety-filtered. We instead correlate by `request_signature` — the prompt text
+plus ref URIs that Vertex passes through verbatim — and treat an unmatched line as
+an error rather than guessing a position. See `_OutputSink`.
+
 Scale (the production fix): a live 12-image job emitted a 109 MB
 predictions.jsonl that a single read-all-into-RAM download TimeoutError'd on; 840
 images would be multi-GB. So predictions are (a) downloaded chunk-by-chunk to a
@@ -215,8 +223,42 @@ def _get_job(job_name: str, location: str, token: str) -> dict:
 
 # --------------------------------------------------------------------------- request building
 def request_key(request: dict) -> str:
-    """Stable hash of a request body, used to map an output line back to its row."""
+    """Full-body hash of a request — exact, but brittle as an output-correlation key.
+
+    Kept for completeness/tests. NOT used to map predictions back to rows: Vertex
+    Batch echoes the request with added/normalized fields (e.g. a default
+    `candidateCount`), so a full-body hash of the echo won't match the input hash.
+    Use `request_signature` for correlation.
+    """
     return hashlib.sha256(json.dumps(request, sort_keys=True).encode()).hexdigest()
+
+
+def request_signature(request: dict) -> str:
+    """Stable identity of a request, robust to Vertex's echo normalization.
+
+    Correlating a prediction back to its row by *position* is unsafe — Vertex Batch
+    does **not** guarantee output order == input order, so positional mapping
+    silently scrambles which image lands at which `out` path (and mislabels which
+    row was safety-filtered). A full-body hash is also unsafe: the echoed request
+    carries extra/normalized fields the input never had, so it won't match.
+
+    This keys off only the fields Vertex passes through verbatim — the prompt text
+    and the ordered ref `fileUri`s — which both the input request and its output
+    echo share. Two rows that are genuinely identical (same prompt + refs) collapse
+    to one signature and are filled FIFO; their outputs are interchangeable anyway.
+    """
+    contents = request.get("contents") or [{}]
+    parts = contents[0].get("parts", []) if contents else []
+    text = ""
+    refs: list[str] = []
+    for p in parts:
+        if not text and isinstance(p.get("text"), str):
+            text = p["text"]
+        fd = p.get("fileData") or p.get("file_data")
+        if isinstance(fd, dict):
+            refs.append(fd.get("fileUri") or fd.get("file_uri") or "")
+    payload = json.dumps({"text": text, "refs": refs}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
 
 
 @dataclass
@@ -227,7 +269,7 @@ class VertexBatchJob:
     input_uri: str
     output_prefix: str
     request_lines: list[dict] = field(default_factory=list)
-    # request_key → FIFO queue of out paths (handles duplicate identical requests)
+    # request_signature → FIFO queue of out paths (handles duplicate identical requests)
     key_to_outs: dict = field(default_factory=dict)
     # gcsUri → local ref path to upload once before submit (deduped). Empty for
     # text-only jobs. Refs are referenced by fileData/gcsUri, NOT inlined as
@@ -317,7 +359,7 @@ def plan_vertex_jobs(rows, gcs_prefix: str) -> list[VertexBatchJob]:
                     job.ref_uploads[uri] = str(ref)  # dedup: one upload per unique URI
             line = build_request_line(row, ref_uris=ref_uris)
             job.request_lines.append(line)
-            job.key_to_outs.setdefault(request_key(line["request"]), []).append(row.out)
+            job.key_to_outs.setdefault(request_signature(line["request"]), []).append(row.out)
         jobs.append(job)
     return jobs
 
@@ -347,6 +389,29 @@ def _line_response(line: dict) -> dict | None:
     return resp if isinstance(resp, dict) else None
 
 
+def _no_image_reason(resp: dict) -> str | None:
+    """If a response carries no image, return a human reason (e.g. IMAGE_SAFETY).
+
+    Surfaces the *real* cause — a safety/recitation block or empty candidate —
+    instead of a generic "no image part" dump, so the final summary can say
+    "row X failed: IMAGE_SAFETY". Returns None when an image part is present
+    (the normal path) so the caller proceeds to decode + write.
+    """
+    pf = resp.get("promptFeedback") or resp.get("prompt_feedback") or {}
+    block = pf.get("blockReason") or pf.get("block_reason")
+    if block:
+        return f"prompt blocked: {block} (no image returned)"
+    for cand in resp.get("candidates", []):
+        parts = cand.get("content", {}).get("parts", []) or []
+        has_img = any((p.get("inlineData") or p.get("inline_data")) for p in parts)
+        if has_img:
+            return None
+        reason = cand.get("finishReason") or cand.get("finish_reason")
+        if reason and reason not in ("STOP", "MAX_TOKENS"):
+            return f"{reason} (no image returned)"
+    return None
+
+
 class _OutputSink:
     """Streaming consumer: decode each output line's image straight to its `out`.
 
@@ -355,11 +420,17 @@ class _OutputSink:
     the (multi-GB) total output size.
 
     Correlation strategy is decided once from the first line and held for the
-    whole stream (mirrors the old batch behavior, now streaming-safe):
-      - **hash** if the first line carries a `request` we recognize — robust to
-        reordering, and reliable now that fileData refs keep the echo tiny/stable;
-      - **positional** otherwise — Vertex batch preserves input order, and shards
-        are read in sorted order so the running index is the global input index.
+    whole stream:
+      - **signature** when Vertex echoes the request (it does): map each
+        prediction to its row by `request_signature` (prompt text + ref URIs).
+        This is robust to Vertex Batch returning predictions OUT OF INPUT ORDER —
+        the production bug that positional mapping caused (every image written to
+        the wrong `out` path, identities cross-contaminated). In this mode a line
+        whose signature matches nothing is reported as an error rather than
+        silently misplaced.
+      - **positional** ONLY when no request is echoed at all — a genuine last
+        resort. Vertex Batch does not guarantee order, so this is best-effort;
+        shards are read in sorted order to at least keep the running index stable.
     """
 
     def __init__(self, job: VertexBatchJob):
@@ -373,12 +444,13 @@ class _OutputSink:
         self.errors: list[str] = []
 
     def _target(self, line: dict):
+        req = line.get("request")
         if self.mode is None:
-            req = line.get("request")
-            self.mode = "hash" if isinstance(req, dict) and request_key(req) in self.job.key_to_outs else "positional"
-        if self.mode == "hash":
-            req = line.get("request")
-            outs = self.pending.get(request_key(req)) if isinstance(req, dict) else None
+            # Echoed request → signature mode (order-independent). No request on the
+            # first line → positional fallback for the whole stream.
+            self.mode = "signature" if isinstance(req, dict) else "positional"
+        if self.mode == "signature":
+            outs = self.pending.get(request_signature(req)) if isinstance(req, dict) else None
             return outs.pop(0) if outs else None
         return self.ordered[self.idx] if self.idx < len(self.ordered) else None
 
@@ -392,7 +464,13 @@ class _OutputSink:
             self.errors.append(f"{target or '?'}: no response/prediction ({json.dumps(line)[:200]})")
             return
         if target is None:
-            self.errors.append("output line did not match any input row")
+            # Signature mode with no match: do NOT guess a position — that's the
+            # silent-corruption path. Report it so the row shows up as missing.
+            self.errors.append(f"output line matched no input row (signature mismatch): {json.dumps(line)[:200]}")
+            return
+        reason = _no_image_reason(resp)
+        if reason is not None:  # safety-filtered / empty — report with the CORRECT row
+            self.errors.append(f"{target}: {reason}")
             return
         try:
             target.parent.mkdir(parents=True, exist_ok=True)

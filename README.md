@@ -26,7 +26,7 @@ nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`batch`](#nazca-batch) (bulk generation)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
@@ -228,6 +228,66 @@ nazca video -o clip.mp4 -s a.png --end b.png -p "the skewer lifts off the grill"
 
 > Clips are **silent by default** (`--audio` adds sound and **doubles** Veo's cost). Keyframe interpolation
 > **morphs** if the end frame isn't a tight variant of the start — use a single frame for camera moves.
+
+---
+
+### `nazca batch`
+
+**Use this for more than a few images.** Do **not** fan out parallel `nazca image` calls — a
+Vertex base model is capped at **~2 requests/min**, so concurrent shells targeting one model
+all hit the same lane and 429. `nazca batch` paces request *starts* per model lane and is
+**idempotent**: rows whose `out` already exists are skipped, so a killed run resumes by just
+re-running it.
+
+```bash
+# manifest mode: one row per image
+nazca batch jobs.jsonl
+
+# directory mode: one row per ref image, fanned across models
+nazca batch --from-dir refs/ --prompt "restyle {stem} in noir" --models nano-banana-pro,seedream
+
+# preview the plan + per-row requests, no API calls
+nazca batch jobs.jsonl --dry-run
+
+# verify after a run: what's done vs still missing (exit 1 if any pending)
+nazca batch jobs.jsonl --status
+
+# async Vertex Batch — no per-minute wall, ~50% cheaper, 1K-only output (needs a GCS bucket)
+nazca batch jobs.jsonl --vertex-batch --gcs gs://my-bucket/nazca
+```
+
+**Manifest schema** — JSONL (one JSON object per line) or CSV. Required: `out`, `prompt`.
+
+| field | required | meaning | aliases |
+|---|---|---|---|
+| `out` | ✅ | output image path (e.g. `out/img01.png`) | `output` |
+| `prompt` | ✅ | generation prompt | |
+| `ref` | | reference image(s): a single path, a JSON list, or a `;`/`|`-separated string | `refs` |
+| `model` | | model shorthand; falls back to the run default / `--models` | |
+| `aspect` | | aspect ratio, e.g. `9:16` | `aspect_ratio` |
+| `size` | | `1K`\|`2K`\|`4K` (gemini-3 only; `--vertex-batch` forces 1K) | |
+| `quality` | | `low`\|`medium`\|`high`\|`auto` (gpt-image-2 only) | |
+
+```jsonl
+{"out": "out/hero.png", "prompt": "anticucho on a slate plate", "ref": "refs/dish.png", "model": "nano-banana-pro"}
+{"out": "out/wide.png", "prompt": "parrillada, overhead", "ref": ["refs/grill.png", "refs/style.png"], "aspect": "16:9"}
+```
+
+CLI `--aspect` / `--size` / `--quality` supply **defaults** for rows that omit those fields.
+
+**Throughput scales with model lanes, not local processes.** Each Vertex base model is an
+independent ~2/min counter, so N models ≈ N×rpm combined — the lever for speed is *more model
+lanes* (`--models a,b,c`) or `--vertex-batch`, **not** more parallel `nazca image` shells (which
+just 429 one shared lane). `--concurrency` caps how many lanes run at once; it does not raise a
+single model's rpm. `--rpm` (default `2.0`) sets each lane's start cadence.
+
+**Flags:** `MANIFEST` · `--from-dir` + `--prompt` · `--out-dir` · `--models` · `--rpm` ·
+`--aspect` · `--size` · `--quality` · `--concurrency` · `--max-cost` · `--status` ·
+`--vertex-batch` + `--gcs` · `--dry-run`.
+
+> When a `nazca image` call exhausts its retries on a persistent 429, it now prints a one-line
+> error (no traceback) pointing here. nazca also honors a server `Retry-After` header as a
+> backoff floor, so transient 429s self-recover within a run.
 
 ---
 

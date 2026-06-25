@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import typing
 
 import click
 
@@ -115,6 +116,28 @@ def cli() -> None:
 # Shared CLI helpers — extracted from command bodies so they can be tested
 # independently without invoking Click plumbing.
 # ---------------------------------------------------------------------------
+
+def _emit_backend_error(e: Exception) -> "typing.NoReturn":
+    """Render a backend failure as a clean one-liner (no traceback) and exit 1.
+
+    Rate-limit failures additionally point at the bulk tools — the per-lane paced
+    `nazca batch` and the async, no-rpm-wall `nazca batch --vertex-batch` — which
+    is the fix a newcomer who reached for parallel `nazca image` calls actually
+    needs (the exact mistake that 429s a single Vertex lane).
+    """
+    from nazca.errors import RateLimitError
+
+    click.echo(f"❌ {e}", err=True)
+    if isinstance(e, RateLimitError):
+        click.echo(
+            "   ↳ rate limit persisted after retries. For bulk runs use `nazca batch` "
+            "(auto-paced per model lane), or `nazca batch --vertex-batch` (async Vertex "
+            "Batch — no per-minute wall, ~50% cheaper). More model lanes = more throughput; "
+            "more local processes on one model do not (the cap is per-model rpm).",
+            err=True,
+        )
+    raise SystemExit(1)
+
 
 def _validate_or_exit(model: str | None, op: str, *, n_refs: int = 0) -> None:
     """Run capability check; on failure echo ❌ to stderr and exit 2.
@@ -330,17 +353,22 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         if annotation:
             eff_prompt = f"{prompt}\n\n{annotation}"
 
-    if modify:
-        result = modify_image(
-            out, source, op=op, model=resolved_model, prompt=prompt, mask=mask,
-            upscale_factor=upscale_factor, expand=expand, dry_run=dry_run,
-        )
-    else:
-        result = generate_image(
-            out, eff_prompt, ref=ref_paths or None, model=resolved_model,
-            aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
-            transparent=transparent, dry_run=dry_run,
-        )
+    from nazca.errors import BackendError
+
+    try:
+        if modify:
+            result = modify_image(
+                out, source, op=op, model=resolved_model, prompt=prompt, mask=mask,
+                upscale_factor=upscale_factor, expand=expand, dry_run=dry_run,
+            )
+        else:
+            result = generate_image(
+                out, eff_prompt, ref=ref_paths or None, model=resolved_model,
+                aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
+                transparent=transparent, dry_run=dry_run,
+            )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
     _emit_image_result(result, dry_run, modify, resolved_model, DEFAULT_MODEL, aspect_ratio, size, quality)
 
 
@@ -361,8 +389,10 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
 @click.option("--gcs", "gcs", default=None, help="gs://bucket/prefix for Vertex Batch input/output (with --vertex-batch).")
 @click.option("--max-cost", "max_cost", default=None, type=float,
               help="Budget ceiling in USD: refuse to dispatch if the estimated plan cost exceeds it.")
+@click.option("--status", "show_status", is_flag=True,
+              help="Verify only: diff each row's `out` against the filesystem, report done/pending, exit 1 if any pending. No API calls.")
 @click.option("--dry-run", is_flag=True, help="Print the plan + per-row requests; no API calls.")
-def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, quality, concurrency, vertex_batch, gcs, max_cost, dry_run):
+def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, quality, concurrency, vertex_batch, gcs, max_cost, show_status, dry_run):
     """Generate many images, paced per model lane (idempotent + resumable).
 
     Two input modes:
@@ -375,15 +405,30 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, qu
     gaps. Pacing is chosen per-lane from the model's backend: Vertex lanes keep
     the 2/min-per-base-model start throttle (N models ≈ N×rpm combined), while
     latency-bound gpt-image-2 (openai) lanes run rows concurrently — no rpm wall.
+    Throughput scales with *model lanes*, not local processes: the cap is per-model
+    rpm, so running the same model in parallel shells just 429s one shared lane.
+
+    \b
+    Manifest rows are JSONL (one JSON object per line) or CSV, with fields:
+      out      (req)  output image path, e.g. "out/img01.png"   [alias: output]
+      prompt   (req)  generation prompt
+      ref      (opt)  one ref path, a list, or ";"/"|"-joined    [alias: refs]
+      model    (opt)  model shorthand; falls back to the run default
+      aspect   (opt)  aspect ratio, e.g. "9:16"                  [alias: aspect_ratio]
+      size     (opt)  1K|2K|4K (gemini-3 only; --vertex-batch forces 1K)
+      quality  (opt)  low|medium|high|auto (gpt-image-2 only)
+    CLI --aspect/--size/--quality supply defaults for rows that omit them.
 
     \b
     --quality (low|medium|high|auto) is the gpt-image-2 cost/speed lever and is
     ignored by other backends. --vertex-batch routes Gemini-image rows through
     async Vertex Batch inference (no per-minute quota, 50% cheaper, 1K-only
-    output) via a --gcs bucket.
+    output) via a --gcs bucket. --status re-checks a manifest against the
+    filesystem after a run (use it to catch rows that died mid-batch).
     """
     from nazca.batch import (
         BatchError,
+        batch_status,
         load_manifest,
         plan_batch,
         rows_from_dir,
@@ -411,6 +456,15 @@ def batch_cmd(manifest, from_dir, prompt, out_dir, rpm, models, aspect, size, qu
     except BatchError as e:
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(2) from e
+
+    # --- Status / verify (no API calls) ----------------------------------
+    if show_status:
+        if only:  # honor the manifest --models filter so status matches what a run would do
+            rows = [r for r in rows if (r.model or DEFAULT_MODEL) in only]
+        status = batch_status(rows)
+        for line in status.summary_lines():
+            click.echo(line)
+        raise SystemExit(1 if status.pending else 0)
 
     # --- Vertex Batch (async, no RPM wall) -------------------------------
     if vertex_batch:
@@ -512,6 +566,17 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
         for j in summary.get("planned", []):
             click.echo(f"  📝 {j['model']} [{j['location']}] {j['rows']} rows → {j['output_prefix']}")
         click.echo(json.dumps(summary["planned"], indent=2))
+        return
+
+    # Real run: report what was written and surface per-row failures (e.g. a
+    # safety-filtered row) by their CORRECT identity — not a buried stderr line.
+    written = summary.get("written", 0)
+    errors = summary.get("errors", []) or []
+    click.echo(f"  ✅ {written} image(s) written · {len(errors)} failed")
+    for err in errors:
+        click.echo(f"  ❌ {err}", err=True)
+    if errors:
+        raise SystemExit(1)
         click.echo("\nno job submitted (--dry-run).")
         return
 
@@ -598,11 +663,16 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
     validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
     _validate_or_exit(validate_target, op)
 
-    result = generate_video(
-        out, start, prompt, end=end, model=resolved_model, duration=duration,
-        aspect_ratio=aspect_ratio, resolution=resolution,
-        generate_audio=audio, dry_run=dry_run,
-    )
+    from nazca.errors import BackendError
+
+    try:
+        result = generate_video(
+            out, start, prompt, end=end, model=resolved_model, duration=duration,
+            aspect_ratio=aspect_ratio, resolution=resolution,
+            generate_audio=audio, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
     _emit_video_result(result, dry_run)
     if dry_run:
         cost = video_cost_label(validate_target, duration=duration, resolution=resolution, audio=audio)

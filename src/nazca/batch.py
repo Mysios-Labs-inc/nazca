@@ -235,6 +235,42 @@ def rows_from_dir(
     return rows
 
 
+# --------------------------------------------------------------------------- status
+@dataclass
+class BatchStatus:
+    """A filesystem diff of a manifest: which rows' `out` exist vs are missing.
+
+    The point is post-hoc verification. During a run, rows that 429 out (or hit
+    any error) are reported once on stderr and then the file simply never appears
+    — a naive `ls | wc -l` can't tell a killed batch from a complete one. This
+    re-derives done/pending purely from `out` existence, no API calls, so an
+    orchestrator can assert completeness or re-run to fill the gaps.
+    """
+
+    done: list[BatchRow]
+    pending: list[BatchRow]
+
+    @property
+    def total(self) -> int:
+        return len(self.done) + len(self.pending)
+
+    def summary_lines(self) -> list[str]:
+        lines = [
+            f"status: {self.total} rows · {len(self.done)} done · {len(self.pending)} pending",
+        ]
+        for row in self.pending:
+            model = row.model or "(default)"
+            lines.append(f"  ✗ {row.out}  [{model}]")
+        return lines
+
+
+def batch_status(rows: list[BatchRow]) -> BatchStatus:
+    """Diff each row's `out` path against the filesystem (no API calls)."""
+    done = [r for r in rows if r.out.exists()]
+    pending = [r for r in rows if not r.out.exists()]
+    return BatchStatus(done=done, pending=pending)
+
+
 # --------------------------------------------------------------------------- planning
 @dataclass
 class BatchPlan:
