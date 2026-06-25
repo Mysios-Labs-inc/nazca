@@ -257,17 +257,18 @@ def test_apply_grade_strength_intermediate(tmp_path):
         )
 
 
-def test_apply_grade_grain_params_accepted_noop(tmp_path):
-    """apply_grade accepts grain and grain_size params (no-op in PR1)."""
+def test_apply_grade_grain_params_threaded(tmp_path):
+    """apply_grade threads grain/grain_size into add_grain, staying chroma-neutral."""
     grade = _import_grade()
     cube_path = tmp_path / "identity.cube"
     _write_identity_cube_2x2x2(cube_path)
     lut = grade.load_cube(cube_path)
 
     test_img = Image.new("RGB", (10, 10), (128, 128, 128))
-    # Should not raise; grain is threaded but not implemented yet
     result = grade.apply_grade(test_img, lut, strength=1.0, grain=0.5, grain_size=2)
     assert result is not None
+    # Grain is monochrome: a grey input must stay perfectly neutral (no chroma speckle).
+    assert max(max(px) - min(px) for px in result.getdata()) == 0
 
 
 # ─────────────────────────────────────────────────────────────────── Tests: load_lut
@@ -363,3 +364,122 @@ def test_load_lut_invalid_extension_raises(tmp_path):
 
     with pytest.raises(ValueError, match="jpg|extension|supported"):
         grade.load_lut(str(invalid_path))
+
+
+# ─────────────────────────────────────────── Tests: add_grain (luminance-only guarantee)
+
+
+def test_add_grain_grey_stays_neutral(tmp_path):
+    """REGRESSION GUARD: add_grain on solid grey produces zero chroma variance.
+
+    This is the core guarantee: monochrome grain CANNOT produce colored speckles.
+    Test passes a mid-grey image through add_grain and verifies that every
+    pixel (R, G, B) remains balanced (max per-pixel chroma delta = 0).
+    """
+    grade = _import_grade()
+
+    # Create solid grey image (neutral, no color cast)
+    grey_img = Image.new("RGB", (100, 100), (120, 120, 120))
+    result = grade.add_grain(grey_img, intensity=0.4, size=1)
+
+    # Chroma neutrality: for each pixel, max(R, G, B) - min(R, G, B) == 0
+    # (no color difference means all three channels are identical)
+    max_chroma_delta = max(max(px) - min(px) for px in result.getdata())
+    assert max_chroma_delta == 0, (
+        f"Chroma speckle detected: max delta {max_chroma_delta} "
+        "(luminance grain on grey must stay neutral)"
+    )
+
+
+def test_add_grain_grey_via_apply_grade_stays_neutral(tmp_path):
+    """REGRESSION GUARD: apply_grade with grain on grey stays chroma-neutral.
+
+    Covers the full wired path: identity LUT + grain applied after grade.
+    """
+    grade = _import_grade()
+    cube_path = tmp_path / "identity.cube"
+    _write_identity_cube_2x2x2(cube_path)
+    lut = grade.load_cube(cube_path)
+
+    grey_img = Image.new("RGB", (100, 100), (120, 120, 120))
+    result = grade.apply_grade(grey_img, lut, strength=1.0, grain=0.4, grain_size=1)
+
+    max_chroma_delta = max(max(px) - min(px) for px in result.getdata())
+    assert max_chroma_delta == 0, (
+        f"apply_grade path: chroma delta {max_chroma_delta} "
+        "(identity LUT + grain must preserve neutrality)"
+    )
+
+
+def test_add_grain_zero_is_noop():
+    """add_grain(img, intensity=0.0) returns img unchanged."""
+    grade = _import_grade()
+
+    test_img = Image.new("RGB", (50, 50), (100, 150, 200))
+    result = grade.add_grain(test_img, intensity=0.0)
+
+    # Should be identical (same pixels)
+    assert result.tobytes() == test_img.tobytes(), "grain=0.0 should be a no-op"
+
+
+def test_apply_grade_grain_zero_noop(tmp_path):
+    """apply_grade with grain=0.0 equals result without grain."""
+    grade = _import_grade()
+    cube_path = tmp_path / "identity.cube"
+    _write_identity_cube_2x2x2(cube_path)
+    lut = grade.load_cube(cube_path)
+
+    test_img = Image.new("RGB", (50, 50), (100, 150, 200))
+
+    # Two paths: with grain=0 and without grain
+    result_with_zero = grade.apply_grade(test_img, lut, strength=1.0, grain=0.0)
+    result_no_grain = grade.apply_grade(test_img, lut, strength=1.0)
+
+    # Both should be identical
+    assert result_with_zero.tobytes() == result_no_grain.tobytes(), (
+        "grain=0.0 should produce same result as no grain parameter"
+    )
+
+
+def test_add_grain_actually_adds_variance():
+    """add_grain(img, intensity=0.5) on grey produces luminance variance.
+
+    Verify that grain is not a silent no-op: the set of distinct pixel values
+    should have more than one element (because noise is applied).
+    """
+    grade = _import_grade()
+
+    # Mid-grey image
+    grey_img = Image.new("RGB", (200, 200), (128, 128, 128))
+    result = grade.add_grain(grey_img, intensity=0.5)
+
+    # Collect all distinct grey values across all pixels
+    # (all channels are identical per our luminance-only guarantee)
+    grey_values = set(px[0] for px in result.getdata())
+
+    # Grain should produce variance; more than one distinct grey level
+    assert len(grey_values) > 1, (
+        f"Grain produced no variance (only {len(grey_values)} distinct value). "
+        "Grain not applied?"
+    )
+
+
+def test_add_grain_size_coarser(tmp_path):
+    """add_grain with size > 1 produces coarser grain; output size unchanged."""
+    grade = _import_grade()
+
+    grey_img = Image.new("RGB", (100, 100), (128, 128, 128))
+
+    # Coarse grain (size=3)
+    result_coarse = grade.add_grain(grey_img, intensity=0.4, size=3)
+
+    # Must be same size as input
+    assert result_coarse.size == grey_img.size, (
+        f"add_grain must preserve image size, got {result_coarse.size}"
+    )
+
+    # Verify chroma remains neutral
+    max_chroma_delta = max(max(px) - min(px) for px in result_coarse.getdata())
+    assert max_chroma_delta == 0, (
+        f"Coarse grain (size=3) produced chroma delta {max_chroma_delta}"
+    )

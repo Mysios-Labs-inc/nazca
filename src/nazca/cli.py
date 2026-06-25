@@ -349,7 +349,9 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
 @click.option("-o", "--out", required=True, help="Output image path.")
 @click.option("--lut", required=True, help="Look: a name (resolved in $NAZCA_LUT_DIR / ~/.config/nazca/luts) or a path to a .cube / HALD .png.")
 @click.option("--strength", default=1.0, type=click.FloatRange(0, 1), help="Blend graded↔original (1.0 = full grade).")
-def grade(source, out, lut, strength):
+@click.option("--grain", default=0.0, type=click.FloatRange(0, 1), help="Monochrome film grain intensity (0 = off).")
+@click.option("--grain-size", "grain_size", default=1, type=click.IntRange(1, 4), help="Grain coarseness (1 = fine).")
+def grade(source, out, lut, strength, grain, grain_size):
     """Apply a color LUT to an image (local, free, deterministic)."""
     from PIL import Image
 
@@ -361,7 +363,7 @@ def grade(source, out, lut, strength):
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(2) from e
     img = Image.open(source)
-    apply_grade(img, table, strength=strength).save(out)
+    apply_grade(img, table, strength=strength, grain=grain, grain_size=grain_size).save(out)
     click.echo(f"✅ {out}")
 
 

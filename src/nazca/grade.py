@@ -22,7 +22,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter
 
 # ---------------------------------------------------------------------------
 # .cube parser
@@ -186,6 +186,50 @@ def load_lut(spec: str) -> ImageFilter.Color3DLUT:
 
 
 # ---------------------------------------------------------------------------
+# Film grain
+# ---------------------------------------------------------------------------
+
+
+def add_grain(img: Image.Image, intensity: float, size: int = 1) -> Image.Image:
+    """Composite a MONOCHROME (luminance) film-grain layer onto *img*.
+
+    Parameters
+    ----------
+    img:        Source RGB image.
+    intensity:  Grain strength in 0..1.  Values <= 0 are a no-op (guarded).
+    size:       Grain coarseness: 1 = fine (native pixel), 2-4 = progressively
+                coarser (noise is generated at 1/size resolution then upscaled).
+
+    Implementation note — why this can never produce chroma speckle
+    ----------------------------------------------------------------
+    Noise is generated once as an 'L' (8-bit greyscale) image via
+    Image.effect_noise, which produces a single-channel luminance field.
+    That single channel value is then replicated identically to R, G, and B
+    when we call noise.convert('RGB').  Because R == G == B at every pixel,
+    there is NO code path that adds independent per-channel noise — coloured
+    chroma speckle is structurally impossible.
+    """
+    if intensity <= 0:
+        return img
+
+    w, h = img.size
+    sigma = 16 + intensity * 64  # perceptible but not blown out
+
+    # 1. Generate MONOCHROME noise (L mode, mean ~128).
+    noise = Image.effect_noise((max(1, w // size), max(1, h // size)), sigma)
+
+    # 2. Resize back to source dimensions (no-op when size == 1).
+    noise = noise.resize((w, h), Image.BILINEAR)
+
+    # 3. Soft-light composite, then blend at low opacity.
+    #    noise.convert('RGB') replicates the single L value to all channels —
+    #    same delta applied to R, G, B equally → pure luminance shift, no chroma.
+    blended = ImageChops.soft_light(img, noise.convert("RGB"))
+    opacity = min(0.5, intensity * 0.3)  # ~4% at intensity=0.15, capped at 50%
+    return Image.blend(img, blended, opacity)
+
+
+# ---------------------------------------------------------------------------
 # Grade applicator
 # ---------------------------------------------------------------------------
 
@@ -205,9 +249,9 @@ def apply_grade(
     lut:        A Color3DLUT returned by load_cube / load_hald / load_lut.
     strength:   0.0 = no grade (original), 1.0 = full grade.
                 Values between blend original ↔ graded linearly.
-    grain:      Film-grain amount (0.0 = none).  ACCEPTED but NO-OP in PR1 —
-                grain synthesis ships in PR2.
-    grain_size: Grain pixel size.  ACCEPTED but NO-OP in PR1 (see grain).
+    grain:      Monochrome film-grain intensity (0.0 = none, 1.0 = heavy).
+                Applied after the LUT via add_grain() for luminance-only effect.
+    grain_size: Grain coarseness (1 = fine, 2-4 = progressively coarser).
 
     Returns
     -------
@@ -217,6 +261,6 @@ def apply_grade(
     graded = base.filter(lut)
     if strength < 1.0:
         graded = Image.blend(base, graded, strength)
-    # grain / grain_size are threaded through for future PR2 compatibility
-    # but not yet implemented — do not add grain logic here.
+    if grain > 0:
+        return add_grain(graded, grain, grain_size)
     return graded
