@@ -344,6 +344,27 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
     _emit_image_result(result, dry_run, modify, resolved_model, DEFAULT_MODEL, aspect_ratio, size, quality)
 
 
+@cli.command()
+@click.argument("source", type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", required=True, help="Output image path.")
+@click.option("--lut", required=True, help="Look: a name (resolved in $NAZCA_LUT_DIR / ~/.config/nazca/luts) or a path to a .cube / HALD .png.")
+@click.option("--strength", default=1.0, type=click.FloatRange(0, 1), help="Blend graded↔original (1.0 = full grade).")
+def grade(source, out, lut, strength):
+    """Apply a color LUT to an image (local, free, deterministic)."""
+    from PIL import Image
+
+    from nazca.grade import apply_grade, load_lut
+
+    try:
+        table = load_lut(lut)
+    except (ValueError, FileNotFoundError, OSError) as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+    img = Image.open(source)
+    apply_grade(img, table, strength=strength).save(out)
+    click.echo(f"✅ {out}")
+
+
 @cli.command(name="batch")
 @click.argument("manifest", required=False, type=click.Path())
 @click.option("--from-dir", "from_dir", default=None, type=click.Path(exists=True, file_okay=False),
