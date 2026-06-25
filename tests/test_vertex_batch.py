@@ -476,3 +476,91 @@ def test_run_vertex_batch_failed_job_reported(tmp_path, monkeypatch):
     )
     assert summary["written"] == 0
     assert any("JOB_STATE_FAILED" in e for e in summary["errors"])
+
+
+# --------------------------------------------------------------------------- auth-token refresh (long jobs)
+def test_is_auth_error_recognizes_401_and_unauthenticated():
+    assert vb._is_auth_error(vb.VertexBatchError("get job jobs/1 failed: HTTP 401 UNAUTHENTICATED"))
+    assert vb._is_auth_error(vb.VertexBatchError("... ACCESS_TOKEN_TYPE_UNSUPPORTED ..."))
+    assert not vb._is_auth_error(vb.VertexBatchError("get job jobs/1 failed: HTTP 500 boom"))
+
+
+def test_poll_remints_token_each_iteration(monkeypatch):
+    # A long poll must mint a FRESH token per iteration (token lives ~1h; the job
+    # can outlive it). Assert token_fn is called once per GetBatchPredictionJob.
+    minted = {"n": 0}
+    def token_fn():
+        minted["n"] += 1
+        return f"tok-{minted['n']}"
+    seen_tokens = []
+    monkeypatch.setattr(vb, "_get_job", lambda job, loc, tok: (seen_tokens.append(tok), {"state": "JOB_STATE_RUNNING" if len(seen_tokens) < 3 else "JOB_STATE_SUCCEEDED"})[1])
+    state = vb._poll("jobs/1", "global", token_fn, 0, 10, lambda *a: None, lambda s: None)
+    assert state == "JOB_STATE_SUCCEEDED"
+    assert seen_tokens == ["tok-1", "tok-2", "tok-3"]  # fresh token every poll
+
+
+def test_poll_recovers_from_single_401(monkeypatch):
+    # The exact production failure: GetBatchPredictionJob 401s on an expired token
+    # mid-poll. We must re-auth + retry, not abort a job that's still running.
+    calls = {"n": 0}
+    events = []
+    def flaky_get(job, loc, tok):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise vb.VertexBatchError("get job jobs/1 failed: HTTP 401 UNAUTHENTICATED ACCESS_TOKEN_TYPE_UNSUPPORTED")
+        return {"state": "JOB_STATE_SUCCEEDED"}
+    monkeypatch.setattr(vb, "_get_job", flaky_get)
+    state = vb._poll("jobs/1", "global", lambda: "tok", 0, 5, lambda s, d=None: events.append((s, d)), lambda s: None)
+    assert state == "JOB_STATE_SUCCEEDED"
+    assert calls["n"] == 2  # first 401 → re-mint → success
+    assert any(s == "reauth" for s, _ in events)
+
+
+def test_non_auth_error_in_poll_is_not_retried(monkeypatch):
+    calls = {"n": 0}
+    def boom(job, loc, tok):
+        calls["n"] += 1
+        raise vb.VertexBatchError("get job jobs/1 failed: HTTP 500 server error")
+    monkeypatch.setattr(vb, "_get_job", boom)
+    with pytest.raises(vb.VertexBatchError, match="HTTP 500"):
+        vb._poll("jobs/1", "global", lambda: "tok", 0, 5, lambda *a: None, lambda s: None)
+    assert calls["n"] == 1  # 500 is not an auth error → no retry
+
+
+def test_run_vertex_batch_surfaces_submitted_job_id(tmp_path, monkeypatch):
+    # The job id + output dir must be reported (for manual resume of a billed job).
+    rows = [_row(tmp_path, "a.png")]
+    shard = [{"response": _resp_with_image(base64.b64encode(b"A").decode())}]
+    _install_fake_transport(monkeypatch, rows, [shard])
+    events = []
+    summary = vb.run_vertex_batch(
+        rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None,
+        on_event=lambda stage, detail=None: events.append((stage, detail)),
+    )
+    assert summary["written"] == 1
+    assert len(summary["submitted"]) == 1
+    sub = summary["submitted"][0]
+    assert sub["job_name"] == "projects/p/locations/global/batchPredictionJobs/1"
+    assert sub["output_prefix"].endswith("/output/")
+    assert any(stage == "submitted" for stage, _ in events)
+
+
+def test_stream_predictions_recovers_from_401_on_download(tmp_path, monkeypatch):
+    # A download after a long poll can hit an expired token — re-auth + retry once.
+    rows = [_row(tmp_path, "a.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    shard_uri = f"{job.output_prefix}predictions.jsonl-00000-of-00001"
+    monkeypatch.setattr(vb, "_gcs_list", lambda prefix, tok: [shard_uri])
+    calls = {"n": 0}
+    def flaky_download(uri, tok, fileobj, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise vb.VertexBatchError(f"GCS download {uri} failed: HTTP 401 UNAUTHENTICATED")
+        fileobj.write(json.dumps({"request": job.request_lines[0]["request"], "response": _resp_with_image(base64.b64encode(b"A").decode())}).encode())
+    monkeypatch.setattr(vb, "_gcs_download_to_file", flaky_download)
+    sink = vb._OutputSink(job)
+    vb._stream_predictions(job, lambda: "tok", sink)
+    written, errors = sink.result()
+    assert written == 1 and errors == []
+    assert calls["n"] == 2
+    assert (tmp_path / "a.png").read_bytes() == b"A"
