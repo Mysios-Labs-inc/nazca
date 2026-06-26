@@ -59,22 +59,37 @@ _OP_SUFFIX: dict[str, str] = {
     "keyframe": "start-end-frame-to-video",
     "extend": "extend-video",
     "motion_control": "motion-control",
-    "effects": "effects",
+    "avatar": "avatar",  # Kling avatar; standalone avatar models override via _STANDALONE_STEMS
 }
+
+# Ops whose model slug is STANDALONE (the stem is already the full slug, no operation
+# suffix) — e.g. atlascloud/video-upscaler, kwaivgi/kling-effects.
+_NO_SUFFIX_OPS: frozenset[str] = frozenset({"video_upscale", "effects"})
+
+# Models whose stem IS the complete slug regardless of op (no operation suffix),
+# e.g. the standalone avatar/talking-head models.
+_STANDALONE_STEMS: frozenset[str] = frozenset({
+    "atlascloud/video-upscaler",
+    "kwaivgi/kling-effects",
+    "atlascloud/infinitetalk",
+    "bytedance/avatar-omni-human-v1.5",
+})
 
 
 def _model_slug(stem: str, op: str | None, default: str) -> str:
     """Compose the Atlas `model` value: stem + operation suffix.
 
-    Some Atlas models bake resolution/variant into the stem instead of using an
-    op suffix (e.g. ``bytedance/seedance-v1-pro-t2v-1080p``); for those the stem
-    already carries the operation and `default` is returned unsuffixed when the
-    stem already ends in a known op token.
+    Some Atlas models bake resolution/variant into the stem instead of using an op
+    suffix (e.g. ``bytedance/seedance-v1-pro-t2v-1080p``), and some are standalone
+    (``atlascloud/video-upscaler``); for those the stem is already the full slug.
     """
-    suffix = _OP_SUFFIX.get(op or "", default)
-    # If the stem already encodes the op (resolution-baked slugs), don't double-append.
+    # Standalone slugs, standalone-slug ops, resolution-baked slugs, or slugs already
+    # carrying a "*-to-*" operation token are passed through unchanged.
+    if stem in _STANDALONE_STEMS or op in _NO_SUFFIX_OPS:
+        return stem
     if stem.rsplit("/", 1)[-1].count("-to-") or stem.endswith(("-1080p", "-720p", "-480p")):
         return stem
+    suffix = _OP_SUFFIX.get(op or "", default)
     return f"{stem}/{suffix}"
 
 
@@ -169,7 +184,10 @@ class AtlasBackend(Backend):
     # ------------------------------------------------------------------ run seam
     def run_image(self, model_id, api, region, req: ImageRequest):
         """Async image generate/edit. Schema beyond {model,prompt} UNVERIFIED."""
-        slug = _model_slug(model_id, req.op or ("i2i" if req.refs else "t2i"), "text-to-image")
+        # Infer the op from refs when the caller didn't set one (the CLI only forces
+        # `op` for ops it can't infer, e.g. style — see generate_image).
+        op = req.op or ("compose" if len(req.refs) > 1 else "i2i" if req.refs else "t2i")
+        slug = _model_slug(model_id, op, "text-to-image")
         body: dict = {"model": slug, "prompt": req.prompt}
         if req.size:
             body["size"] = req.size  # verify field name per model
@@ -205,7 +223,11 @@ class AtlasBackend(Backend):
 
     def run_video(self, model_id, region, req: VideoRequest):
         """Async video generate/edit. Schema beyond {model,prompt,image_url} UNVERIFIED."""
-        slug = _model_slug(model_id, req.op or ("i2v" if req.start else "t2v"), "text-to-video")
+        # Infer the op when the caller didn't set one: keyframe (start+end) > i2v
+        # (start) > t2v. Source-video edit ops (motion_control/video_upscale) and
+        # ref2v/effects arrive with req.op already set by the CLI.
+        op = req.op or ("keyframe" if req.start and req.end else "i2v" if req.start else "t2v")
+        slug = _model_slug(model_id, op, "text-to-video")
         body: dict = {
             "model": slug,
             "prompt": req.prompt,
@@ -213,6 +235,8 @@ class AtlasBackend(Backend):
             "aspect_ratio": req.aspect_ratio,
             "resolution": req.resolution,  # verify field name
         }
+        if req.source:  # source-video edit ops (motion_control / video_upscale): URL, not inlined
+            body["video_url"] = req.source  # verify field name
         if req.start:
             body["image_url"] = self.encode_image_data_uri(req.start, max_edge=1280)  # verify
         if req.end:
@@ -221,6 +245,8 @@ class AtlasBackend(Backend):
             body["reference_images"] = [
                 self.encode_image_data_uri(r, max_edge=1280) for r in req.refs
             ]  # verify field name
+        if req.audio_path:  # avatar / lip-sync driving audio (real send: uploadMedia → URL)
+            body["audio_url"] = req.audio_path  # verify field name
 
         if req.dry_run:
             preview = dict(body)

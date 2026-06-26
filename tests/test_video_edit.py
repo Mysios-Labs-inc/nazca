@@ -118,7 +118,7 @@ def test_cli_extend_dry_run(tmp_path):
 def test_cli_two_video_edit_ops_conflict(tmp_path):
     r = CliRunner().invoke(cli, ["video", URL, "-o", str(tmp_path / "o.mp4"), "--v2v", "--reframe", "-p", "x"])
     assert r.exit_code == 2
-    assert "choose one video-edit op" in r.output
+    assert "choose one op" in r.output
 
 
 def test_cli_extend_bad_duration_clean_error(tmp_path):

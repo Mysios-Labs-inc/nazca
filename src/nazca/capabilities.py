@@ -42,27 +42,34 @@ IMAGE_OPS: frozenset[str] = frozenset(
         "outpaint",  # source (+text)        → image   (extend canvas)
         "upscale",   # source                → image
         "bg_remove", # source                → image+alpha
+        "style",     # text + ref[1..N]      → image   (style transfer)
     }
 )
 VIDEO_OPS: frozenset[str] = frozenset(
     {
-        "t2v",       # text                  → video
-        "i2v",       # text + start          → video
-        "keyframe",  # text + start + end    → video   (first-last interpolation)
-        "v2v",       # source video (+text)  → video   (restyle / motion-transfer)
-        "reframe",   # source video + aspect → video
-        "extend",    # source video          → video
+        "t2v",            # text                  → video
+        "i2v",            # text + start          → video
+        "keyframe",       # text + start + end    → video   (first-last interpolation)
+        "v2v",            # source video (+text)  → video   (restyle / motion-transfer)
+        "reframe",        # source video + aspect → video
+        "extend",         # source video          → video
+        "ref2v",          # text + ref[1..N]      → video   (reference-to-video)
+        "motion_control", # source video (driver) → video   (recast / puppeteer)
+        "effects",        # start + template      → video   (effect template)
+        "video_upscale",  # source video          → video   (resolution upscale)
+        "avatar",         # start + audio         → video   (lip-sync talking head)
     }
 )
 OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS
 
 # Which ops imply which inputs — used by the (future) CLI op-inference and by the
 # coverage test that keeps this module honest.
-OPS_NEEDING_REFS: frozenset[str] = frozenset({"i2i", "compose"})
+OPS_NEEDING_REFS: frozenset[str] = frozenset({"i2i", "compose", "style", "ref2v"})
 OPS_NEEDING_SOURCE_IMAGE: frozenset[str] = frozenset({"inpaint", "outpaint", "upscale", "bg_remove"})
-OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe"})
+OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe", "effects", "avatar"})
 OPS_NEEDING_END: frozenset[str] = frozenset({"keyframe"})
-OPS_NEEDING_SOURCE_VIDEO: frozenset[str] = frozenset({"v2v", "reframe", "extend"})
+OPS_NEEDING_SOURCE_VIDEO: frozenset[str] = frozenset({"v2v", "reframe", "extend", "motion_control", "video_upscale"})
+OPS_NEEDING_AUDIO: frozenset[str] = frozenset({"avatar"})
 
 # --------------------------------------------------------------------------- ref roles
 # What a reference image *is* to the model, not just that one was passed. Today refs
@@ -268,12 +275,18 @@ CAPS: dict[str, Caps] = {
     "atlas-wan-2.6-video": _vid("atlas-wan-2.6-video", note="Atlas; alibaba/wan-2.6; schema unverified"),
     "atlas-wan-2.7-spicy": _vid("atlas-wan-2.7-spicy", note="Atlas; atlascloud/wan-2.7-spicy; schema unverified"),
     "atlas-youchuan-v8.1-video": _vid("atlas-youchuan-v8.1-video", note="Atlas; youchuan/v8.1; image-to-video only"),
+    "atlas-video-upscaler": _vid("atlas-video-upscaler", note="Atlas; atlascloud/video-upscaler; $0.018/s; schema unverified"),
+    "atlas-kling-effects":  _vid("atlas-kling-effects",  note="Atlas; kwaivgi/kling-effects; $0.212/s; schema unverified"),
+    "atlas-kling-v2.6-std": _vid("atlas-kling-v2.6-std", note="Atlas; kwaivgi/kling-v2.6-std; motion-control; schema unverified"),
+    "atlas-infinitetalk":         _vid("atlas-infinitetalk",         note="Atlas; atlascloud/infinitetalk; lip-sync talking head; $0.03/s; schema unverified"),
+    "atlas-avatar-omnihuman-1.5":  _vid("atlas-avatar-omnihuman-1.5",  note="Atlas; bytedance/avatar-omni-human-v1.5; image+audio avatar; $0.06/s; schema unverified"),
 }
 
 
 # Stable display order so `nazca models` ops output is deterministic.
-_OPS_ORDER = ("t2i", "i2i", "compose", "inpaint", "outpaint", "upscale", "bg_remove",
-              "t2v", "i2v", "keyframe", "v2v", "reframe", "extend")
+_OPS_ORDER = ("t2i", "i2i", "compose", "style", "inpaint", "outpaint", "upscale", "bg_remove",
+              "t2v", "i2v", "keyframe", "ref2v", "v2v", "reframe", "extend",
+              "motion_control", "effects", "video_upscale", "avatar")
 
 
 class CapabilityError(ValueError):
@@ -287,11 +300,13 @@ def infer_image_op(
     bg_remove: bool = False,
     mask: bool = False,
     outpaint: bool = False,
+    style: bool = False,
 ) -> str:
     """Derive the image op from the flags passed.
 
     Modify signals win over generation: --upscale / --rmbg / --mask (→ inpaint) /
-    --outpaint. Otherwise the refs count picks t2i / i2i / compose.
+    --outpaint. --style (text + style ref → image) wins over plain ref count.
+    Otherwise the refs count picks t2i / i2i / compose.
     """
     if upscale:
         return "upscale"
@@ -301,6 +316,8 @@ def infer_image_op(
         return "inpaint"
     if outpaint:
         return "outpaint"
+    if style:
+        return "style"
     if n_refs <= 0:
         return "t2i"
     return "i2i" if n_refs == 1 else "compose"
@@ -313,10 +330,16 @@ def infer_video_op(
     reframe: bool = False,
     v2v: bool = False,
     extend: bool = False,
+    motion_control: bool = False,
+    video_upscale: bool = False,
+    effects: bool = False,
+    ref2v: bool = False,
+    avatar: bool = False,
 ) -> str:
     """Derive the video op from the signals passed.
 
-    Source-video edit signals win (--reframe / --v2v / --extend); otherwise the
+    Source-video edit signals win (--reframe / --v2v / --extend / --motion-control /
+    --video-upscale), then --effects, --ref2v, --avatar (lip-sync); otherwise the
     frames pick: none → t2v, start → i2v, +end → keyframe.
     """
     if reframe:
@@ -325,6 +348,16 @@ def infer_video_op(
         return "v2v"
     if extend:
         return "extend"
+    if motion_control:
+        return "motion_control"
+    if video_upscale:
+        return "video_upscale"
+    if effects:
+        return "effects"
+    if ref2v:
+        return "ref2v"
+    if avatar:
+        return "avatar"
     if not has_start:
         return "t2v"
     return "keyframe" if has_end else "i2v"

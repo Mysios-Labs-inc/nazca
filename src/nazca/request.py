@@ -62,6 +62,8 @@ class VideoRequest:
     resolution: str = "720p"
     duration: int = 8
     audio: bool = False
+    # avatar / lip-sync: a driving audio track (image + audio → talking-head video)
+    audio_path: str | None = None
     # edit ops (op is None for plain generation)
     op: str | None = None
     source: str | None = None

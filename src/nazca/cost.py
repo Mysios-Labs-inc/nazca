@@ -368,6 +368,14 @@ _VEO_PER_SEC: dict[str, dict[tuple[str, bool], float]] = {
         ("720p", False): 0.086, ("720p", True): 0.086,
         ("1080p", False): 0.086, ("1080p", True): 0.086,
     },
+    "atlas-infinitetalk": {
+        ("720p", False): 0.03, ("720p", True): 0.03,
+        ("1080p", False): 0.03, ("1080p", True): 0.03,
+    },
+    "atlas-avatar-omnihuman-1.5": {
+        ("720p", False): 0.06, ("720p", True): 0.06,
+        ("1080p", False): 0.06, ("1080p", True): 0.06,
+    },
 }
 _RES_ORDER = {"720p": 0, "1080p": 1, "4k": 2}
 
