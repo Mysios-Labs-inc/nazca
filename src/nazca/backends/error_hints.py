@@ -106,6 +106,37 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
             " — rate-limited by ModelArk; reduce concurrency or check your Ark plan limits",
         ),
     ],
+    "atlas": [
+        (
+            401,
+            None,
+            " — invalid or missing ATLAS_API_KEY; get one at"
+            " atlascloud.ai/console/api-keys",
+        ),
+        (
+            402,
+            None,
+            " — out of credit or billing issue; top up at atlascloud.ai/console",
+        ),
+        (
+            403,
+            None,
+            " — access denied; verify your ATLAS_API_KEY (and that it is a"
+            " pay-as-you-go key, not a Coding-Plan-scoped key) at"
+            " atlascloud.ai/console/api-keys",
+        ),
+        (
+            404,
+            None,
+            " — model not found; verify the model slug (provider/model/operation)"
+            " against atlascloud.ai/models",
+        ),
+        (
+            429,
+            None,
+            " — rate-limited by Atlas Cloud; reduce concurrency or check plan limits",
+        ),
+    ],
 }
 
 

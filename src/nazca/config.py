@@ -27,6 +27,7 @@ __all__ = [  # noqa: F822
     "FAL_KEY",
     "ARK_API_KEY",
     "OPENAI_API_KEY",
+    "ATLAS_API_KEY",
 ]
 
 
@@ -70,5 +71,10 @@ def __getattr__(name: str):  # noqa: ANN001, ANN201
     # Precedence: OPENAI_API_KEY env var > ~/.config/nazca/config.ini > None
     if name == "OPENAI_API_KEY":
         return os.getenv("OPENAI_API_KEY") or get_value("openai_api_key")
+
+    # --- Atlas Cloud (optional — only required when an atlas model is selected) ---
+    # Precedence: ATLAS_API_KEY env var > ~/.config/nazca/config.ini > None
+    if name == "ATLAS_API_KEY":
+        return os.getenv("ATLAS_API_KEY") or get_value("atlas_api_key")
 
     raise AttributeError(name)

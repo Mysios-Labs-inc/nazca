@@ -150,6 +150,14 @@ CAPS: dict[str, Caps] = {
     #     Legible text / ad creative; --quality is the cost/speed lever; token-billed. ---
     "gpt-image-2":     _img("gpt-image-2",     max_refs=5, ref_roles=REF_ROLES, note="OpenAI; legible text/ads; --quality lever; token-billed"),
     # --- fal modify ops (source image → image; ids verified against fal.ai 2026-06-22) ---
+    # --- Atlas Cloud image (async media API; schema unverified, dry-run safe) ---
+    "atlas-gpt-image-2":     _img("atlas-gpt-image-2",     ref_roles=REF_ROLES, note="Atlas; openai/gpt-image-2; schema unverified"),
+    "atlas-nano-banana-2":   _img("atlas-nano-banana-2",   ref_roles=REF_ROLES, note="Atlas; google/nano-banana-2; schema unverified"),
+    "atlas-seedream-5-lite": _img("atlas-seedream-5-lite", note="Atlas; bytedance/seedream-v5.0-lite; schema unverified"),
+    "atlas-flux-2-pro":      _img("atlas-flux-2-pro",      max_refs=1, note="Atlas; black-forest-labs/flux-2-pro; schema unverified"),
+    "atlas-qwen-image-2":    _img("atlas-qwen-image-2",    note="Atlas; qwen/qwen-image-2.0; schema unverified"),
+    "atlas-mai-2.5":         _img("atlas-mai-2.5",         note="Atlas; microsoft/mai-image-2.5; schema unverified"),
+    "atlas-image-upscaler":  _img("atlas-image-upscaler",  note="Atlas; atlascloud/image-upscaler; schema unverified"),
     "upscale":         _img("upscale",         note="fal clarity-upscaler ($0.03/MP); --scale 1-4"),
     "rmbg":            _img("rmbg",            note="fal birefnet/v2 → transparent PNG (free compute)"),
     "inpaint":         _img("inpaint",         note="fal flux-pro/v1/fill ($0.05/MP); needs --mask (white=edit) + prompt"),
@@ -171,6 +179,14 @@ CAPS: dict[str, Caps] = {
     #     v2v/extend: id verified, but the `video_url` input field is fal's
     #     convention and was NOT independently re-confirmed — UNVERIFIED, dry-run
     #     safe; verify the field with a live call before real spend. ---
+    # --- Atlas Cloud video (async media API; schema unverified, dry-run safe).
+    #     ref2v/motion_control/avatar land with the OPS-vocabulary extension PR. ---
+    "atlas-seedance-2-mini": _vid("atlas-seedance-2-mini", note="Atlas; bytedance/seedance-2.0-mini; $0.056/s; schema unverified"),
+    "atlas-seedance-2":      _vid("atlas-seedance-2",      note="Atlas; bytedance/seedance-2.0; $0.112/s; schema unverified"),
+    "atlas-kling-v3-turbo":  _vid("atlas-kling-v3-turbo",  note="Atlas; kwaivgi/kling-v3.0-turbo; $0.095/s; schema unverified"),
+    "atlas-wan-2.7-video":   _vid("atlas-wan-2.7-video",   note="Atlas; alibaba/wan-2.7; $0.10/s; schema unverified"),
+    "atlas-veo-3.1":         _vid("atlas-veo-3.1",         note="Atlas; google/veo3.1; $0.20/s; schema unverified"),
+    "atlas-hailuo-02":       _vid("atlas-hailuo-02",       note="Atlas; minimax/hailuo-02; $0.10-0.49/s; schema unverified"),
     "reframe":         _vid("reframe",         note="fal luma ray-2/reframe; --aspect target; SOURCE = video URL"),
     "v2v":             _vid("v2v",             note="fal wan-vace-apps/video-edit; prompt required; video_url field UNVERIFIED"),
     "extend":          _vid("extend",          note="fal pixverse/extend; prompt + --duration 5|8; video_url field UNVERIFIED"),
