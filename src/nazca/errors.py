@@ -5,9 +5,11 @@ sites can write a single ``except BackendError`` when they do not care which
 provider failed, or ``except RateLimitError`` to distinguish a throttle event
 from a genuine API error.
 
-``ImageError`` and ``VeoError`` live here so backends can raise them without
-importing the orchestrator modules (``image.py``, ``video.py``) — which would
-create a circular import (backends ← image/video ← backends).
+All modality errors (``ImageError``, ``VideoError``, ``AudioError``,
+``ThreeDError``) live here so backends can raise them without importing the
+orchestrator modules (``image.py``, ``video.py``, …) — which would create a
+circular import (backends ← orchestrator ← backends). ``VeoError`` is a
+backward-compatible alias of ``VideoError``.
 """
 
 from __future__ import annotations
@@ -29,5 +31,17 @@ class ImageError(BackendError):
     """Raised for image-generation failures that are not provider-specific."""
 
 
-class VeoError(BackendError):
+class VideoError(BackendError):
     """Raised for video-generation failures that are not provider-specific."""
+
+
+VeoError = VideoError
+"""Alias for backward compatibility; video errors use VideoError."""
+
+
+class AudioError(BackendError):
+    """Raised when audio synthesis fails or no audio model is resolvable."""
+
+
+class ThreeDError(BackendError):
+    """Raised when 3D generation fails or no 3D model is resolvable."""

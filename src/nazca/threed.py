@@ -11,17 +11,13 @@ from pathlib import Path
 
 from nazca.backends import get_backend
 from nazca.cost import estimate_3d_cost
-from nazca.errors import BackendError
+from nazca.errors import ThreeDError
 from nazca.media import write_result
 from nazca.models import THREED_MODELS as _THREED_REGISTRY
 from nazca.request import ThreeDRequest
 
 DEFAULT_3D_MODEL = "atlas-hunyuan3d-rapid"
 _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-hunyuan3d-rapid", "premium": "atlas-hunyuan3d-pro"}
-
-
-class ThreeDError(BackendError):
-    """Raised when 3D generation fails or no 3D model is resolvable."""
 
 
 def select_3d_model(tier: str | None) -> str | None:
