@@ -69,27 +69,23 @@ def _write_1d_lut_file(path: Path) -> None:
 
 
 def _write_identity_hald_4x4(path: Path) -> None:
-    """Write a 4x4 PNG (16 pixels, not a perfect cube — edge^3 ≠ 16).
+    """Write a valid identity HALD: edge=4 → 64 pixels → 8x8 PNG.
 
-    Also write a valid identity HALD: 8x8 PNG (64 pixels = 4^3).
-    Here we write a valid one: edge=4, so 4x4x4 = 64 pixels -> 8x8 PNG.
+    HALD pixels are the flattened cube with RED varying fastest (matching
+    load_hald / Color3DLUT ordering). Writing them r-fastest is what makes
+    this a genuine identity — a grey-only assertion would pass even for an
+    axis-swapped table, so the test also checks a non-grey colour.
     """
-    # For an identity HALD with edge=4, we need 64 pixels arranged as 8x8
-    # Each pixel represents (r, g, b) in the range [0..255]
     edge = 4
     size = edge**3  # 64
     side = int(size**0.5)  # 8
     assert side * side == size
 
-    # Create an identity HALD: pixel value at (i, j) encodes a color in the LUT
     pixels = []
     for idx in range(size):
-        # For identity, pixel value = scaled index
-        # HALD ordering: iterate through the LUT table in order
-        r = (idx // (edge * edge)) % edge
+        r = idx % edge  # red varies fastest
         g = (idx // edge) % edge
-        b = idx % edge
-        # Scale to 0..255
+        b = (idx // (edge * edge)) % edge
         pixels.append((r * 255 // (edge - 1), g * 255 // (edge - 1), b * 255 // (edge - 1)))
 
     img = Image.new("RGB", (side, side))
@@ -192,6 +188,14 @@ def test_load_hald_identity_8x8(tmp_path):
         f"Expected ≈(128,128,128), got {graded_px}"
     )
 
+    # Non-grey identity check: grey is invariant to an R↔B axis swap, so this
+    # is what actually proves the HALD ordering (red fastest) is correct.
+    for color in ((255, 0, 0), (0, 0, 255), (200, 100, 40)):
+        out = Image.new("RGB", (4, 4), color).filter(lut).getpixel((0, 0))
+        assert all(abs(out[i] - color[i]) <= 6 for i in range(3)), (
+            f"identity HALD changed {color} -> {out} (axis ordering wrong?)"
+        )
+
 
 def test_load_hald_non_cube_pixel_count_raises(tmp_path):
     """load_hald raises ValueError if pixel count is not a perfect cube."""
@@ -219,6 +223,25 @@ def test_apply_grade_strength_0_preserves_image(tmp_path):
 
     result_px = result.getpixel((5, 5))
     assert result_px == (100, 150, 200), f"strength=0 should preserve image, got {result_px}"
+
+
+def test_apply_grade_preserves_alpha(tmp_path):
+    """An RGBA input keeps its alpha channel (transparent cutouts stay transparent)."""
+    grade = _import_grade()
+    cube_path = tmp_path / "identity.cube"
+    _write_identity_cube_2x2x2(cube_path)
+    lut = grade.load_cube(cube_path)
+
+    # Source with a non-trivial alpha (top half transparent, bottom opaque).
+    rgba = Image.new("RGBA", (8, 8), (200, 100, 50, 0))
+    for y in range(4, 8):
+        for x in range(8):
+            rgba.putpixel((x, y), (200, 100, 50, 255))
+
+    result = grade.apply_grade(rgba, lut, strength=1.0)
+    assert result.mode == "RGBA", f"expected RGBA out, got {result.mode}"
+    assert result.getpixel((0, 0))[3] == 0, "transparent region must stay transparent"
+    assert result.getpixel((0, 7))[3] == 255, "opaque region must stay opaque"
 
 
 def test_apply_grade_strength_1_applies_full_grade(tmp_path):
@@ -409,6 +432,25 @@ def test_add_grain_grey_via_apply_grade_stays_neutral(tmp_path):
         f"apply_grade path: chroma delta {max_chroma_delta} "
         "(identity LUT + grain must preserve neutrality)"
     )
+
+
+def test_apply_grade_grain_preserves_alpha(tmp_path):
+    """grain composes with alpha: RGBA stays RGBA, alpha intact, colour neutral on grey."""
+    grade = _import_grade()
+    cube_path = tmp_path / "identity.cube"
+    _write_identity_cube_2x2x2(cube_path)
+    lut = grade.load_cube(cube_path)
+
+    rgba = Image.new("RGBA", (32, 32), (120, 120, 120, 0))
+    for y in range(16, 32):
+        for x in range(32):
+            rgba.putpixel((x, y), (120, 120, 120, 255))
+
+    result = grade.apply_grade(rgba, lut, strength=1.0, grain=0.4)
+    assert result.mode == "RGBA"
+    assert result.getpixel((0, 0))[3] == 0 and result.getpixel((0, 31))[3] == 255
+    # RGB stays neutral (grain is monochrome) even with alpha present.
+    assert max(max(px[:3]) - min(px[:3]) for px in result.getdata()) == 0
 
 
 def test_add_grain_zero_is_noop():
