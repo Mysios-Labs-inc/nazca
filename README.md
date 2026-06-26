@@ -26,7 +26,7 @@ nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`grade` & `format`](#nazca-grade-and-nazca-format)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
@@ -228,6 +228,59 @@ nazca video -o clip.mp4 -s a.png --end b.png -p "the skewer lifts off the grill"
 
 > Clips are **silent by default** (`--audio` adds sound and **doubles** Veo's cost). Keyframe interpolation
 > **morphs** if the end frame isn't a tight variant of the start — use a single frame for camera moves.
+
+---
+
+### `nazca grade` and `nazca format`
+
+On-device finishing — no model, no cost, no network. Both commands run entirely on your machine
+using Pillow and produce a new file; the source is never modified.
+
+```bash
+# Apply a bundled colour look at full strength
+nazca grade dish.png -o dish-graded.png --lut warm-editorial
+
+# Blend at 60 % strength, add light grain
+nazca grade dish.png -o dish-graded.png --lut golden-hour --strength 0.6 --grain 0.15
+
+# Use your own LUT — absolute path or name in $NAZCA_LUT_DIR / ~/.config/nazca/luts
+nazca grade dish.png -o out.png --lut /path/to/my.cube
+nazca grade dish.png -o out.png --lut my-pack  # resolves my-pack.cube or my-pack.png
+
+# Crop to a platform format (never upscales)
+nazca format dish.png -o dish-916.png --preset 9:16
+nazca format dish.png -o dish-crop.png --preset 4:5 --gravity center
+```
+
+**`nazca grade` flags:** `-o/--out` · `--lut <name|file.cube|file.png>` · `--strength 0.0–1.0`
+(default `1.0`) · `--grain 0.0–1.0` (default `0.0`) · `--grain-size 1–4` (default `1`).
+
+**`nazca format` flags:** `-o/--out` · `--preset 9:16|4:5|1:1|2:3|16:9` ·
+`--gravity north|center|south` (default `north` — keeps faces).
+
+#### Bundled CC0 looks
+
+Five nazca-authored looks ship with the package:
+
+| name | character |
+|---|---|
+| `neutral-contrast` | Pure tone S-curve, no colour shift — a clean contrast bump. |
+| `warm-editorial` | Slight warm white balance, gentle S-curve, tiny lifted blacks. |
+| `golden-hour` | Stronger warm cast, boosted highlights, lowered blue. |
+| `cool-matte` | Lifted (matte) blacks, mild desaturation, slightly cool shadows. |
+| `faded-film` | Lifted blacks, reduced contrast, subtle warm/green cast. |
+
+All five are CC0 — nazca-authored originals with no trademark, no film-stock reference.
+
+`--lut` also accepts any `.cube` (Adobe/Iridas 3-D) or `.png` (HALD CLUT) file path, or a bare
+name that resolves to one of those files in `$NAZCA_LUT_DIR` or `~/.config/nazca/luts` (user
+directories take precedence over the bundled looks, so you can override any built-in by placing a
+same-named `.cube` in your luts directory).
+
+nazca is the applicator, not a look library — it ships only these five CC0 starter looks.
+Bring your own `.cube`/HALD packs from wherever you source them via `$NAZCA_LUT_DIR`.
+Do **not** drop third-party film-stock packs into the repo — they carry trademarks and often
+non-redistribution clauses that are incompatible with this project's license.
 
 ---
 

@@ -28,6 +28,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nazca"]
+# Ensure the bundled CC0 .cube look files are included in the wheel.
+# Hatchling includes all non-.py files under tracked packages by default, but
+# the explicit artifact glob guards against any future .gitignore or exclude rules.
+artifacts = ["src/nazca/luts/*.cube"]
 
 [tool.pytest.ini_options]
 # Exclude live tests from the default run so `pytest` never makes network calls.

@@ -747,3 +747,126 @@ def test_crop_to_preset_already_matching_aspect():
 
     # Should return unchanged (box is the full frame)
     assert result.size == (900, 1600)
+
+
+# ─────────────────────────────────────────── Tests: Bundled Looks
+
+
+def test_bundled_looks_load_and_apply(tmp_path):
+    """Bundled looks can be loaded and applied to images without setting env vars or config files.
+
+    Each look is a 17x17x17 LUT that resolves from the package-internal looks directory
+    without NAZCA_LUT_DIR or ~/.config file setup. Verify:
+      1. load_lut(name) returns Color3DLUT with size[0]==17 for each of the five looks
+      2. Each look can be applied to a test image successfully
+      3. Non-'neutral-contrast' looks visibly shift channel balance on grey pixels
+    """
+    grade = _import_grade()
+
+    # The five bundled looks (exact names from the proposal)
+    bundled_look_names = [
+        "neutral-contrast",
+        "warm-editorial",
+        "golden-hour",
+        "cool-matte",
+        "faded-film",
+    ]
+
+    # Load each bundled look and apply to a test image
+    for look_name in bundled_look_names:
+        lut = grade.load_lut(look_name)
+        assert isinstance(lut, ImageFilter.Color3DLUT), (
+            f"load_lut('{look_name}') must return Color3DLUT, got {type(lut)}"
+        )
+        assert lut.size[0] == 17, (
+            f"Bundled look '{look_name}' must be 17x17x17, got {lut.size[0]}"
+        )
+
+        # Apply the look to a small test image
+        test_img = Image.new("RGB", (20, 20), (128, 128, 128))
+        graded = test_img.filter(lut)
+        assert graded.size == test_img.size, (
+            f"Grade for '{look_name}' did not preserve image size"
+        )
+        assert graded.mode == "RGB", (
+            f"Grade for '{look_name}' did not preserve RGB mode"
+        )
+
+
+def test_bundled_looks_shift_channel_balance():
+    """At least one non-'neutral-contrast' look must shift grey pixel channel balance.
+
+    Proves that bundled looks apply real LUT data (not all-identity passes).
+    A grey pixel (r==g==b) through a non-trivial grading look should have at least
+    one channel differ from the others (after interpolation).
+    """
+    grade = _import_grade()
+
+    # Test non-neutral looks for channel shifts
+    non_neutral_looks = [
+        "warm-editorial",
+        "golden-hour",
+        "cool-matte",
+        "faded-film",
+    ]
+
+    any_shift_detected = False
+    for look_name in non_neutral_looks:
+        lut = grade.load_lut(look_name)
+
+        # Apply to a mid-grey test image
+        grey_img = Image.new("RGB", (10, 10), (128, 128, 128))
+        graded = grey_img.filter(lut)
+
+        # Get a pixel from the center
+        px = graded.getpixel((5, 5))
+        # Check if channels are not all identical
+        if not (px[0] == px[1] == px[2]):
+            any_shift_detected = True
+            break
+
+    assert any_shift_detected, (
+        "At least one non-neutral look must shift grey pixel channel balance "
+        "(otherwise LUT is all-identity, not a real grade)"
+    )
+
+
+def test_bundled_looks_user_override_precedence(tmp_path, monkeypatch):
+    """User NAZCA_LUT_DIR takes precedence over bundled looks.
+
+    Create a custom 'warm-editorial.cube' with channel-swap effect in a user directory,
+    set NAZCA_LUT_DIR to that directory, then load_lut('warm-editorial') should
+    resolve the USER file (proving channel swap), NOT the bundled one.
+    """
+    grade = _import_grade()
+
+    # Create a temporary user LUT directory
+    user_lut_dir = tmp_path / "user_luts"
+    user_lut_dir.mkdir()
+
+    # Write a channel-swap cube for 'warm-editorial' in the user dir
+    # This will be different from the bundled warm-editorial
+    swap_cube_path = user_lut_dir / "warm-editorial.cube"
+    _write_channel_swap_cube_2x2x2(swap_cube_path)
+
+    # Set NAZCA_LUT_DIR to the user directory
+    monkeypatch.setenv("NAZCA_LUT_DIR", str(user_lut_dir))
+
+    # Load the look — should get the USER version (channel swap), not the bundled one
+    lut = grade.load_lut("warm-editorial")
+    assert isinstance(lut, ImageFilter.Color3DLUT)
+
+    # Apply to a distinctly colored test image
+    test_img = Image.new("RGB", (10, 10), (200, 100, 50))
+    graded = test_img.filter(lut)
+    px = graded.getpixel((5, 5))
+
+    # The user LUT swaps R and G, so (200, 100, 50) -> (100, 200, 50) (±2 for interpolation)
+    # If this assertion passes, we loaded the user file. If it fails, we loaded the bundled one.
+    assert abs(px[0] - 100) <= 2, (
+        f"User override: expected R channel ≈100 (swapped), got {px[0]} "
+        "(may have loaded bundled look instead)"
+    )
+    assert abs(px[1] - 200) <= 2, (
+        f"User override: expected G channel ≈200 (swapped), got {px[1]}"
+    )
