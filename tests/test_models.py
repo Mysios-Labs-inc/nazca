@@ -233,3 +233,50 @@ def test_video_model_has_ops(shorthand):
     spec = VID_REGISTRY[shorthand]
     assert spec.ops, f"{shorthand}: ops must be non-empty"
     assert spec.ops <= cap.VIDEO_OPS, f"{shorthand}: ops contain non-video ops: {spec.ops - cap.VIDEO_OPS}"
+
+
+# ---------------------------------------------------------------------------
+# Backend verification marker — is_verified()
+# ---------------------------------------------------------------------------
+
+from nazca.models import is_verified  # noqa: E402
+
+
+def test_vertex_backend_is_verified():
+    assert is_verified("vertex") is True
+
+
+def test_openai_backend_is_verified():
+    assert is_verified("openai") is True
+
+
+def test_atlas_backend_is_not_verified():
+    assert is_verified("atlas") is False
+
+
+def test_fal_backend_is_not_verified():
+    assert is_verified("fal") is False
+
+
+def test_modelark_backend_is_not_verified():
+    assert is_verified("modelark") is False
+
+
+def test_atlas_image_model_is_unverified():
+    """Every atlas model in the image registry must be flagged unverified."""
+    atlas_specs = [spec for spec in IMG_REGISTRY.values() if spec.backend == "atlas"]
+    assert atlas_specs, "expected at least one atlas image model in registry"
+    for spec in atlas_specs:
+        assert not is_verified(spec.backend), (
+            f"{spec.shorthand}: atlas backend should be unverified"
+        )
+
+
+def test_vertex_image_model_is_verified():
+    """Every vertex model in the image registry must be flagged verified."""
+    vertex_specs = [spec for spec in IMG_REGISTRY.values() if spec.backend == "vertex"]
+    assert vertex_specs, "expected at least one vertex image model in registry"
+    for spec in vertex_specs:
+        assert is_verified(spec.backend), (
+            f"{spec.shorthand}: vertex backend should be verified"
+        )

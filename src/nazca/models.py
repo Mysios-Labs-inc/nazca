@@ -29,8 +29,9 @@ class ModelSpec:
     price_usd   flat per-image/per-call USD price, or None when billed by
                 token/second or unverified (cost module handles those separately).
     ops         frozenset of operation codes this model supports (subset of
-                capabilities.OPS vocabulary).  Populated from capabilities.CAPS
-                data — kept here so the registry is self-contained.
+                capabilities.OPS vocabulary).  models.py is the canonical
+                source; capabilities.py reads spec.ops from this registry
+                (it imports models, not the reverse).
     """
 
     shorthand: str
@@ -51,9 +52,9 @@ class ModelSpec:
 # ---------------------------------------------------------------------------
 # Image model registry — single canonical source.
 #
-# ops is the frozenset from capabilities.CAPS; values are reproduced here so
-# this module has no import dependency on capabilities (which would be circular
-# since capabilities imports nothing from models).
+# ops is declared here as the ground truth. capabilities.py reads spec.ops
+# from this registry (it imports models, not the reverse); the import
+# direction is capabilities → models, with no cycle in either direction.
 # ---------------------------------------------------------------------------
 MODELS: dict[str, ModelSpec] = {
     # --- Vertex: Gemini image (supports --ref) ---
@@ -1365,6 +1366,21 @@ THREED_MODELS: dict[str, ModelSpec] = {
 # ---------------------------------------------------------------------------
 
 VALID_TIERS: frozenset[str] = frozenset({"cheap", "premium"})
+
+# Backends whose cost tables and request schemas have been validated against
+# live production APIs.  Absent from this set ⇒ cost/schema is best-effort.
+_VERIFIED_BACKENDS: frozenset[str] = frozenset({"vertex", "openai"})
+
+
+def is_verified(backend: str) -> bool:
+    """Return True when *backend* cost and schema are live-verified.
+
+    ``vertex`` and ``openai`` backends are proven against live APIs.
+    ``atlas``, ``fal``, and ``modelark`` have not been independently
+    verified — their pricing or request schemas may differ from what the
+    registry records.
+    """
+    return backend in _VERIFIED_BACKENDS
 
 
 def all_image_shorthands() -> list[str]:

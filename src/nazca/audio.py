@@ -12,7 +12,7 @@ from pathlib import Path
 
 from nazca.backends import get_backend
 from nazca.cost import estimate_audio_cost
-from nazca.errors import BackendError
+from nazca.errors import AudioError
 from nazca.media import write_result
 from nazca.models import AUDIO_MODELS as _AUDIO_REGISTRY
 from nazca.request import AudioRequest
@@ -24,10 +24,6 @@ AUDIO_MODELS: dict[str, str] = {sh: spec.provider_id for sh, spec in _AUDIO_REGI
 
 # tier → default audio model shorthand
 _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-tts-grok", "premium": "atlas-tts-elevenlabs-v3"}
-
-
-class AudioError(BackendError):
-    """Raised when audio synthesis fails or no audio model is resolvable."""
 
 
 def select_audio_model(tier: str | None) -> str | None:

@@ -1,8 +1,9 @@
 """Backend interface — what every provider must expose.
 
-A lightweight base class (not a pure Protocol) so backends can share nothing but
-still be type-checked and registered uniformly. Each method mirrors a piece of
-the original single-provider `vertex.py` plumbing.
+A lightweight base class (not a pure Protocol) that unifies common provider
+plumbing — credential handling, endpoint building, HTTP mechanics, image encoding —
+so all backends can be type-checked and registered uniformly. Each method mirrors
+a piece of the original single-provider `vertex.py` infrastructure.
 
 The load-bearing seam is `run_image` / `run_video`: each backend owns its own
 body-building, dispatch, extraction, and dry-run plan rendering, so the call sites

@@ -921,6 +921,7 @@ def models_cmd() -> None:
     from nazca.capabilities import ops_str
     from nazca.image import MODEL_TIERS as IMG_TIERS
     from nazca.image import MODELS as IMG_MODELS
+    from nazca.models import is_verified
     from nazca.registry import all_overrides, models_path
     from nazca.video import (
         ARK_VIDEO_MODELS,
@@ -938,10 +939,11 @@ def models_cmd() -> None:
     BE = 12
     TI = 10
     ID = 32
+    OP = 28  # ops column width (padded so the verify marker aligns)
 
     def _hdr():
-        click.echo(f"  {'shorthand':<{SH}} {'backend':<{BE}} {'tier':<{TI}} {'model id':<{ID}} {'ops'}")
-        click.echo(f"  {'-'*SH} {'-'*BE} {'-'*TI} {'-'*ID} {'-'*24}")
+        click.echo(f"  {'shorthand':<{SH}} {'backend':<{BE}} {'tier':<{TI}} {'model id':<{ID}} {'ops':<{OP}}")
+        click.echo(f"  {'-'*SH} {'-'*BE} {'-'*TI} {'-'*ID} {'-'*OP}")
 
     # ---- IMAGE MODELS ----
     click.echo("\nIMAGE MODELS")
@@ -964,7 +966,8 @@ def models_cmd() -> None:
         mid, region, api, be = all_img[sh]
         tier = img_ov.get(sh, {}).get("tier") or IMG_TIERS.get(sh, "")
         marker = "*" if sh in img_ov else " "
-        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh)}")
+        warn = "" if is_verified(be) else "⚠"
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh):<{OP}} {warn}")
 
     # ---- VIDEO MODELS ----
     click.echo("\nVIDEO MODELS")
@@ -990,13 +993,15 @@ def models_cmd() -> None:
         mid, be = all_vid[sh]
         tier = vid_ov.get(sh, {}).get("tier") or VIDEO_MODEL_TIERS.get(sh, "")
         marker = "*" if sh in vid_ov else " "
-        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh)}")
+        warn = "" if is_verified(be) else "⚠"
+        click.echo(f"  {sh:<{SH}} {marker}{be:<{BE}} {tier:<{TI}} {mid:<{ID}} {ops_str(sh):<{OP}} {warn}")
 
     # ---- footer ----
     mp = models_path()
     status = "exists" if mp.exists() else "not found"
     click.echo(f"\nOverride file: {mp} [{status}]")
     click.echo("  * = overridden by user models.json")
+    click.echo("  ⚠ = cost/schema not live-verified (atlas · fal · modelark backends)")
     click.echo("  ops = supported operations (see docs/media-modalities.md)")
 
 
