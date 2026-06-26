@@ -525,3 +525,225 @@ def test_add_grain_size_coarser(tmp_path):
     assert max_chroma_delta == 0, (
         f"Coarse grain (size=3) produced chroma delta {max_chroma_delta}"
     )
+
+
+# ─────────────────────────────────────────── Tests: crop_to_preset (format/crop)
+
+
+def test_crop_to_preset_9_16_from_square():
+    """Aspect correctness: 1000x1000 cropped to 9:16 yields width/height ≈ 9/16."""
+    grade = _import_grade()
+
+    # 1000x1000 square
+    img = Image.new("RGB", (1000, 1000), (50, 50, 50))
+    result = grade.crop_to_preset(img, "9:16")
+
+    # 9:16 aspect = 0.5625; from 1000x1000, width is wider, so trim width
+    # new_w = round(1000 * 0.5625) = 562
+    # output: 562x1000
+    assert result.size[0] <= 1000 and result.size[1] <= 1000, (
+        f"Never upscale: got {result.size}"
+    )
+    aspect = result.size[0] / result.size[1]
+    target_aspect = 9 / 16
+    assert abs(aspect - target_aspect) < 0.02, (
+        f"Aspect mismatch: expected ≈{target_aspect:.4f}, got {aspect:.4f}"
+    )
+
+
+def test_crop_to_preset_4_5_from_square():
+    """Aspect correctness: 1000x1000 cropped to 4:5 yields width/height ≈ 4/5."""
+    grade = _import_grade()
+
+    img = Image.new("RGB", (1000, 1000), (50, 50, 50))
+    result = grade.crop_to_preset(img, "4:5")
+
+    aspect = result.size[0] / result.size[1]
+    target_aspect = 4 / 5
+    assert abs(aspect - target_aspect) < 0.02, (
+        f"Aspect mismatch: expected ≈{target_aspect:.4f}, got {aspect:.4f}"
+    )
+
+
+def test_crop_to_preset_1_1_from_wide():
+    """Aspect correctness: 1000x600 cropped to 1:1 yields square w==h."""
+    grade = _import_grade()
+
+    img = Image.new("RGB", (1000, 600), (50, 50, 50))
+    result = grade.crop_to_preset(img, "1:1")
+
+    assert result.size[0] == result.size[1], (
+        f"1:1 preset must yield square, got {result.size}"
+    )
+    aspect = result.size[0] / result.size[1]
+    assert abs(aspect - 1.0) < 0.02
+
+
+def test_crop_to_preset_2_3_and_16_9():
+    """Aspect correctness: verify 2:3 and 16:9 presets."""
+    grade = _import_grade()
+
+    img = Image.new("RGB", (1000, 1000), (50, 50, 50))
+
+    # 2:3 aspect
+    result_2_3 = grade.crop_to_preset(img, "2:3")
+    aspect_2_3 = result_2_3.size[0] / result_2_3.size[1]
+    target_2_3 = 2 / 3
+    assert abs(aspect_2_3 - target_2_3) < 0.02
+
+    # 16:9 aspect
+    result_16_9 = grade.crop_to_preset(img, "16:9")
+    aspect_16_9 = result_16_9.size[0] / result_16_9.size[1]
+    target_16_9 = 16 / 9
+    assert abs(aspect_16_9 - target_16_9) < 0.02
+
+
+def test_crop_to_preset_never_upscales():
+    """Never upscale: output width <= input width AND output height <= input height."""
+    grade = _import_grade()
+
+    presets = ["9:16", "4:5", "1:1", "2:3", "16:9"]
+    test_sizes = [(1000, 1000), (1000, 600), (600, 1000), (800, 600), (1200, 400)]
+
+    for preset in presets:
+        for w, h in test_sizes:
+            img = Image.new("RGB", (w, h), (50, 50, 50))
+            result = grade.crop_to_preset(img, preset)
+            assert result.size[0] <= w, (
+                f"Preset {preset} from {(w, h)}: output width {result.size[0]} > input {w}"
+            )
+            assert result.size[1] <= h, (
+                f"Preset {preset} from {(w, h)}: output height {result.size[1]} > input {h}"
+            )
+
+
+def _make_row_gradient(w: int, h: int) -> Image.Image:
+    """Return an RGB image where row y has pixel value (y//4, y//4, y//4).
+
+    This encodes the source row index into every pixel, making it possible to
+    verify exactly which vertical window a crop kept by inspecting the result's
+    top pixel: result.getpixel((0, 0))[0] * 4 ≈ source_y_kept.
+    """
+    data = [(y // 4,) * 3 for y in range(h) for _ in range(w)]
+    img = Image.new("RGB", (w, h))
+    img.putdata(data)
+    return img
+
+
+def test_crop_to_preset_gravity_north():
+    """Gravity north: 600x1000 crop to 1:1 keeps rows 0..599 (top, y=0).
+
+    Uses a row-gradient so the result top pixel encodes which source row was
+    kept.  A swapped or broken anchor would produce a different value and fail.
+    """
+    grade = _import_grade()
+
+    # Row y has pixel (y//4, y//4, y//4).
+    # crop to 1:1: new_h = round(600/1) = 600.
+    # north → y=0 → result (0,0) = source (0,0) → value = 0//4 = 0.
+    img = _make_row_gradient(600, 1000)
+    result = grade.crop_to_preset(img, "1:1", gravity="north")
+
+    assert result.size == (600, 600)
+    top_val = result.getpixel((0, 0))[0]  # encoded source-row // 4
+    # north starts at source row 0 → encoded value 0; allow ±1 for rounding
+    assert top_val <= 1, (
+        f"North anchor must keep the top (source row 0); "
+        f"got top_val={top_val} (≈ source row {top_val * 4}), expected ≈0"
+    )
+
+
+def test_crop_to_preset_gravity_south():
+    """Gravity south: 600x1000 crop to 1:1 keeps rows 400..999 (bottom, y=400).
+
+    A north or center anchor produces top_val ≈ 0 or 50 respectively — both
+    fail the assertion that top_val must be close to 100 (source row 400).
+    """
+    grade = _import_grade()
+
+    # south → y = 1000-600 = 400 → result (0,0) = source (0,400) → value = 400//4 = 100.
+    img = _make_row_gradient(600, 1000)
+    result = grade.crop_to_preset(img, "1:1", gravity="south")
+
+    assert result.size == (600, 600)
+    top_val = result.getpixel((0, 0))[0]
+    # south starts at source row 400 → encoded value 100; allow ±1
+    assert abs(top_val - 100) <= 1, (
+        f"South anchor must keep the bottom window (source row 400); "
+        f"got top_val={top_val} (≈ source row {top_val * 4}), expected ≈100"
+    )
+
+
+def test_crop_to_preset_gravity_center():
+    """Gravity center: 600x1000 crop to 1:1 keeps rows 200..799 (middle, y=200).
+
+    A north anchor gives top_val ≈ 0, south gives ≈ 100 — both distinct from
+    the expected ≈ 50, so any wrong anchor fails this test.
+    """
+    grade = _import_grade()
+
+    # center → y = (1000-600)//2 = 200 → result (0,0) = source (0,200) → value = 200//4 = 50.
+    img = _make_row_gradient(600, 1000)
+    result = grade.crop_to_preset(img, "1:1", gravity="center")
+
+    assert result.size == (600, 600)
+    top_val = result.getpixel((0, 0))[0]
+    # center starts at source row 200 → encoded value 50; allow ±1
+    assert abs(top_val - 50) <= 1, (
+        f"Center anchor must keep the middle window (source row 200); "
+        f"got top_val={top_val} (≈ source row {top_val * 4}), expected ≈50"
+    )
+
+
+def test_crop_to_preset_horizontal_centered():
+    """Horizontal trim is centered: wide image from 1000x500 to 1:1 trims width symmetrically."""
+    grade = _import_grade()
+
+    # 1000x500 wide image, crop to 1:1 (trims width from 1000 to 500)
+    # width centering: x = (1000 - 500) // 2 = 250
+    img = Image.new("RGB", (1000, 500))
+
+    # Left 250px (red, trimmed), middle 500px (green, kept), right 250px (red, trimmed)
+    for y in range(500):
+        for x in range(250):
+            img.putpixel((x, y), (200, 0, 0))  # red left (trimmed)
+    for y in range(500):
+        for x in range(250, 750):
+            img.putpixel((x, y), (0, 200, 0))  # green middle (kept)
+    for y in range(500):
+        for x in range(750, 1000):
+            img.putpixel((x, y), (200, 0, 0))  # red right (trimmed)
+
+    result = grade.crop_to_preset(img, "1:1")
+
+    # Result should be 500x500, mostly green
+    assert result.size == (500, 500)
+    green_count = sum(
+        1 for px in result.getdata() if px[1] > px[0] and px[1] > px[2]
+    )
+    assert green_count > 500 * 500 * 0.9, (
+        f"Horizontal centering: most of output should be green, got {green_count} green pixels"
+    )
+
+
+def test_crop_to_preset_invalid_preset_raises():
+    """Invalid preset name raises ValueError with helpful message."""
+    grade = _import_grade()
+
+    img = Image.new("RGB", (100, 100), (50, 50, 50))
+
+    with pytest.raises(ValueError, match="invalid|preset|9:16|4:5"):
+        grade.crop_to_preset(img, "invalid_preset")
+
+
+def test_crop_to_preset_already_matching_aspect():
+    """Image already matching target aspect is not cropped."""
+    grade = _import_grade()
+
+    # Create a 900x1600 image (9:16 aspect)
+    img = Image.new("RGB", (900, 1600), (50, 50, 50))
+
+    result = grade.crop_to_preset(img, "9:16")
+
+    # Should return unchanged (box is the full frame)
+    assert result.size == (900, 1600)

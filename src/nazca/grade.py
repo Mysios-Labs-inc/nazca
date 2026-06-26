@@ -15,6 +15,7 @@ load_cube(path)  → Color3DLUT   parse an Adobe/Iridas .cube file
 load_hald(path)  → Color3DLUT   load a HALD CLUT PNG
 load_lut(spec)   → Color3DLUT   resolve a name or path, dispatch to the above
 apply_grade(img, lut, strength, grain, grain_size) → Image
+crop_to_preset(img, preset, gravity) → Image  head-safe center crop to platform aspect
 """
 
 from __future__ import annotations
@@ -23,6 +24,49 @@ import os
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFilter
+
+# ---------------------------------------------------------------------------
+# Platform format presets
+# ---------------------------------------------------------------------------
+
+PRESETS: dict[str, tuple[int, int]] = {
+    "9:16": (9, 16),
+    "4:5": (4, 5),
+    "1:1": (1, 1),
+    "2:3": (2, 3),
+    "16:9": (16, 9),
+}
+
+
+def crop_to_preset(img: Image.Image, preset: str, gravity: str = "north") -> Image.Image:
+    """Head-safe center crop to a platform aspect preset. Crops only — NEVER upscales.
+
+    gravity controls the VERTICAL anchor when trimming height (portrait crops of people):
+      north = keep the top (faces), south = keep the bottom, center = middle.
+    Horizontal trims are always centered.
+    """
+    if preset not in PRESETS:
+        valid = ", ".join(sorted(PRESETS))
+        raise ValueError(f"Unknown preset {preset!r}. Valid presets: {valid}")
+    tw, th = PRESETS[preset]
+    w, h = img.size
+    target = tw / th
+    cur = w / h
+    if cur > target:  # too wide -> trim width, centered horizontally
+        new_w = min(w, round(h * target))
+        x = (w - new_w) // 2
+        box = (x, 0, x + new_w, h)
+    else:  # too tall (or equal) -> trim height by gravity
+        new_h = min(h, round(w / target))
+        if gravity == "north":
+            y = 0
+        elif gravity == "south":
+            y = h - new_h
+        else:
+            y = (h - new_h) // 2
+        box = (0, y, w, y + new_h)
+    return img.crop(box)
+
 
 # ---------------------------------------------------------------------------
 # .cube parser

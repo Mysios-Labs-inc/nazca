@@ -372,6 +372,39 @@ def grade(source, out, lut, strength, grain, grain_size):
     click.echo(f"✅ {out}")
 
 
+@cli.command(name="format")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", required=True, help="Output image path.")
+@click.option(
+    "--preset",
+    required=True,
+    type=click.Choice(["9:16", "4:5", "1:1", "2:3", "16:9"]),
+    help="Target platform aspect.",
+)
+@click.option(
+    "--gravity",
+    default="north",
+    type=click.Choice(["center", "north", "south"]),
+    help="Vertical anchor for portrait crops (north keeps heads).",
+)
+def format_cmd(source, out, preset, gravity):
+    """Head-safe crop to a platform aspect preset (local, free, deterministic)."""
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    from nazca.grade import crop_to_preset
+
+    try:
+        # exif_transpose so "north" anchors on the visual top of EXIF-rotated
+        # inputs — otherwise a head-safe crop could trim the wrong edge.
+        with Image.open(source) as src:
+            img = ImageOps.exif_transpose(src)
+        crop_to_preset(img, preset, gravity=gravity).save(out)
+    except (ValueError, OSError, UnidentifiedImageError) as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+    click.echo(f"✅ {out}")
+
+
 @cli.command(name="batch")
 @click.argument("manifest", required=False, type=click.Path())
 @click.option("--from-dir", "from_dir", default=None, type=click.Path(exists=True, file_okay=False),
