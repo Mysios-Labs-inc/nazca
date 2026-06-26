@@ -26,7 +26,16 @@ from typing import Literal
 
 from nazca import config, registry
 from nazca.models import (
+    ARK_VIDEO_MODELS as _ARK_VIDEO_MODELS,
+)
+from nazca.models import (
+    ATLAS_VIDEO_MODELS as _ATLAS_VIDEO_MODELS,
+)
+from nazca.models import (
     AUDIO_MODELS as _AUDIO_REGISTRY,
+)
+from nazca.models import (
+    FAL_VIDEO_MODELS as _FAL_VIDEO_MODELS,
 )
 from nazca.models import (
     MODELS as _MODEL_REGISTRY,
@@ -35,11 +44,13 @@ from nazca.models import (
     THREED_MODELS as _THREED_REGISTRY,
 )
 from nazca.models import (
+    VEO_ALIASES as _VEO_ALIASES,
+)
+from nazca.models import (
     VIDEO_MODELS as _VIDEO_REGISTRY,
 )
 from nazca.models import (
     ModelSpec,
-    models_for,
 )
 
 Modality = Literal["image", "video", "audio", "3d"]
@@ -123,25 +134,8 @@ def _match_prefix(model: str, allowed: frozenset[str]) -> tuple[str, str] | None
     return _PREFIX_BACKEND[prefix], raw_id
 
 
-# --------------------------------------------------------------------------- #
-# Video derived tables — rebuilt from the canonical registry via models_for()
-# so resolve.py has no dependency on the orchestrator it will later replace.
-# Filters match video.py exactly.
-# --------------------------------------------------------------------------- #
-_FAL_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video", backend="fal").items()
-    if not spec.ops.isdisjoint({"i2v", "t2v"})
-}
-_ARK_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in models_for("video", backend="modelark").items()
-}
-_ATLAS_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in models_for("video", backend="atlas").items()
-}
-_VEO_ALIASES: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in models_for("video", backend="vertex").items()
-}
+# Video projection tables (VEO_ALIASES / FAL_/ARK_/ATLAS_VIDEO_MODELS) are owned by
+# nazca.models and imported above — one canonical home for every registry-derived view.
 
 
 # --------------------------------------------------------------------------- #

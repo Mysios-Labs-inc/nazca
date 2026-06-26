@@ -14,16 +14,10 @@ from nazca.backends import get_backend, require_capability
 from nazca.cost import estimate_audio_cost
 from nazca.errors import AudioError  # noqa: F401  (re-export for back-compat)
 from nazca.media import write_result
-from nazca.models import models_for
+from nazca.models import AUDIO_PROVIDER_IDS as AUDIO_MODELS  # noqa: F401  (re-export)
 from nazca.request import AudioRequest
 
 DEFAULT_AUDIO_MODEL = "atlas-tts-grok"
-
-# Mapping of audio model shorthands to provider IDs.
-# Derived from the canonical registry in nazca.models.
-AUDIO_MODELS: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in models_for("audio").items()
-}
 
 # tier → default audio model shorthand
 _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-tts-grok", "premium": "atlas-tts-elevenlabs-v3"}

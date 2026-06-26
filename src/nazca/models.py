@@ -1495,3 +1495,63 @@ def tier_default(modality: str, tier: str | None) -> str | None:
     if tier is None:
         return None
     return _TIER_DEFAULTS_BY_MODALITY[modality].get(tier)
+
+
+# ---------------------------------------------------------------------------
+# Named registry projections — the canonical home for derived views.
+#
+# These map a shorthand to its provider id (or tier), sliced by backend/ops.
+# They live here, beside the registry and the accessors, so the data layer owns
+# every derived view of the registry; orchestrators (video.py / image.py /
+# audio.py) re-export these names and stay pure consumers. Each is computed once
+# at import from the accessors above, so adding a model means a single ModelSpec
+# entry — these update automatically.
+# ---------------------------------------------------------------------------
+
+#: fal/Atlas video-EDIT ops (source VIDEO → video). Single source for both the
+#: VIDEO_EDIT_MODELS projection and video.VIDEO_EDIT_OPS.
+VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset(
+    {"reframe", "v2v", "extend", "motion_control", "video_upscale"}
+)
+
+#: Vertex Veo shorthands → full Veo model id.
+VEO_ALIASES: dict[str, str] = {
+    sh: spec.provider_id for sh, spec in models_for("video", backend="vertex").items()
+}
+
+#: fal video shorthands → fal model id (generation only; excludes edit-only ops).
+FAL_VIDEO_MODELS: dict[str, str] = {
+    sh: spec.provider_id
+    for sh, spec in models_for("video", backend="fal").items()
+    if not spec.ops.isdisjoint({"i2v", "t2v"})
+}
+
+#: ModelArk video shorthands → BytePlus model id.
+ARK_VIDEO_MODELS: dict[str, str] = {
+    sh: spec.provider_id for sh, spec in models_for("video", backend="modelark").items()
+}
+
+#: Atlas video shorthands → Atlas slug stem.
+ATLAS_VIDEO_MODELS: dict[str, str] = {
+    sh: spec.provider_id for sh, spec in models_for("video", backend="atlas").items()
+}
+
+#: video shorthand → tier.
+VIDEO_MODEL_TIERS: dict[str, str] = tiers("video")
+
+#: video-edit shorthands → provider id (any backend, edit ops).
+VIDEO_EDIT_MODELS: dict[str, str] = {
+    sh: spec.provider_id
+    for sh, spec in models_for("video").items()
+    if not spec.ops.isdisjoint(VIDEO_EDIT_OPS_SET)
+}
+
+#: image shorthand → tier.
+MODEL_TIERS: dict[str, str] = tiers("image")
+
+#: audio shorthand → provider id. (Named distinctly from the AUDIO_MODELS registry
+#: above — which is shorthand → ModelSpec — to avoid shadowing it. The audio
+#: orchestrator re-exports this as ``audio.AUDIO_MODELS`` for back-compat.)
+AUDIO_PROVIDER_IDS: dict[str, str] = {
+    sh: spec.provider_id for sh, spec in models_for("audio").items()
+}
