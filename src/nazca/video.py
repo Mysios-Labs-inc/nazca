@@ -174,6 +174,7 @@ def generate_video(
     generate_audio: bool = False,
     op: str | None = None,
     refs: list[str] | None = None,
+    audio_path: str | None = None,
     dry_run: bool = False,
 ) -> Path:
     """Generate a video clip — text-to-video, or from a start frame (+ optional end).
@@ -202,6 +203,7 @@ def generate_video(
         resolution=resolution,
         duration=int(duration),
         audio=generate_audio,
+        audio_path=audio_path,
         op=op,
         dry_run=dry_run,
     )

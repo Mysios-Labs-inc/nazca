@@ -57,6 +57,7 @@ VIDEO_OPS: frozenset[str] = frozenset(
         "motion_control", # source video (driver) → video   (recast / puppeteer)
         "effects",        # start + template      → video   (effect template)
         "video_upscale",  # source video          → video   (resolution upscale)
+        "avatar",         # start + audio         → video   (lip-sync talking head)
     }
 )
 OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS
@@ -65,9 +66,10 @@ OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS
 # coverage test that keeps this module honest.
 OPS_NEEDING_REFS: frozenset[str] = frozenset({"i2i", "compose", "style", "ref2v"})
 OPS_NEEDING_SOURCE_IMAGE: frozenset[str] = frozenset({"inpaint", "outpaint", "upscale", "bg_remove"})
-OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe", "effects"})
+OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe", "effects", "avatar"})
 OPS_NEEDING_END: frozenset[str] = frozenset({"keyframe"})
 OPS_NEEDING_SOURCE_VIDEO: frozenset[str] = frozenset({"v2v", "reframe", "extend", "motion_control", "video_upscale"})
+OPS_NEEDING_AUDIO: frozenset[str] = frozenset({"avatar"})
 
 # --------------------------------------------------------------------------- ref roles
 # What a reference image *is* to the model, not just that one was passed. Today refs
@@ -276,13 +278,15 @@ CAPS: dict[str, Caps] = {
     "atlas-video-upscaler": _vid("atlas-video-upscaler", note="Atlas; atlascloud/video-upscaler; $0.018/s; schema unverified"),
     "atlas-kling-effects":  _vid("atlas-kling-effects",  note="Atlas; kwaivgi/kling-effects; $0.212/s; schema unverified"),
     "atlas-kling-v2.6-std": _vid("atlas-kling-v2.6-std", note="Atlas; kwaivgi/kling-v2.6-std; motion-control; schema unverified"),
+    "atlas-infinitetalk":         _vid("atlas-infinitetalk",         note="Atlas; atlascloud/infinitetalk; lip-sync talking head; $0.03/s; schema unverified"),
+    "atlas-avatar-omnihuman-1.5":  _vid("atlas-avatar-omnihuman-1.5",  note="Atlas; bytedance/avatar-omni-human-v1.5; image+audio avatar; $0.06/s; schema unverified"),
 }
 
 
 # Stable display order so `nazca models` ops output is deterministic.
 _OPS_ORDER = ("t2i", "i2i", "compose", "style", "inpaint", "outpaint", "upscale", "bg_remove",
               "t2v", "i2v", "keyframe", "ref2v", "v2v", "reframe", "extend",
-              "motion_control", "effects", "video_upscale")
+              "motion_control", "effects", "video_upscale", "avatar")
 
 
 class CapabilityError(ValueError):
@@ -330,12 +334,13 @@ def infer_video_op(
     video_upscale: bool = False,
     effects: bool = False,
     ref2v: bool = False,
+    avatar: bool = False,
 ) -> str:
     """Derive the video op from the signals passed.
 
     Source-video edit signals win (--reframe / --v2v / --extend / --motion-control /
-    --video-upscale), then --effects (start + template), then --ref2v (reference
-    images); otherwise the frames pick: none → t2v, start → i2v, +end → keyframe.
+    --video-upscale), then --effects, --ref2v, --avatar (lip-sync); otherwise the
+    frames pick: none → t2v, start → i2v, +end → keyframe.
     """
     if reframe:
         return "reframe"
@@ -351,6 +356,8 @@ def infer_video_op(
         return "effects"
     if ref2v:
         return "ref2v"
+    if avatar:
+        return "avatar"
     if not has_start:
         return "t2v"
     return "keyframe" if has_end else "i2v"

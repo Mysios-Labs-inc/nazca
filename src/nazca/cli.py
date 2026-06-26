@@ -547,6 +547,8 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("--effects", "do_effects", is_flag=True, help="Apply an effect template to a --start image (Atlas Kling effects).")
 @click.option("--ref2v", "do_ref2v", is_flag=True, help="Reference-to-video: drive generation from --ref image(s) (Atlas ref2v models).")
 @click.option("--ref", "ref", multiple=True, help="Reference image for --ref2v. Repeatable.")
+@click.option("--avatar", "do_avatar", is_flag=True, help="Lip-sync talking head: animate a --start portrait with --audio-in (Atlas InfiniteTalk/OmniHuman/Kling avatar).")
+@click.option("--audio-in", "audio_in", default=None, type=click.Path(), help="Driving audio track for --avatar (path or URL).")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
 @click.option("--duration", default=8, type=int, help="Seconds (Veo: 4/6/8; extend: 5 or 8 added).")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
@@ -554,7 +556,7 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v, ref, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
+def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v, ref, do_avatar, audio_in, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
     """Generate or edit a video.
 
     \b
@@ -579,9 +581,9 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
     )
 
     # At most one op selector.
-    if sum([do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v]) > 1:
+    if sum([do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v, do_avatar]) > 1:
         click.echo(
-            "❌ choose one op: --reframe/--v2v/--extend/--motion-control/--video-upscale/--effects/--ref2v",
+            "❌ choose one op: --reframe/--v2v/--extend/--motion-control/--video-upscale/--effects/--ref2v/--avatar",
             err=True,
         )
         raise SystemExit(2)
@@ -589,13 +591,14 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
     op = infer_video_op(
         bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend,
         motion_control=do_motion, video_upscale=do_vupscale, effects=do_effects, ref2v=do_ref2v,
+        avatar=do_avatar,
     )
     in_edit_ops = op in VIDEO_EDIT_OPS
 
-    # ---- Atlas ref2v / effects: frame-style ops (--ref images / --start image) ----
-    if op in ("ref2v", "effects"):
+    # ---- Atlas ref2v / effects / avatar: frame-style ops (--ref / --start / --audio-in) ----
+    if op in ("ref2v", "effects", "avatar"):
         if source:
-            click.echo("❌ a positional SOURCE is for source-video ops; ref2v/effects use --ref/--start", err=True)
+            click.echo("❌ a positional SOURCE is for source-video ops; ref2v/effects/avatar use --ref/--start/--audio-in", err=True)
             raise SystemExit(2)
         if op == "ref2v" and not ref:
             click.echo("❌ --ref2v needs at least one --ref image", err=True)
@@ -603,12 +606,15 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
         if op == "effects" and not start:
             click.echo("❌ --effects needs a --start image", err=True)
             raise SystemExit(2)
+        if op == "avatar" and not (start and audio_in):
+            click.echo("❌ --avatar needs a --start portrait and --audio-in audio", err=True)
+            raise SystemExit(2)
         resolved_model = model or select_model(tier)
         _validate_or_exit(resolved_model, op, n_refs=len(ref))
         result = generate_video(
             out, start, prompt or "", model=resolved_model, duration=duration,
             aspect_ratio=aspect_ratio, resolution=resolution, op=op,
-            refs=list(ref) or None, dry_run=dry_run,
+            refs=list(ref) or None, audio_path=audio_in, dry_run=dry_run,
         )
         _emit_video_result(result, dry_run)
         return

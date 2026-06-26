@@ -59,11 +59,21 @@ _OP_SUFFIX: dict[str, str] = {
     "keyframe": "start-end-frame-to-video",
     "extend": "extend-video",
     "motion_control": "motion-control",
+    "avatar": "avatar",  # Kling avatar; standalone avatar models override via _STANDALONE_STEMS
 }
 
 # Ops whose model slug is STANDALONE (the stem is already the full slug, no operation
 # suffix) — e.g. atlascloud/video-upscaler, kwaivgi/kling-effects.
 _NO_SUFFIX_OPS: frozenset[str] = frozenset({"video_upscale", "effects"})
+
+# Models whose stem IS the complete slug regardless of op (no operation suffix),
+# e.g. the standalone avatar/talking-head models.
+_STANDALONE_STEMS: frozenset[str] = frozenset({
+    "atlascloud/video-upscaler",
+    "kwaivgi/kling-effects",
+    "atlascloud/infinitetalk",
+    "bytedance/avatar-omni-human-v1.5",
+})
 
 
 def _model_slug(stem: str, op: str | None, default: str) -> str:
@@ -73,9 +83,9 @@ def _model_slug(stem: str, op: str | None, default: str) -> str:
     suffix (e.g. ``bytedance/seedance-v1-pro-t2v-1080p``), and some are standalone
     (``atlascloud/video-upscaler``); for those the stem is already the full slug.
     """
-    # Standalone-slug ops, resolution-baked slugs, or slugs already carrying a
-    # "*-to-*" operation token are passed through unchanged.
-    if op in _NO_SUFFIX_OPS:
+    # Standalone slugs, standalone-slug ops, resolution-baked slugs, or slugs already
+    # carrying a "*-to-*" operation token are passed through unchanged.
+    if stem in _STANDALONE_STEMS or op in _NO_SUFFIX_OPS:
         return stem
     if stem.rsplit("/", 1)[-1].count("-to-") or stem.endswith(("-1080p", "-720p", "-480p")):
         return stem
@@ -235,6 +245,8 @@ class AtlasBackend(Backend):
             body["reference_images"] = [
                 self.encode_image_data_uri(r, max_edge=1280) for r in req.refs
             ]  # verify field name
+        if req.audio_path:  # avatar / lip-sync driving audio (real send: uploadMedia → URL)
+            body["audio_url"] = req.audio_path  # verify field name
 
         if req.dry_run:
             preview = dict(body)

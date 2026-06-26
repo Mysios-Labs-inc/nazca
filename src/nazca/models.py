@@ -971,7 +971,7 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="premium",
         price_usd=None,
-        ops=frozenset({"t2v", "i2v", "motion_control"}),
+        ops=frozenset({"t2v", "i2v", "motion_control", "avatar"}),
     ),
     "atlas-kling-v3-4k": ModelSpec(
         shorthand="atlas-kling-v3-4k",
@@ -1261,7 +1261,27 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="cheap",
         price_usd=None,
-        ops=frozenset({"motion_control"}),
+        ops=frozenset({"motion_control", "avatar"}),
+    ),
+    "atlas-infinitetalk": ModelSpec(
+        shorthand="atlas-infinitetalk",
+        provider_id="atlascloud/infinitetalk",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="cheap",
+        price_usd=None,
+        ops=frozenset({"avatar"}),
+    ),
+    "atlas-avatar-omnihuman-1.5": ModelSpec(
+        shorthand="atlas-avatar-omnihuman-1.5",
+        provider_id="bytedance/avatar-omni-human-v1.5",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"avatar"}),
     ),
 }
 
