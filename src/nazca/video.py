@@ -62,6 +62,13 @@ ARK_VIDEO_MODELS: dict[str, str] = {
     if spec.backend == "modelark"
 }
 
+# Atlas Cloud video model shorthands → Atlas slug STEM (backend appends op suffix)
+ATLAS_VIDEO_MODELS: dict[str, str] = {
+    sh: spec.provider_id
+    for sh, spec in _VIDEO_REGISTRY.items()
+    if spec.backend == "atlas"
+}
+
 # tier tags: each shorthand → "cheap" | "premium"
 VIDEO_MODEL_TIERS: dict[str, str] = {
     sh: spec.tier
@@ -121,21 +128,25 @@ def _resolve_video(model: str) -> tuple[str, str]:
             return ("fal", raw_id)
         if prefix in ("ark", "modelark"):
             return ("modelark", raw_id)
+        if prefix == "atlas":
+            return ("atlas", raw_id)
 
     # 2. user override file (~/.config/nazca/models.json)
     ov = video_override(model)
     if ov is not None:
         ov_backend = ov.get("backend", "vertex")
         ov_id = ov.get("id", model)
-        if ov_backend in ("fal", "modelark"):
+        if ov_backend in ("fal", "modelark", "atlas"):
             return (ov_backend, ov_id)
         return ("vertex", ov_id)  # vertex override: raw Veo id
 
-    # 3. built-in registries (fal, then ModelArk, then Vertex aliases)
+    # 3. built-in registries (fal, then ModelArk, then Atlas, then Vertex aliases)
     if model in FAL_VIDEO_MODELS:
         return ("fal", FAL_VIDEO_MODELS[model])
     if model in ARK_VIDEO_MODELS:
         return ("modelark", ARK_VIDEO_MODELS[model])
+    if model in ATLAS_VIDEO_MODELS:
+        return ("atlas", ATLAS_VIDEO_MODELS[model])
     return ("vertex", VEO_ALIASES.get(model, model))
 
 

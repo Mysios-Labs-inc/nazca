@@ -11,6 +11,7 @@ key to `BACKENDS`.
 
 from __future__ import annotations
 
+from nazca.backends.atlas import AtlasBackend
 from nazca.backends.base import Backend
 from nazca.backends.fal import FalBackend
 from nazca.backends.modelark import ModelArkBackend
@@ -23,6 +24,7 @@ BACKENDS: dict[str, Backend] = {
     "fal": FalBackend(),
     "modelark": ModelArkBackend(),
     "openai": OpenAIBackend(),
+    "atlas": AtlasBackend(),
 }
 
 
@@ -35,6 +37,7 @@ def get_backend(name: str) -> Backend:
 
 __all__ = [
     "Backend",
+    "AtlasBackend",
     "FalBackend",
     "ModelArkBackend",
     "OpenAIBackend",

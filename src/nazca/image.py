@@ -97,6 +97,8 @@ def _resolve(model: str | None) -> tuple[str, str, str, str]:
             return (raw_id, "", "modelark", "modelark")
         if prefix in ("openai", "oai"):
             return (raw_id, "", "openai", "openai")
+        if prefix == "atlas":
+            return (raw_id, "", "atlas", "atlas")
 
     # 2. user override file (~/.config/nazca/models.json)
     ov = image_override(model)

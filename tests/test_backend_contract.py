@@ -25,6 +25,7 @@ _IMAGE_PROBE = {
     "fal": ("fal-ai/flux/schnell", "fal", ""),
     "modelark": ("seedream-4-0-250828", "modelark", ""),
     "openai": ("gpt-image-2", "openai", ""),
+    "atlas": ("google/nano-banana-2", "atlas", ""),
 }
 
 # Resolved (model_id, region) routing per backend for the video dry-run probe.
@@ -33,6 +34,7 @@ _VIDEO_PROBE = {
     "vertex": ("veo-3.1-generate-001", ""),
     "fal": ("fal-ai/wan/v2.6/text-to-video", ""),
     "modelark": ("bytedance-seedance-1-0-pro-250528", ""),
+    "atlas": ("bytedance/seedance-2.0-mini", ""),
 }
 
 
@@ -52,7 +54,8 @@ def test_image_dry_run_round_trips_to_plan(name, tmp_path, monkeypatch):
     req = ImageRequest(prompt="a test", refs=[], aspect_ratio="1:1", size="2K", dry_run=True)
     plan = backend.run_image(model_id, api, region, req)
     assert isinstance(plan, dict)
-    assert plan["model"] == model_id
+    # most backends echo model_id verbatim; atlas appends the op suffix to the slug stem
+    assert plan["model"] == model_id or plan["model"].startswith(model_id + "/")
     assert not (tmp_path / "x.png").exists()  # dry-run writes nothing
 
 
