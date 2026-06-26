@@ -50,8 +50,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from nazca import config, retry
-from nazca.backends.vertex import VertexError, access_token
-from nazca.image import _gemini_extract, _resolve, encode_image_b64
+from nazca.backends.vertex import VertexError, access_token, gemini_extract
+from nazca.image import _resolve
+from nazca.media import encode_image_b64
 
 # Gemini image models documented as batch-eligible (2026-06-22). Others may work
 # but we warn so callers know they're off the verified list.
@@ -396,7 +397,7 @@ class _OutputSink:
             return
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(_gemini_extract(resp))
+            target.write_bytes(gemini_extract(resp))
             self.written += 1
         except Exception as e:  # one bad line must not sink the fetch
             self.errors.append(f"{target}: {e}")

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from nazca.backends import get_backend
 from nazca.cost import estimate_audio_cost
-from nazca.errors import AudioError
+from nazca.errors import AudioError  # noqa: F401  (re-export for back-compat)
 from nazca.media import write_result
 from nazca.models import models_for
 from nazca.request import AudioRequest
@@ -32,14 +32,6 @@ _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-tts-grok", "premium": "atlas-t
 def select_audio_model(tier: str | None) -> str | None:
     """Return the default audio model shorthand for *tier*, or None."""
     return _TIER_DEFAULTS.get(tier) if tier else None
-
-
-def _resolve_audio(model: str | None) -> tuple[str, str]:
-    """Resolve an audio model shorthand to (backend_name, provider_id)."""
-    from nazca.resolve import resolve
-
-    resolved = resolve(model, "audio")
-    return (resolved.backend, resolved.provider_id)
 
 
 def speak(

@@ -11,7 +11,14 @@ from __future__ import annotations
 from PIL import Image
 
 from nazca import image as img
-from nazca.backends.modelark import ModelArkBackend
+from nazca.backends.modelark import (
+    _SEEDREAM_MAX_PX,
+    _SEEDREAM_MAX_REFS,
+    _SEEDREAM_MIN_PX,
+    ModelArkBackend,
+    _seedream_body,
+    _seedream_size,
+)
 
 
 def _png(path):
@@ -21,42 +28,42 @@ def _png(path):
 
 # --------------------------------------------------------------------------- size mapping
 def test_seedream_size_named_passthrough_without_aspect():
-    assert img._seedream_size("2K", None) == "2K"
-    assert img._seedream_size("4K", "") == "4K"
+    assert _seedream_size("2K", None) == "2K"
+    assert _seedream_size("4K", "") == "4K"
 
 
 def test_seedream_size_maps_aspect_to_pixels():
     # 1:1 at 2K → the square edge.
-    assert img._seedream_size("2K", "1:1") == "2048x2048"
+    assert _seedream_size("2K", "1:1") == "2048x2048"
     # 16:9 landscape → width > height, aspect preserved, /16 rounded.
-    s = img._seedream_size("2K", "16:9")
+    s = _seedream_size("2K", "16:9")
     w, h = (int(x) for x in s.split("x"))
     assert w > h
     assert w % 16 == 0 and h % 16 == 0
     assert abs((w / h) - (16 / 9)) < 0.02
     # within the documented valid total-pixel range
-    assert img._SEEDREAM_MIN_PX <= w * h <= img._SEEDREAM_MAX_PX
+    assert _SEEDREAM_MIN_PX <= w * h <= _SEEDREAM_MAX_PX
 
 
 def test_seedream_size_portrait_aspect():
-    s = img._seedream_size("2K", "9:16")
+    s = _seedream_size("2K", "9:16")
     w, h = (int(x) for x in s.split("x"))
     assert h > w  # portrait
 
 
 def test_seedream_size_invalid_aspect_falls_back_to_named():
-    assert img._seedream_size("2K", "garbage") == "2K"
-    assert img._seedream_size("2K", "0:0") == "2K"
+    assert _seedream_size("2K", "garbage") == "2K"
+    assert _seedream_size("2K", "0:0") == "2K"
 
 
 def test_seedream_size_none():
-    assert img._seedream_size(None, "16:9") is None
+    assert _seedream_size(None, "16:9") is None
 
 
 # --------------------------------------------------------------------------- body shape
 def test_seedream_body_single_ref_is_string(tmp_path):
     backend = ModelArkBackend()
-    body = img._seedream_body("a dish", [_png(tmp_path / "r.png")], "1:1", "2K", backend)
+    body = _seedream_body("a dish", [_png(tmp_path / "r.png")], "1:1", "2K", backend)
     assert isinstance(body["image"], str)
     assert body["image"].startswith("data:image/png;base64,")
     assert body["sequential_image_generation"] == "disabled"
@@ -69,7 +76,7 @@ def test_seedream_body_single_ref_is_string(tmp_path):
 def test_seedream_body_multi_ref_is_array(tmp_path):
     backend = ModelArkBackend()
     refs = [_png(tmp_path / f"r{i}.png") for i in range(3)]
-    body = img._seedream_body("blend", refs, None, "2K", backend)
+    body = _seedream_body("blend", refs, None, "2K", backend)
     assert isinstance(body["image"], list)
     assert len(body["image"]) == 3
     assert all(u.startswith("data:image/png;base64,") for u in body["image"])
@@ -78,13 +85,13 @@ def test_seedream_body_multi_ref_is_array(tmp_path):
 def test_seedream_body_caps_refs_at_14(tmp_path):
     backend = ModelArkBackend()
     refs = [_png(tmp_path / f"r{i}.png") for i in range(20)]
-    body = img._seedream_body("p", refs, None, "2K", backend)
-    assert len(body["image"]) == img._SEEDREAM_MAX_REFS == 14
+    body = _seedream_body("p", refs, None, "2K", backend)
+    assert len(body["image"]) == _SEEDREAM_MAX_REFS == 14
 
 
 def test_seedream_body_no_refs_omits_image(tmp_path):
     backend = ModelArkBackend()
-    body = img._seedream_body("text only", [], None, "2K", backend)
+    body = _seedream_body("text only", [], None, "2K", backend)
     assert "image" not in body
 
 

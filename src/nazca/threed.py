@@ -11,7 +11,7 @@ from pathlib import Path
 
 from nazca.backends import get_backend
 from nazca.cost import estimate_3d_cost
-from nazca.errors import ThreeDError
+from nazca.errors import ThreeDError  # noqa: F401  (re-export for back-compat)
 from nazca.media import write_result
 from nazca.request import ThreeDRequest
 
@@ -22,15 +22,6 @@ _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-hunyuan3d-rapid", "premium": "
 def select_3d_model(tier: str | None) -> str | None:
     """Return the default 3D model shorthand for *tier*, or None."""
     return _TIER_DEFAULTS.get(tier) if tier else None
-
-
-def _resolve_3d(model: str | None) -> tuple[str, str]:
-    """Resolve a 3D model shorthand to (backend_name, provider_id)."""
-    from nazca.resolve import resolve
-
-    model = model or DEFAULT_3D_MODEL
-    resolved = resolve(model, "3d")
-    return (resolved.backend, resolved.provider_id)
 
 
 def make_3d(
