@@ -19,8 +19,16 @@ from nazca.backends import get_backend, require_capability
 from nazca.cost import estimate_video_cost
 from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import write_result
+from nazca.models import (  # named projections now live in the data layer (re-exported here)
+    ARK_VIDEO_MODELS,  # noqa: F401
+    ATLAS_VIDEO_MODELS,  # noqa: F401
+    FAL_VIDEO_MODELS,  # noqa: F401
+    VEO_ALIASES,  # noqa: F401
+    VIDEO_EDIT_MODELS,  # noqa: F401
+    VIDEO_EDIT_OPS_SET,
+    VIDEO_MODEL_TIERS,  # noqa: F401
+)
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
-from nazca.models import models_for, tiers
 from nazca.request import VideoRequest
 
 
@@ -37,37 +45,9 @@ def video_cost_label(
     return est.label() if est is not None else None
 
 
-# Derived from the canonical registry in nazca.models — do not edit values here;
-# edit nazca/models.py instead.
-
-# Shorthand aliases → full Vertex Veo model ids
-VEO_ALIASES: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video", backend="vertex").items()
-}
-
-# fal video model shorthands → fal model id
-# (excludes video-edit ops which are tracked in VIDEO_EDIT_MODELS)
-FAL_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video", backend="fal").items()
-    if not spec.ops.isdisjoint({"i2v", "t2v"})
-}
-
-# ModelArk video model shorthands → BytePlus ModelArk model id
-ARK_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video", backend="modelark").items()
-}
-
-# Atlas Cloud video model shorthands → Atlas slug STEM (backend appends op suffix)
-ATLAS_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video", backend="atlas").items()
-}
-
-# tier tags: each shorthand → "cheap" | "premium"
-VIDEO_MODEL_TIERS: dict[str, str] = tiers("video")
+# The named registry projections (VEO_ALIASES, FAL_VIDEO_MODELS, ARK_VIDEO_MODELS,
+# ATLAS_VIDEO_MODELS, VIDEO_MODEL_TIERS, VIDEO_EDIT_MODELS) now live in nazca.models
+# beside the registry; they are imported above and re-exported for back-compat.
 
 # tier → default Vertex-direct model (never auto-route to fal)
 _TIER_DEFAULTS: dict[str, str] = {
@@ -83,22 +63,10 @@ def select_model(tier: str | None) -> str | None:
     return _TIER_DEFAULTS.get(tier)
 
 
-# fal video-EDIT ops (source VIDEO → video). Shorthand == op name. The source
-# enters as a URL (video_url), never inlined — see edit_video(). reframe's id and
-# input field are verified (research workflow, fal.ai 2026-06-22); v2v/extend are
-# deferred pending a live input-field probe.
-# Derived from the canonical registry in nazca.models.
-_VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset(
-    {"reframe", "v2v", "extend", "motion_control", "video_upscale"}
-)
-VIDEO_EDIT_MODELS: dict[str, str] = {
-    sh: spec.provider_id
-    for sh, spec in models_for("video").items()
-    if not spec.ops.isdisjoint(_VIDEO_EDIT_OPS_SET)
-}
 # The OP NAMES that route through edit_video (source VIDEO → video). The CLI tests
 # `op in VIDEO_EDIT_OPS`, so this is the op set, not the model shorthands.
-VIDEO_EDIT_OPS = tuple(sorted(_VIDEO_EDIT_OPS_SET))
+# VIDEO_EDIT_OPS_SET is the single source (imported from nazca.models).
+VIDEO_EDIT_OPS = tuple(sorted(VIDEO_EDIT_OPS_SET))
 
 # Ops whose shorthand isn't the op name need a default model (fal reframe/v2v/extend
 # use op==shorthand; the Atlas-only ops point at a concrete Atlas model).
