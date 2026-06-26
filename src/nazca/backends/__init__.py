@@ -13,7 +13,14 @@ Adding new backends remains additive: implement `Backend` and add one key to
 from __future__ import annotations
 
 from nazca.backends.atlas import AtlasBackend
-from nazca.backends.base import Backend
+from nazca.backends.base import (
+    Backend,
+    SupportsAudio,
+    SupportsImage,
+    SupportsThreeD,
+    SupportsVideo,
+    require_capability,
+)
 from nazca.backends.fal import FalBackend
 from nazca.backends.modelark import ModelArkBackend
 from nazca.backends.openai import OpenAIBackend
@@ -38,6 +45,11 @@ def get_backend(name: str) -> Backend:
 
 __all__ = [
     "Backend",
+    "SupportsImage",
+    "SupportsVideo",
+    "SupportsAudio",
+    "SupportsThreeD",
+    "require_capability",
     "AtlasBackend",
     "FalBackend",
     "ModelArkBackend",

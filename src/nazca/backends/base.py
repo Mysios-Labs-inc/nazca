@@ -1,20 +1,25 @@
-"""Backend interface — what every provider must expose.
+"""Backend interface — shared plumbing + per-modality capability protocols.
 
-A lightweight base class (not a pure Protocol) that unifies common provider
-plumbing — credential handling, endpoint building, HTTP mechanics, image encoding —
-so all backends can be type-checked and registered uniformly. Each method mirrors
-a piece of the original single-provider `vertex.py` infrastructure.
+`Backend` is a lightweight base class carrying only the plumbing every provider
+shares — credential handling, endpoint building, HTTP mechanics, image encoding.
+It deliberately does NOT declare the generation methods: a backend exposes
+``run_image`` / ``run_video`` / ``run_audio`` / ``run_3d`` *only* for the
+modalities it actually supports (Interface Segregation).
 
-The load-bearing seam is `run_image` / `run_video`: each backend owns its own
-body-building, dispatch, extraction, and dry-run plan rendering, so the call sites
-in `image.py` / `video.py` collapse to a single `backend.run_image(...)` call with
-no per-backend branching.
+Which modalities a backend supports is expressed by the ``@runtime_checkable``
+capability protocols below (``SupportsImage`` etc.). A backend satisfies a
+protocol structurally — just by defining the matching ``run_<modality>`` method —
+so no explicit inheritance is needed. ``require_capability`` turns an unsupported
+route into a clear ``BackendError`` at the dispatch boundary (replacing the old
+unreachable NotImplementedError stubs on the base class).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+from nazca.errors import BackendError
 
 if TYPE_CHECKING:
     from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
@@ -37,10 +42,7 @@ class Backend:
     def post(self, url: str, body: dict, token: str) -> dict:
         """HTTP POST a JSON body, return decoded JSON.
 
-        Abstract: each backend implements its own POST. Per-request HTTP DEBUG
-        logging is deferred to the uniform-seam PR (Stage 3), which gives all
-        backends a single shared dispatch point to instrument once instead of
-        five divergent ``post()`` methods.
+        Abstract: each backend implements its own POST.
         """
         raise NotImplementedError
 
@@ -50,38 +52,55 @@ class Backend:
         """Return (base64, mime) for an image, optionally downscaled to max_edge."""
         raise NotImplementedError
 
-    # --------------------------------------------------------------- run seam
 
-    def run_image(self, resolved: ResolvedModel, req: ImageRequest) -> bytes | dict:
-        """Generate (or modify) one image with the resolved model.
+# --------------------------------------------------------------- capability protocols
 
-        `resolved` carries the resolved routing fields (provider_id, sub-API, and
-        provider region for Vertex). Returns raw image bytes on a real run, or the
-        dry-run plan dict when ``req.dry_run`` is set. Backends that do not do images
-        raise.
-        """
-        raise NotImplementedError(f"backend '{self.name}' does not support images")
 
-    def run_video(self, resolved: ResolvedModel, req: VideoRequest) -> bytes | dict:
-        """Generate (or edit) one video clip with the resolved model.
+@runtime_checkable
+class SupportsImage(Protocol):
+    """A backend that can generate or modify images."""
 
-        Returns raw video bytes on a real run, or the dry-run plan dict when
-        ``req.dry_run`` is set. Backends that do not do video raise.
-        """
-        raise NotImplementedError(f"backend '{self.name}' does not support video")
+    def run_image(self, resolved: ResolvedModel, req: ImageRequest) -> bytes | dict: ...
 
-    def run_audio(self, resolved: ResolvedModel, req: AudioRequest) -> bytes | dict:
-        """Synthesize one audio clip (text-to-speech) with the resolved model.
 
-        Returns raw audio bytes on a real run, or the dry-run plan dict when
-        ``req.dry_run`` is set. Backends that do not do audio raise.
-        """
-        raise NotImplementedError(f"backend '{self.name}' does not support audio")
+@runtime_checkable
+class SupportsVideo(Protocol):
+    """A backend that can generate or edit video."""
 
-    def run_3d(self, resolved: ResolvedModel, req: ThreeDRequest) -> bytes | dict:
-        """Generate one 3D asset (GLB mesh) with the resolved model.
+    def run_video(self, resolved: ResolvedModel, req: VideoRequest) -> bytes | dict: ...
 
-        Returns raw GLB bytes on a real run, or the dry-run plan dict when
-        ``req.dry_run`` is set. Backends that do not do 3D raise.
-        """
-        raise NotImplementedError(f"backend '{self.name}' does not support 3D")
+
+@runtime_checkable
+class SupportsAudio(Protocol):
+    """A backend that can synthesize audio (text-to-speech)."""
+
+    def run_audio(self, resolved: ResolvedModel, req: AudioRequest) -> bytes | dict: ...
+
+
+@runtime_checkable
+class SupportsThreeD(Protocol):
+    """A backend that can generate 3D assets (GLB)."""
+
+    def run_3d(self, resolved: ResolvedModel, req: ThreeDRequest) -> bytes | dict: ...
+
+
+# modality key -> (capability protocol, human label for the error message)
+_CAPABILITY: dict[str, tuple[type, str]] = {
+    "image": (SupportsImage, "images"),
+    "video": (SupportsVideo, "video"),
+    "audio": (SupportsAudio, "audio"),
+    "3d": (SupportsThreeD, "3D"),
+}
+
+
+def require_capability(backend: Backend, modality: str) -> Backend:
+    """Return `backend` if it supports `modality`, else raise a clear BackendError.
+
+    Guards the dispatch boundary: routing a modality to a backend that does not
+    implement it yields a friendly error (same wording as the old base stubs)
+    instead of an AttributeError.
+    """
+    proto, label = _CAPABILITY[modality]
+    if not isinstance(backend, proto):
+        raise BackendError(f"backend '{backend.name}' does not support {label}")
+    return backend

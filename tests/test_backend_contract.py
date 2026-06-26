@@ -39,10 +39,32 @@ _VIDEO_PROBE = {
 }
 
 
-def test_every_backend_implements_run_methods():
+def test_backends_satisfy_their_capability_protocols():
+    """Each backend satisfies exactly the capability protocols for the modalities
+    it supports (Interface Segregation) — verified structurally via isinstance on
+    the @runtime_checkable protocols, not a fat must-implement-everything contract.
+    """
+    from nazca.backends.base import (
+        SupportsAudio,
+        SupportsImage,
+        SupportsThreeD,
+        SupportsVideo,
+    )
+
+    # (image, video, audio, 3d) capability matrix.
+    expected = {
+        "vertex": (True, True, False, False),
+        "fal": (True, True, False, False),
+        "modelark": (True, True, False, False),
+        "openai": (True, False, False, False),
+        "atlas": (True, True, True, True),
+    }
     for name, backend in BACKENDS.items():
-        assert callable(getattr(backend, "run_image", None)), f"{name}.run_image not callable"
-        assert callable(getattr(backend, "run_video", None)), f"{name}.run_video not callable"
+        img, vid, aud, td = expected[name]
+        assert isinstance(backend, SupportsImage) == img, f"{name} image"
+        assert isinstance(backend, SupportsVideo) == vid, f"{name} video"
+        assert isinstance(backend, SupportsAudio) == aud, f"{name} audio"
+        assert isinstance(backend, SupportsThreeD) == td, f"{name} 3d"
 
 
 @pytest.mark.parametrize("name", list(BACKENDS))

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nazca.backends import get_backend
+from nazca.backends import get_backend, require_capability
 from nazca.backends.openai import OPENAI_ASPECT_MAP as _OPENAI_ASPECT_MAP
 from nazca.cost import cost_from_openai_usage, estimate_image_cost
 from nazca.errors import ImageError  # noqa: F401  (re-exported for back-compat)
@@ -117,7 +117,7 @@ def generate_image(
     """
     out = Path(out)
     resolved = _resolve_unified(model, "image")
-    backend = get_backend(resolved.backend)
+    backend = require_capability(get_backend(resolved.backend), "image")
 
     if ref is None:
         refs: list[str] = []
@@ -210,7 +210,7 @@ def modify_image(
     rm = _resolve_unified(resolved, "image")
     if rm.backend != "fal":
         raise ImageError(f"modify op '{op}' needs a fal model; '{resolved}' resolves to {rm.backend}")
-    backend = get_backend(rm.backend)
+    backend = require_capability(get_backend(rm.backend), "image")
 
     req = ImageRequest(
         prompt=prompt or "",
