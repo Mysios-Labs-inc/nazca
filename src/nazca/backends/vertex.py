@@ -241,8 +241,9 @@ class VertexBackend(Backend):
 
     # ------------------------------------------------------------------ image
 
-    def run_image(self, model_id, api, region, req: ImageRequest):
+    def run_image(self, resolved, req: ImageRequest):
         """Gemini (:generateContent) or Imagen (:predict) — owns body + extract + plan."""
+        model_id, api, region = resolved.provider_id, resolved.api, resolved.region
         if api == "imagen" and req.refs:
             raise ImageError(
                 f"model '{model_id}' (imagen) is text-to-image only — drop --ref or use a nano-banana model"
@@ -326,8 +327,9 @@ class VertexBackend(Backend):
 
     # ------------------------------------------------------------------ video (Veo)
 
-    def run_video(self, model_id, region, req: VideoRequest):
+    def run_video(self, resolved, req: VideoRequest):
         """Veo predictLongRunning + poll — owns body + poll + extract + plan."""
+        model_id = resolved.provider_id
         instance: dict = {"prompt": req.prompt}
         if req.start:  # omit `image` for text-to-video
             start_b64, mime = self.encode_image_b64(req.start, max_edge=1280, fmt="JPEG")

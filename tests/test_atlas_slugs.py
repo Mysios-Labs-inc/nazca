@@ -12,6 +12,7 @@ from PIL import Image
 from nazca.backends.atlas import _STANDALONE_STEMS, _model_slug
 from nazca.models import AUDIO_MODELS, MODELS, THREED_MODELS, VIDEO_MODELS
 from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
+from nazca.resolve import ResolvedModel
 
 
 def _atlas():
@@ -61,7 +62,8 @@ def test_every_atlas_model_slug_is_stable():
 # --------------------------------------------------------------------------- dry-run plan bodies
 def test_image_plan_body_keys():
     plan = _atlas().run_image(
-        "google/nano-banana-2", "atlas", "",
+        ResolvedModel(shorthand="google/nano-banana-2", provider_id="google/nano-banana-2",
+                      backend="atlas", api="atlas", region="", spec=None),
         ImageRequest(prompt="x", size="1K", aspect_ratio="1:1", dry_run=True),
     )
     assert plan["model"] == "google/nano-banana-2/text-to-image"
@@ -72,7 +74,8 @@ def test_video_plan_body_keys(tmp_path):
     img = tmp_path / "s.png"
     Image.new("RGB", (16, 16), (1, 2, 3)).save(img)
     plan = _atlas().run_video(
-        "bytedance/seedance-2.0-mini", "",
+        ResolvedModel(shorthand="bytedance/seedance-2.0-mini", provider_id="bytedance/seedance-2.0-mini",
+                      backend="atlas", api="", region="", spec=None),
         VideoRequest(prompt="x", start=str(img), duration=5, dry_run=True),
     )
     assert plan["model"] == "bytedance/seedance-2.0-mini/image-to-video"
@@ -80,12 +83,20 @@ def test_video_plan_body_keys(tmp_path):
 
 
 def test_audio_plan_body_keys():
-    plan = _atlas().run_audio("xai/tts-v1", AudioRequest(text="hi", output_format="mp3", dry_run=True))
+    plan = _atlas().run_audio(
+        ResolvedModel(shorthand="xai/tts-v1", provider_id="xai/tts-v1",
+                      backend="atlas", api="", region="", spec=None),
+        AudioRequest(text="hi", output_format="mp3", dry_run=True),
+    )
     assert plan["model"] == "xai/tts-v1"
     assert {"model", "text", "format"} <= set(plan["body"])
 
 
 def test_threed_plan_body_keys():
-    plan = _atlas().run_3d("tencent/hunyuan3d-rapid", ThreeDRequest(prompt="a car", op="t23d", dry_run=True))
+    plan = _atlas().run_3d(
+        ResolvedModel(shorthand="tencent/hunyuan3d-rapid", provider_id="tencent/hunyuan3d-rapid",
+                      backend="atlas", api="", region="", spec=None),
+        ThreeDRequest(prompt="a car", op="t23d", dry_run=True),
+    )
     assert plan["model"] == "tencent/hunyuan3d-rapid/text-to-3d"
     assert {"model", "prompt"} <= set(plan["body"])

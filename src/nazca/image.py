@@ -131,8 +131,8 @@ def generate_image(
     Returns the output path; dry_run returns the plan dict (no API call, no key needed).
     """
     out = Path(out)
-    model_id, region, api, backend_name = _resolve(model)
-    backend = get_backend(backend_name)
+    resolved = _resolve_unified(model, "image")
+    backend = get_backend(resolved.backend)
 
     if ref is None:
         refs: list[str] = []
@@ -151,12 +151,12 @@ def generate_image(
         transparent=transparent,
         op=op,
         est_cost_usd=_estimate_image_cost(
-            model, backend_name, aspect_ratio=aspect_ratio, size=size, quality=quality
+            model, resolved.backend, aspect_ratio=aspect_ratio, size=size, quality=quality
         ),
         dry_run=dry_run,
     )
 
-    result = backend.run_image(model_id, api, region, req)
+    result = backend.run_image(resolved, req)
     if dry_run:
         return result
     out.write_bytes(result)
@@ -222,10 +222,10 @@ def modify_image(
     """
     out = Path(out)
     resolved = model or _MODIFY_DEFAULT_MODEL[op]
-    model_id, region, api, backend_name = _resolve(resolved)
-    if backend_name != "fal":
-        raise ImageError(f"modify op '{op}' needs a fal model; '{resolved}' resolves to {backend_name}")
-    backend = get_backend(backend_name)
+    rm = _resolve_unified(resolved, "image")
+    if rm.backend != "fal":
+        raise ImageError(f"modify op '{op}' needs a fal model; '{resolved}' resolves to {rm.backend}")
+    backend = get_backend(rm.backend)
 
     req = ImageRequest(
         prompt=prompt or "",
@@ -237,7 +237,7 @@ def modify_image(
         dry_run=dry_run,
     )
 
-    result = backend.run_image(model_id, api, region, req)
+    result = backend.run_image(rm, req)
     if dry_run:
         return result
     out.write_bytes(result)

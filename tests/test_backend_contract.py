@@ -12,6 +12,7 @@ from PIL import Image
 
 from nazca.backends import BACKENDS
 from nazca.request import ImageRequest, VideoRequest
+from nazca.resolve import ResolvedModel
 
 
 def _png(path):
@@ -51,8 +52,12 @@ def test_image_dry_run_round_trips_to_plan(name, tmp_path, monkeypatch):
     monkeypatch.setattr(config, "VERTEX_PROJECT", "test-proj")  # vertex build_url needs it
     backend = BACKENDS[name]
     model_id, api, region = _IMAGE_PROBE[name]
+    resolved = ResolvedModel(
+        shorthand=model_id, provider_id=model_id, backend=name,
+        api=api, region=region, spec=None,
+    )
     req = ImageRequest(prompt="a test", refs=[], aspect_ratio="1:1", size="2K", dry_run=True)
-    plan = backend.run_image(model_id, api, region, req)
+    plan = backend.run_image(resolved, req)
     assert isinstance(plan, dict)
     # most backends echo model_id verbatim; atlas appends the op suffix to the slug stem
     assert plan["model"] == model_id or plan["model"].startswith(model_id + "/")
@@ -66,7 +71,11 @@ def test_video_dry_run_round_trips_to_plan(name, monkeypatch):
     monkeypatch.setattr(config, "VERTEX_PROJECT", "test-proj")  # vertex build_url needs it
     backend = BACKENDS[name]
     model_id, region = _VIDEO_PROBE[name]
+    resolved = ResolvedModel(
+        shorthand=model_id, provider_id=model_id, backend=name,
+        api="", region=region, spec=None,
+    )
     req = VideoRequest(prompt="a clip", aspect_ratio="9:16", duration=8, dry_run=True)
-    plan = backend.run_video(model_id, region, req)
+    plan = backend.run_video(resolved, req)
     assert isinstance(plan, dict)
     assert "url" in plan
