@@ -36,6 +36,7 @@ from nazca.backends.error_hints import hint
 from nazca.errors import BackendError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_data_uri, summarize_data_uri
+from nazca.models import AUDIO_MODELS, MODELS, THREED_MODELS, VIDEO_MODELS
 
 if TYPE_CHECKING:
     from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
@@ -59,7 +60,7 @@ _OP_SUFFIX: dict[str, str] = {
     "keyframe": "start-end-frame-to-video",
     "extend": "extend-video",
     "motion_control": "motion-control",
-    "avatar": "avatar",  # Kling avatar; standalone avatar models override via _STANDALONE_STEMS
+    "avatar": "avatar",  # Kling avatar; standalone avatar models declare standalone_slug
     # audio
     "tts": "text-to-speech",
     # 3d
@@ -67,36 +68,28 @@ _OP_SUFFIX: dict[str, str] = {
     "i23d": "image-to-3d",
 }
 
-# Ops whose model slug is STANDALONE (the stem is already the full slug, no operation
-# suffix) — e.g. atlascloud/video-upscaler, kwaivgi/kling-effects.
-_NO_SUFFIX_OPS: frozenset[str] = frozenset({"video_upscale", "effects"})
-
-# Models whose stem IS the complete slug regardless of op (no operation suffix),
-# e.g. the standalone avatar/talking-head models.
-_STANDALONE_STEMS: frozenset[str] = frozenset({
-    "atlascloud/video-upscaler",
-    "kwaivgi/kling-effects",
-    "atlascloud/infinitetalk",
-    "bytedance/avatar-omni-human-v1.5",
-    "xai/tts-v1",
-})
+# Provider stems whose slug is ALREADY complete (no op suffix). DERIVED from the
+# registry's declared `standalone_slug` flag — the backend reads a fact rather than
+# sniffing the slug string. Add a new standalone/resolution-baked model by setting
+# `standalone_slug=True` on its ModelSpec, not by editing this set.
+_STANDALONE_STEMS: frozenset[str] = frozenset(
+    spec.provider_id
+    for registry in (MODELS, VIDEO_MODELS, AUDIO_MODELS, THREED_MODELS)
+    for spec in registry.values()
+    if spec.standalone_slug
+)
 
 
 def _model_slug(stem: str, op: str | None, default: str) -> str:
     """Compose the Atlas `model` value: stem + operation suffix.
 
-    Some Atlas models bake resolution/variant into the stem instead of using an op
-    suffix (e.g. ``bytedance/seedance-v1-pro-t2v-1080p``), and some are standalone
-    (``atlascloud/video-upscaler``); for those the stem is already the full slug.
+    Standalone models (declared via ``ModelSpec.standalone_slug``) carry the complete
+    slug in ``provider_id`` and are returned unchanged; everything else is the stem
+    plus the operation suffix.
     """
-    # Standalone slugs, standalone-slug ops, resolution-baked slugs, or slugs already
-    # carrying a "*-to-*" operation token are passed through unchanged.
-    if stem in _STANDALONE_STEMS or op in _NO_SUFFIX_OPS:
+    if stem in _STANDALONE_STEMS:
         return stem
-    if stem.rsplit("/", 1)[-1].count("-to-") or stem.endswith(("-1080p", "-720p", "-480p")):
-        return stem
-    suffix = _OP_SUFFIX.get(op or "", default)
-    return f"{stem}/{suffix}"
+    return f"{stem}/{_OP_SUFFIX.get(op or '', default)}"
 
 
 class AtlasError(BackendError):

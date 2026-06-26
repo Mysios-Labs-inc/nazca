@@ -1,4 +1,4 @@
-"""Image codec helpers — encode, scale, and serialize images to b64/bytes/data-URIs.
+"""Media helpers — image codecs (b64/bytes/data-URIs) and the shared result writer.
 
 Single canonical implementation used across all backends (Vertex, fal, OpenAI, ModelArk).
 """
@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 from pathlib import Path
 
 from PIL import Image
@@ -16,6 +17,22 @@ MAX_REF_EDGE = 2048
 
 # Thumbnail/start-frame max dimension (video generation)
 MAX_THUMB_EDGE = 1280
+
+
+def write_result(out: str | Path, result: bytes | dict, dry_run: bool) -> Path:
+    """Write a backend run result and return the path.
+
+    Real run: raw media bytes → ``out``. Dry run: the plan dict → ``<out>.request.json``.
+    Shared by the video/audio/3D modality modules so the sidecar convention lives in
+    one place. (image.py deliberately returns the plan dict instead of writing it.)
+    """
+    out = Path(out)
+    if dry_run:
+        dbg = out.with_suffix(".request.json")
+        dbg.write_text(json.dumps(result, indent=2))
+        return dbg
+    out.write_bytes(result)
+    return out
 
 
 def encode_image_b64(path: str | Path, max_edge: int | None = None, fmt: str = "JPEG") -> tuple[str, str]:

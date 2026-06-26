@@ -41,6 +41,11 @@ class ModelSpec:
     tier: str = "cheap"
     price_usd: float | None = None
     ops: frozenset[str] = field(default_factory=frozenset)
+    #: True when ``provider_id`` is ALREADY the complete provider slug and must NOT
+    #: have an operation suffix appended (e.g. standalone Atlas models like
+    #: ``atlascloud/video-upscaler`` or resolution-baked slugs). Declared here so the
+    #: backend reads a fact instead of sniffing the slug string.
+    standalone_slug: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -1241,6 +1246,7 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="cheap",
         price_usd=None,
+        standalone_slug=True,
         ops=frozenset({"video_upscale"}),
     ),
     "atlas-kling-effects": ModelSpec(
@@ -1251,6 +1257,7 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="premium",
         price_usd=None,
+        standalone_slug=True,
         ops=frozenset({"effects"}),
     ),
     "atlas-kling-v2.6-std": ModelSpec(
@@ -1271,6 +1278,7 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="cheap",
         price_usd=None,
+        standalone_slug=True,
         ops=frozenset({"avatar"}),
     ),
     "atlas-avatar-omnihuman-1.5": ModelSpec(
@@ -1281,6 +1289,7 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="premium",
         price_usd=None,
+        standalone_slug=True,
         ops=frozenset({"avatar"}),
     ),
 }
@@ -1298,6 +1307,7 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         region="",
         tier="cheap",
         price_usd=None,
+        standalone_slug=True,
         ops=frozenset({"tts"}),
     ),
     "atlas-tts-elevenlabs-v3": ModelSpec(
