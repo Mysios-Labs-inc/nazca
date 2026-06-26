@@ -42,13 +42,14 @@ def make_3d(
     dry_run: bool = False,
 ) -> Path:
     """Generate a 3D asset (GLB) from text (`prompt`) or an image (`source`)."""
+    from nazca.resolve import resolve  # local import: avoids circular at module load
+
     out = Path(out)
-    resolved = model or DEFAULT_3D_MODEL
-    backend_name, provider_id = _resolve_3d(resolved)
-    backend = get_backend(backend_name)
+    resolved = resolve(model or DEFAULT_3D_MODEL, "3d")
+    backend = get_backend(resolved.backend)
 
     op = "i23d" if source else "t23d"
-    est = estimate_3d_cost(resolved)
+    est = estimate_3d_cost(resolved.shorthand)
     req = ThreeDRequest(
         prompt=prompt,
         source=str(source) if source else None,
@@ -57,7 +58,7 @@ def make_3d(
         dry_run=dry_run,
     )
 
-    return write_result(out, backend.run_3d(provider_id, req), dry_run)
+    return write_result(out, backend.run_3d(resolved, req), dry_run)
 
 
 def threed_cost_label(model: str | None) -> str | None:

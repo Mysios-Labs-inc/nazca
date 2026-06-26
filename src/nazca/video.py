@@ -158,10 +158,12 @@ def generate_video(
 
     Returns the output path (or .request.json for dry-run).
     """
+    from nazca.resolve import resolve  # local import: avoids circular at module load
+
     out = Path(out)
     resolved_model = model or config.VEO_MODEL
-    backend_name, model_id = _resolve_video(resolved_model)
-    backend = get_backend(backend_name)
+    resolved = resolve(resolved_model, "video")
+    backend = get_backend(resolved.backend)
 
     req = VideoRequest(
         prompt=prompt,
@@ -177,7 +179,7 @@ def generate_video(
         dry_run=dry_run,
     )
 
-    return write_result(out, backend.run_video(model_id, "", req), dry_run)
+    return write_result(out, backend.run_video(resolved, req), dry_run)
 
 
 def edit_video(
@@ -214,10 +216,17 @@ def edit_video(
             f"(local-file upload to fal storage is a planned follow-up); got: {src}"
         )
 
+    from nazca.resolve import ResolvedModel  # local import: avoids circular at module load
+
     resolved = model or default_video_edit_model(op)
     edit_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → provider id, or raw passthrough
     spec = _VIDEO_REGISTRY.get(resolved)
-    backend = get_backend(spec.backend if spec else "fal")  # per-model backend (fal | atlas)
+    backend_name = spec.backend if spec else "fal"  # per-model backend (fal | atlas)
+    backend = get_backend(backend_name)
+    rm = ResolvedModel(
+        shorthand=resolved, provider_id=edit_id, backend=backend_name,
+        api="", region="", spec=spec,
+    )
 
     req = VideoRequest(
         prompt=prompt or "",
@@ -228,4 +237,4 @@ def edit_video(
         dry_run=dry_run,
     )
 
-    return write_result(out, backend.run_video(edit_id, "", req), dry_run)
+    return write_result(out, backend.run_video(rm, req), dry_run)

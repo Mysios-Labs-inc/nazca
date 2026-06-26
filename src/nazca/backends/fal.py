@@ -194,8 +194,9 @@ class FalBackend(Backend):
 
     # ------------------------------------------------------------------ image
 
-    def run_image(self, model_id, api, region, req: ImageRequest):
+    def run_image(self, resolved, req: ImageRequest):
         """fal image generation (FLUX) or a source-image modify op — owns body + plan."""
+        model_id, api = resolved.provider_id, resolved.api
         if req.op is not None:
             return self._run_modify(model_id, req)
 
@@ -267,8 +268,9 @@ class FalBackend(Backend):
 
     # ------------------------------------------------------------------ video
 
-    def run_video(self, model_id, region, req: VideoRequest):
+    def run_video(self, resolved, req: VideoRequest):
         """fal video generation or a video-edit op — owns body + plan."""
+        model_id = resolved.provider_id
         if req.op is not None:
             return self._run_video_edit(model_id, req)
 

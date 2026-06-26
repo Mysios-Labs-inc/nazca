@@ -97,12 +97,13 @@ class OpenAIBackend(Backend):
 
     # ------------------------------------------------------------------ run seam
 
-    def run_image(self, model_id, api, region, req: ImageRequest):
+    def run_image(self, resolved, req: ImageRequest):
         """gpt-image-2 text-to-image (/generations) or reference edit (/edits).
 
         With refs → multipart /images/edits; without → JSON /images/generations.
         Owns body-building and the per-op dry-run plan.
         """
+        model_id, api = resolved.provider_id, resolved.api
         body = self._image_body(
             req.prompt, model_id, req.aspect_ratio, req.quality, req.output_format, req.transparent
         )

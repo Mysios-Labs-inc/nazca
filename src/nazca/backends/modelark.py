@@ -159,13 +159,14 @@ class ModelArkBackend(Backend):
 
     # ------------------------------------------------------------------ run seam
 
-    def run_image(self, model_id, api, region, req: ImageRequest):
+    def run_image(self, resolved, req: ImageRequest):
         """Seedream image generation — native multi-reference image-to-image.
 
         Refs go in the `image` field; the body is built once and reused for dry-run
         and real send (only base64 blobs are summarized) so the planned JSON matches
         what's POSTed. Requires model activation in the BytePlus console + balance.
         """
+        model_id, api = resolved.provider_id, resolved.api
         body = _seedream_body(req.prompt, req.refs, req.aspect_ratio, req.size, self)
         body["model"] = model_id
 
@@ -185,12 +186,13 @@ class ModelArkBackend(Backend):
 
         return self.generate_image(model_id, body)
 
-    def run_video(self, model_id, region, req: VideoRequest):
+    def run_video(self, resolved, req: VideoRequest):
         """Seedance async video. Schema UNVERIFIED — dry-run safe; benchmark before spend.
 
         The dry-run plan omits a top-level `model` key (the model id rides inside the
         body's `content`/`model`), matching the original ModelArk video plan shape.
         """
+        model_id = resolved.provider_id
         content: list[dict] = [{"type": "text", "text": req.prompt}]  # verify schema
         if req.start:
             start_uri = self.encode_image_data_uri(req.start, max_edge=1280)

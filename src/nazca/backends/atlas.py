@@ -191,8 +191,9 @@ class AtlasBackend(Backend):
         raise AtlasError(f"Atlas prediction {pred_id} timed out after {config.POLL_MAX_TRIES} polls")
 
     # ------------------------------------------------------------------ run seam
-    def run_image(self, model_id, api, region, req: ImageRequest):
+    def run_image(self, resolved, req: ImageRequest):
         """Async image generate/edit. Schema beyond {model,prompt} UNVERIFIED."""
+        model_id, api = resolved.provider_id, resolved.api
         # Infer the op from refs when the caller didn't set one (the CLI only forces
         # `op` for ops it can't infer, e.g. style — see generate_image).
         op = req.op or ("compose" if len(req.refs) > 1 else "i2i" if req.refs else "t2i")
@@ -231,8 +232,9 @@ class AtlasBackend(Backend):
             raise AtlasError(f"No prediction id in response: {resp}")
         return self._poll(pred_id, download_timeout=60)
 
-    def run_video(self, model_id, region, req: VideoRequest):
+    def run_video(self, resolved, req: VideoRequest):
         """Async video generate/edit. Schema beyond {model,prompt,image_url} UNVERIFIED."""
+        model_id = resolved.provider_id
         # Infer the op when the caller didn't set one: keyframe (start+end) > i2v
         # (start) > t2v. Source-video edit ops (motion_control/video_upscale) and
         # ref2v/effects arrive with req.op already set by the CLI.
@@ -281,8 +283,9 @@ class AtlasBackend(Backend):
             raise AtlasError(f"No prediction id in response: {resp}")
         return self._poll(pred_id, download_timeout=120)
 
-    def run_audio(self, model_id, req: AudioRequest):
+    def run_audio(self, resolved, req: AudioRequest):
         """Async text-to-speech. Endpoint + schema UNVERIFIED → dry-run safe."""
+        model_id = resolved.provider_id
         slug = _model_slug(model_id, req.op or "tts", "text-to-speech")
         body: dict = {"model": slug, "text": req.text}
         if req.voice:
@@ -306,8 +309,9 @@ class AtlasBackend(Backend):
             raise AtlasError(f"No prediction id in response: {resp}")
         return self._poll(pred_id, download_timeout=60)
 
-    def run_3d(self, model_id, req: ThreeDRequest):
+    def run_3d(self, resolved, req: ThreeDRequest):
         """Async text/image → 3D (GLB). Endpoint + schema UNVERIFIED → dry-run safe."""
+        model_id = resolved.provider_id
         slug = _model_slug(model_id, req.op or "t23d", "text-to-3d")
         body: dict = {"model": slug}
         if req.prompt:

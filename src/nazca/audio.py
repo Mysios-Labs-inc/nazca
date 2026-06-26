@@ -52,10 +52,11 @@ def speak(
     dry_run: bool = False,
 ) -> Path:
     """Synthesize speech from `text` to `out` (or write the dry-run plan)."""
+    from nazca.resolve import resolve  # local import: avoids circular at module load
+
     out = Path(out)
-    resolved = model or DEFAULT_AUDIO_MODEL
-    backend_name, provider_id = _resolve_audio(resolved)
-    backend = get_backend(backend_name)
+    resolved = resolve(model or DEFAULT_AUDIO_MODEL, "audio")
+    backend = get_backend(resolved.backend)
 
     req = AudioRequest(
         text=text,
@@ -63,12 +64,12 @@ def speak(
         output_format=output_format,
         op="tts",
         est_cost_usd=(
-            est.usd if (est := estimate_audio_cost(resolved, chars=len(text or ""))) else None
+            est.usd if (est := estimate_audio_cost(resolved.shorthand, chars=len(text or ""))) else None
         ),
         dry_run=dry_run,
     )
 
-    return write_result(out, backend.run_audio(provider_id, req), dry_run)
+    return write_result(out, backend.run_audio(resolved, req), dry_run)
 
 
 def audio_cost_label(model: str | None, *, chars: int) -> str | None:

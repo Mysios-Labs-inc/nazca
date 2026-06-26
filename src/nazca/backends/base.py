@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
+    from nazca.resolve import ResolvedModel
 
 
 class Backend:
@@ -51,38 +52,34 @@ class Backend:
 
     # --------------------------------------------------------------- run seam
 
-    def run_image(
-        self, model_id: str, api: str, region: str | None, req: ImageRequest
-    ) -> bytes | dict:
-        """Generate (or modify) one image with the resolved `model_id`.
+    def run_image(self, resolved: ResolvedModel, req: ImageRequest) -> bytes | dict:
+        """Generate (or modify) one image with the resolved model.
 
-        `api` and `region` are the resolved routing fields (sub-API within the
-        backend, and provider region for Vertex). Returns raw image bytes on a real
-        run, or the dry-run plan dict when ``req.dry_run`` is set. Backends that do
-        not do images raise.
+        `resolved` carries the resolved routing fields (provider_id, sub-API, and
+        provider region for Vertex). Returns raw image bytes on a real run, or the
+        dry-run plan dict when ``req.dry_run`` is set. Backends that do not do images
+        raise.
         """
         raise NotImplementedError(f"backend '{self.name}' does not support images")
 
-    def run_video(
-        self, model_id: str, region: str | None, req: VideoRequest
-    ) -> bytes | dict:
-        """Generate (or edit) one video clip with the resolved `model_id`.
+    def run_video(self, resolved: ResolvedModel, req: VideoRequest) -> bytes | dict:
+        """Generate (or edit) one video clip with the resolved model.
 
         Returns raw video bytes on a real run, or the dry-run plan dict when
         ``req.dry_run`` is set. Backends that do not do video raise.
         """
         raise NotImplementedError(f"backend '{self.name}' does not support video")
 
-    def run_audio(self, model_id: str, req: AudioRequest) -> bytes | dict:
-        """Synthesize one audio clip (text-to-speech) with the resolved `model_id`.
+    def run_audio(self, resolved: ResolvedModel, req: AudioRequest) -> bytes | dict:
+        """Synthesize one audio clip (text-to-speech) with the resolved model.
 
         Returns raw audio bytes on a real run, or the dry-run plan dict when
         ``req.dry_run`` is set. Backends that do not do audio raise.
         """
         raise NotImplementedError(f"backend '{self.name}' does not support audio")
 
-    def run_3d(self, model_id: str, req: ThreeDRequest) -> bytes | dict:
-        """Generate one 3D asset (GLB mesh) with the resolved `model_id`.
+    def run_3d(self, resolved: ResolvedModel, req: ThreeDRequest) -> bytes | dict:
+        """Generate one 3D asset (GLB mesh) with the resolved model.
 
         Returns raw GLB bytes on a real run, or the dry-run plan dict when
         ``req.dry_run`` is set. Backends that do not do 3D raise.
