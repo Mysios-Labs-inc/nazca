@@ -207,6 +207,72 @@ def test_load_hald_non_cube_pixel_count_raises(tmp_path):
         grade.load_hald(hald_path)
 
 
+# ─────────────────────────────────────────────────── Tests: oversized LUT resample
+
+
+def _write_hald(path: Path, edge: int, fn) -> None:
+    """Write a HALD PNG of the given cube edge; fn(R,G,B in 0..1) -> (oR,oG,oB)."""
+    side = int(round((edge**3) ** 0.5))
+    assert side * side == edge**3, f"edge {edge} is not a valid (perfect-square) HALD edge"
+    px = []
+    for idx in range(edge**3):
+        r, g, b = idx % edge, (idx // edge) % edge, (idx // (edge * edge)) % edge
+        o = fn(r / (edge - 1), g / (edge - 1), b / (edge - 1))
+        px.append(tuple(round(c * 255) for c in o))
+    img = Image.new("RGB", (side, side))
+    img.putdata(px)
+    img.save(path)
+
+
+def test_resample_cube_identity_preserved():
+    """A 3-D resample of an identity ramp stays identity (no scramble)."""
+    grade = _import_grade()
+    src = 6
+    table = []
+    for b in range(src):
+        for g in range(src):
+            for r in range(src):
+                table += [r / (src - 1), g / (src - 1), b / (src - 1)]
+    dst = 4
+    out = grade._resample_cube(table, src, dst)
+    assert len(out) == dst**3 * 3
+    # corners + a midpoint map to themselves
+    for ri, gi, bi in [(0, 0, 0), (dst - 1, dst - 1, dst - 1), (0, dst - 1, 0)]:
+        o = (ri + gi * dst + bi * dst * dst) * 3
+        assert abs(out[o] - ri / (dst - 1)) < 1e-6
+        assert abs(out[o + 1] - gi / (dst - 1)) < 1e-6
+        assert abs(out[o + 2] - bi / (dst - 1)) < 1e-6
+
+
+def test_load_hald_oversized_resamples_and_applies(tmp_path):
+    """RawTherapee-class HALD (>65-cube) loads and applies the correct transform.
+
+    edge=81 (level-9) exceeds Pillow's 65 cap; it must resample over the cube
+    (preserving the lookup), not error and not scramble. Encodes an R↔B swap.
+    """
+    grade = _import_grade()
+    hald = tmp_path / "big81.png"
+    _write_hald(hald, 81, lambda r, g, b: (b, g, r))  # swap R and B
+
+    lut = grade.load_hald(hald)
+    assert lut.size[0] == 65, "oversized cube must be resampled to the 65 cap"
+    for c in ((200, 100, 40), (255, 0, 0), (0, 0, 255)):
+        out = Image.new("RGB", (4, 4), c).filter(lut).getpixel((0, 0))
+        exp = (c[2], c[1], c[0])
+        assert all(abs(out[i] - exp[i]) <= 3 for i in range(3)), (
+            f"{c} -> {out}, expected ≈{exp} (resample scrambled the lookup?)"
+        )
+
+
+def test_load_hald_within_cap_unchanged(tmp_path):
+    """A HALD at or below the cap keeps its native cube size (no resample)."""
+    grade = _import_grade()
+    hald = tmp_path / "id64.png"
+    _write_hald(hald, 64, lambda r, g, b: (r, g, b))  # identity, edge=64 (≤65)
+    lut = grade.load_hald(hald)
+    assert lut.size[0] == 64
+
+
 # ─────────────────────────────────────────────────────────────────── Tests: apply_grade
 
 

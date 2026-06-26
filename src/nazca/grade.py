@@ -25,6 +25,64 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageFilter
 
+# Pillow's Color3DLUT hard-caps the cube edge at 65 per axis. Larger LUTs —
+# notably the RawTherapee Film Simulation pack, which ships level-12 HALDs
+# (144-cube) — must be down-sized first. A HALD/LUT is a 3-D table, so it has
+# to be RESAMPLED OVER THE CUBE (trilinear), never resized as a 2-D image
+# (that scrambles the lookup into posterized garbage). A 65-cube samples a
+# smooth film LUT with error far below 8-bit output precision.
+MAX_LUT_EDGE = 65
+
+
+def _resample_cube(table: list[float], src: int, dst: int) -> list[float]:
+    """Trilinearly resample a flat RGB LUT table from a ``src``-cube to a ``dst``-cube.
+
+    ``table`` is ``src**3 * 3`` floats with RED varying fastest (the order both
+    .cube/HALD data and Color3DLUT use). Returns ``dst**3 * 3`` floats in the
+    same order. This is a true 3-D resample over the colour cube, so it
+    preserves the lookup (an identity LUT stays identity); it is NOT an image
+    resize.
+    """
+
+    def at(r: int, g: int, b: int, ch: int) -> float:
+        return table[((r + g * src + b * src * src) * 3) + ch]
+
+    scale = (src - 1) / (dst - 1) if dst > 1 else 0.0
+    out: list[float] = []
+    for bi in range(dst):
+        bf = bi * scale
+        b0 = int(bf)
+        b1 = min(b0 + 1, src - 1)
+        bd = bf - b0
+        for gi in range(dst):
+            gf = gi * scale
+            g0 = int(gf)
+            g1 = min(g0 + 1, src - 1)
+            gd = gf - g0
+            for ri in range(dst):
+                rf = ri * scale
+                r0 = int(rf)
+                r1 = min(r0 + 1, src - 1)
+                rd = rf - r0
+                for ch in range(3):
+                    x00 = at(r0, g0, b0, ch) * (1 - rd) + at(r1, g0, b0, ch) * rd
+                    x10 = at(r0, g1, b0, ch) * (1 - rd) + at(r1, g1, b0, ch) * rd
+                    x01 = at(r0, g0, b1, ch) * (1 - rd) + at(r1, g0, b1, ch) * rd
+                    x11 = at(r0, g1, b1, ch) * (1 - rd) + at(r1, g1, b1, ch) * rd
+                    y0 = x00 * (1 - gd) + x10 * gd
+                    y1 = x01 * (1 - gd) + x11 * gd
+                    out.append(y0 * (1 - bd) + y1 * bd)
+    return out
+
+
+def _build_lut(size: int, table: list[float]) -> ImageFilter.Color3DLUT:
+    """Build a Color3DLUT, resampling the cube down to MAX_LUT_EDGE if oversized."""
+    if size > MAX_LUT_EDGE:
+        table = _resample_cube(table, size, MAX_LUT_EDGE)
+        size = MAX_LUT_EDGE
+    return ImageFilter.Color3DLUT(size, table, channels=3)
+
+
 # ---------------------------------------------------------------------------
 # Platform format presets
 # ---------------------------------------------------------------------------
@@ -131,7 +189,7 @@ def load_cube(path: str | Path) -> ImageFilter.Color3DLUT:
         raise ValueError(
             f"{path}: expected {expected} values for a {size}³ LUT but found {len(table)}."
         )
-    return ImageFilter.Color3DLUT(size, table, channels=3)
+    return _build_lut(size, table)
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +218,9 @@ def load_hald(path: str | Path) -> ImageFilter.Color3DLUT:
         )
     # Normalise 0-255 → 0.0-1.0; flatten (r,g,b) tuples into a single list.
     table = [c / 255.0 for px in img.getdata() for c in px]
-    return ImageFilter.Color3DLUT(edge, table, channels=3)
+    # Resample down if the HALD exceeds Pillow's 65-cube cap (e.g. RawTherapee
+    # level-12 = 144-cube). Done over the cube, not the image.
+    return _build_lut(edge, table)
 
 
 # ---------------------------------------------------------------------------
