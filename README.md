@@ -4,15 +4,17 @@
   <img src="assets/nazca-hero.gif" alt="Nazca hummingbird geoglyph" width="640">
 </p>
 
-<p align="center"><em>the lines that draw themselves — image &amp; video generation, for agents</em></p>
+<p align="center"><em>the lines that draw themselves — image, video, speech &amp; 3D generation, for agents</em></p>
 
-**nazca** is a thin, **agent-driven CLI** for AI **image** and **video** generation.
-Two commands, each does one thing and prints the output path. Claude (or you) writes
+**nazca** is a thin, **agent-driven CLI** for AI **image**, **video**, **speech**, and **3D** generation.
+Each command does one thing and prints the output path. Claude (or you) writes
 the prompt and judges the result — nazca is just clean, reliable access to the models.
 
 ```bash
 nazca image -o dish.png --ref photo.jpg -p "restyle: warm amber parrilla grade"
 nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
+nazca speak "Fresh off the grill, every night." -o vo.mp3
+nazca make3d "a stylised anticucho skewer" -o skewer.glb
 ```
 
 > **Why "nazca"?** The [Nazca Lines](https://en.wikipedia.org/wiki/Nazca_Lines) are enormous figures —
@@ -26,8 +28,9 @@ nazca video -o clip.mp4 -s start.png -p "slow push-in, embers glow" --tier cheap
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`grade` & `format`](#nazca-grade-and-nazca-format)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
+- [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
 - [Use with Claude Desktop (MCP)](#use-with-claude-desktop-mcp)
@@ -42,22 +45,26 @@ One prompt → nazca picks a model → routes to the right provider backend → 
 
 ```mermaid
 flowchart LR
-    A([you / Claude]) -->|"nazca image · video"| CLI[nazca CLI]
+    A([you / Claude]) -->|"nazca image · video · speak · make3d"| CLI[nazca CLI]
     CLI -->|"--model / --tier"| R{{resolve model<br/>→ backend}}
     R -->|default · cheapest| V[Vertex backend<br/>gcloud token]
     R -.->|opt-in long tail| F[fal backend<br/>FAL_KEY]
     R -.->|opt-in| M[ModelArk backend<br/>ARK_API_KEY]
     R -.->|opt-in| OA[OpenAI backend<br/>OPENAI_API_KEY]
+    R -.->|opt-in · audio/3D| AT[Atlas backend<br/>ATLAS_API_KEY]
     V --> G[(Google Vertex<br/>Gemini · Imagen · Veo)]
     F --> FP[(fal.ai<br/>FLUX · Wan · Seedance)]
     M --> MP[(ByteDance<br/>Seedream · Seedance)]
     OA --> OP[(OpenAI<br/>gpt-image-2)]
-    G & FP & MP & OP --> O[/output file<br/>.png · .mp4/]
+    AT --> ATP[(Atlas Cloud<br/>~91 models · TTS · 3D · avatar)]
+    G & FP & MP & OP & ATP --> O[/output file<br/>.png · .mp4 · .mp3 · .glb/]
     O --> A
 ```
 
 **Direct-first.** Google models always go straight to Vertex — the cheapest path, no API key. fal,
-ModelArk, and OpenAI are *dotted* because they're opt-in: a Vertex-only run never reaches for their keys.
+ModelArk, OpenAI, and Atlas Cloud are *dotted* because they're opt-in: a Vertex-only run never reaches
+for their keys. **Atlas Cloud** is one async API fronting ~91 models and is the home of the new
+**speech (TTS)**, **3D (GLB)**, and **avatar / lip-sync** modalities.
 
 ---
 
@@ -173,8 +180,8 @@ Python, pass `model=` explicitly.)
 
 ### `nazca image`
 
-Generate an image, or **restyle a real photo** with `--ref` (image-to-image — keep the real subject,
-change the look).
+Generate an image, **restyle a real photo** with `--ref` (image-to-image — keep the real subject,
+change the look), or **modify** an existing image (a positional `SOURCE` + one op flag).
 
 ```bash
 # restyle a real product photo (recommended)
@@ -188,6 +195,13 @@ nazca image -o out.png --model imagen-4 -p "a rustic Peruvian parrilla scene, 9:
 
 # legible text / ad creative via OpenAI gpt-image-2 (needs OPENAI_API_KEY)
 nazca image -o ad.png --model gpt-image-2 --quality medium -p "Poster headline: GRAND OPENING — 50% OFF"
+
+# modify an existing image (SOURCE + one op flag — no prompt for upscale/rmbg)
+nazca image dish.png -o big.png   --upscale --scale 4        # super-resolution (fal)
+nazca image dish.png -o cut.png   --rmbg                     # background removal → transparent PNG (fal)
+nazca image dish.png -o fix.png   --mask m.png -p "..."      # inpaint the white-masked region
+nazca image dish.png -o wide.png  --outpaint --expand 320    # extend the canvas (fal)
+nazca image dish.png -o styled.png --style --ref look.png -p "..."  # style transfer (Atlas)
 ```
 
 | `--model` | id | region | `--ref`? |
@@ -205,6 +219,8 @@ Gemini/fal paths (~30–105s depending on `--quality`). Use `--quality` to trade
 **Flags:** `-o/--out` · `-p/--prompt` · `--ref` (repeatable) · `--model` · `--aspect` (default `9:16`) ·
 `--size 1K\|2K\|4K` (gemini-3 only) · `--quality low\|medium\|high\|auto` (gpt-image-2 only; default
 `high`) · `--tier cheap\|premium` · `--dry-run`.
+**Modify ops** (each takes a positional `SOURCE`, pick one): `--upscale --scale 1-4` · `--rmbg` ·
+`--mask <png> -p` (inpaint) · `--outpaint --expand <px>` · `--style --ref <png> -p`.
 Full Vertex inventory: [`docs/vertex-models.md`](docs/vertex-models.md).
 
 ### `nazca video`
@@ -221,13 +237,56 @@ nazca video -o clip.mp4 -s start.png -p "..." --tier cheap
 
 # start + end frame (keyframe — only when they're tight variants of each other)
 nazca video -o clip.mp4 -s a.png --end b.png -p "the skewer lifts off the grill"
+
+# text-to-video (no start frame)
+nazca video -o clip.mp4 -p "drone sweep over a smoky parrilla at dusk" --model atlas-seedance-2
+
+# lip-sync talking head: portrait + driving audio (Atlas avatar)
+nazca video -o vo.mp4 -s host.png --avatar --audio-in vo.mp3
 ```
 
 **Flags:** `-o/--out` · `-s/--start` · `-p/--prompt` · `--end` · `--model` (default `veo-3.1-fast`) ·
 `--duration 4\|6\|8` · `--aspect 9:16\|16:9` · `--resolution 720p\|1080p` · `--audio` · `--tier` · `--dry-run`.
 
+**Atlas video ops** (opt-in, one at a time): `--avatar --audio-in <file>` (lip-sync) · `--ref2v --ref <img>`
+(reference-to-video) · `--effects --start <img>` · `--motion-control <SOURCE url>` · `--video-upscale <SOURCE url>` ·
+`--reframe <SOURCE url>` (fal) · `--v2v <SOURCE url> -p` (fal) · `--extend <SOURCE url> -p` (fal).
+
 > Clips are **silent by default** (`--audio` adds sound and **doubles** Veo's cost). Keyframe interpolation
 > **morphs** if the end frame isn't a tight variant of the start — use a single frame for camera moves.
+
+---
+
+### `nazca speak`
+
+Text-to-speech via Atlas Cloud (needs `ATLAS_API_KEY`). Takes the text as a positional argument,
+writes an `.mp3` or `.wav`.
+
+```bash
+nazca speak "Fresh off the grill, every night." -o vo.mp3
+nazca speak "..." -o vo.wav --format wav --model atlas-tts-elevenlabs-v3 --voice rachel
+```
+
+**Flags:** `-o/--out` (`.mp3`/`.wav`) · `--model` (default `atlas-tts-grok`; premium `atlas-tts-elevenlabs-v3`) ·
+`--voice <name>` (model-specific) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
+
+### `nazca make3d`
+
+Generate a 3D asset (GLB) from a text prompt or an `--image` (image-to-3D), via Atlas Cloud
+(needs `ATLAS_API_KEY`).
+
+```bash
+nazca make3d "a red sports car" -o car.glb
+nazca make3d -o chair.glb --image chair.png --model atlas-seed3d-2
+```
+
+**Flags:** `-o/--out` (`.glb`) · `--image <png>` (image-to-3D; omit for text-to-3D) ·
+`--model` (default `atlas-hunyuan3d-rapid`; also `atlas-hunyuan3d-pro`, `atlas-seed3d-2`) ·
+`--tier cheap\|premium` · `--dry-run`.
+
+> **Atlas status:** the provider is integrated and dry-run-tested, but request field names beyond
+> `{model, prompt, image_url}` are **unverified against a live key** — benchmark one call per modality
+> before trusting the cost estimates.
 
 ---
 
@@ -299,7 +358,7 @@ nazca image -o out.png -p "..." --tier cheap      # → nano-banana
 nazca video -o clip.mp4 -s a.png -p "..." --tier premium   # → veo-3.1
 ```
 
-Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI pricing changes
+Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI/Atlas pricing changes
 often and is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
 
 | model | kind | $/unit | tier | backend |
@@ -316,15 +375,42 @@ often and is tier/resolution-dependent — treat those as approximate and `--dry
 | `veo-3.1` | video | $0.20 / s · **+audio $0.40** | premium | Vertex |
 | `wan-2.6`, `seedance-2-fast` | video | tier/res-dependent | cheap | fal |
 | `seedance-lite`, `seedance-pro` | video | tier/res-dependent | cheap / premium | ModelArk |
+| `atlas-tts-grok` *(default speech)* | audio | ~$0.015 / 1K chars | cheap | Atlas |
+| `atlas-tts-elevenlabs-v3` | audio | ~$0.10 / 1K chars | premium | Atlas |
+| `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
+| `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
+| `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |
 
-Run **`nazca models`** anytime to print the live table (including your overrides).
+Atlas Cloud also fronts **~91 image/video models** (Seedance, Kling, Wan, motion-control, ref2v,
+avatar, …) behind `--model atlas-*` or the `atlas:` passthrough — run **`nazca models`** to print the
+live table (including your overrides).
+
+> **Verified vs. unverified pricing.** `nazca models` marks each model with a **⚠** when its cost/schema
+> is **not live-verified** (the `atlas`, `fal`, and `modelark` backends). Vertex and OpenAI rows are
+> unmarked (proven live). Treat ⚠ figures as estimates and `--dry-run` first.
+
+---
+
+## Diagnostics (`-v` / `-vv`)
+
+nazca is silent by default. Pass **`-v`** (info) or **`-vv`** (debug) for diagnostic logging — it goes to
+**stderr only**, so stdout (the result path, or the `--dry-run` plan JSON) stays clean and pipeable:
+
+```bash
+nazca -v video -s start.png -p "push-in" -o clip.mp4      # poll progress on stderr
+nazca image -p "..." -o out.png --dry-run > plan.json     # stdout = clean JSON, no log noise
+```
+
+Verbose logging surfaces the submit→poll loops (Veo, Atlas, fal), retries, and auth-token minting
+(never the token or any key — secrets and data-URIs are redacted). For non-interactive/MCP use, set
+**`NAZCA_LOG_LEVEL`** (e.g. `NAZCA_LOG_LEVEL=DEBUG`) instead of the flags.
 
 ---
 
 ## Credentials
 
 Google/Vertex needs **no key** — `gcloud auth login` handles it. You only set keys to opt into fal,
-ModelArk, or OpenAI, and nazca stores them so you don't re-export env vars every shell.
+ModelArk, OpenAI, or Atlas Cloud, and nazca stores them so you don't re-export env vars every shell.
 
 ### `nazca login`
 
@@ -411,6 +497,20 @@ Best-in-class **legible text** for ad creative. `--model gpt-image-2` runs text-
   at low, re-export keepers at medium/high.
 - Caveats: **token-billed** (no flat $/image), and **slow** vs Gemini/fal — parallelize for volume.
 
+### Atlas Cloud (opt-in — speech, 3D, avatar + long-tail video)
+
+One async API fronting ~91 media models, and the **only** path for the `speak` (TTS) and `make3d` (3D)
+commands plus the `--avatar` lip-sync / `--ref2v` / `--style` ops. Get a key at the Atlas Cloud
+dashboard, then store it:
+
+```bash
+nazca config set atlas_api_key sk-...   # or export ATLAS_API_KEY=sk-...
+```
+
+*(Atlas isn't in the interactive `nazca login` menu yet — set it via `config set` or the `ATLAS_API_KEY`
+env var.)* *Status: integrated and dry-run-tested; request fields beyond `{model, prompt, image_url}` are
+**unverified against a live key** — benchmark one call per modality before trusting cost estimates.*
+
 ---
 
 ## Custom / overriding models
@@ -423,6 +523,7 @@ Provider model IDs change (deprecations, version bumps). You never have to edit 
 nazca image --model "ark:seedream-4-5-251128" -o out.png -p "..."
 nazca image --model "fal:fal-ai/flux/pro"     -o out.png -p "..."
 nazca image --model "openai:gpt-image-2"      -o out.png -p "..."
+nazca image --model "atlas:bytedance/seedream-v4.5" -o out.png -p "..."
 nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "..."
 ```
 
@@ -431,6 +532,7 @@ nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "...
 | `ark:` / `modelark:` | ModelArk | `ARK_API_KEY` |
 | `fal:` | fal.ai | `FAL_KEY` |
 | `openai:` / `oai:` | OpenAI | `OPENAI_API_KEY` |
+| `atlas:` | Atlas Cloud | `ATLAS_API_KEY` |
 | `vertex:` / `veo:` | Vertex | gcloud auth |
 
 **2. `~/.config/nazca/models.json` override** — re-point a shorthand (or add one) without a release:
@@ -535,10 +637,10 @@ posting belongs in MCP. nazca is just the **hands**.
 
 ```
 src/nazca/
-├── cli.py            click entrypoint: image · video · batch · login · config · models
+├── cli.py            click entrypoint: image · video · speak · make3d · batch · login · config · models
 ├── __init__.py       public library API (generate_image/_video, ModelSpec, errors)
 ├── models.py         ModelSpec registry — single source of truth (id/backend/api/tier/price/ops)
-├── request.py        ImageRequest / VideoRequest — the value objects backends receive
+├── request.py        Image/Video/Audio/ThreeDRequest — the value objects backends receive
 ├── media.py          one image codec (encode b64 / data-URI / bytes)
 ├── errors.py         BackendError → RateLimitError hierarchy (all providers subclass)
 ├── backends/
@@ -546,9 +648,12 @@ src/nazca/
 │   ├── vertex.py     Vertex AI — gcloud OAuth token + REST (Gemini · Imagen · Veo)
 │   ├── fal.py        fal.ai — FAL_KEY + queue submit→poll→download
 │   ├── modelark.py   ByteDance ModelArk — ARK_API_KEY + REST
-│   └── openai.py     OpenAI Images — OPENAI_API_KEY + generations/edits
+│   ├── openai.py     OpenAI Images — OPENAI_API_KEY + generations/edits
+│   └── atlas.py      Atlas Cloud — ATLAS_API_KEY + async submit→poll (image · video · audio · 3D)
 ├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
 ├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
+├── audio.py          thin orchestrator: text-to-speech → backend.run_audio()
+├── threed.py         thin orchestrator: text/image-to-3D → backend.run_3d()
 ├── cost.py           price estimation (reads ModelSpec.price_usd)
 ├── capabilities.py   per-model op support (reads ModelSpec.ops)
 ├── registry.py       ~/.config/nazca/models.json override loader
@@ -594,6 +699,10 @@ sequenceDiagram
 - `image` covers Gemini + Imagen; no Imagen *edit* model wired yet (`imagen-3.0-capability-001`).
 - `video` is synchronous (polls inline). Full `veo-3.1-generate-001` is available; the fast tier is most exercised.
 - fal IDs are unverified against a live key; ModelArk needs per-account console activation.
+- **Atlas Cloud** (the `speak`/`make3d` commands + `--avatar`/`--ref2v`/`--style` ops) is integrated and
+  dry-run-tested, but request field names beyond `{model, prompt, image_url}` and the per-model costs are
+  **unverified against a live key** — benchmark one call per modality before relying on it. Atlas is also
+  not yet in the interactive `nazca login` menu (set `ATLAS_API_KEY` via `config set` or env).
 
 ## License
 
