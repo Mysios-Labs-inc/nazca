@@ -21,7 +21,6 @@ from nazca.cli import (
 )
 from nazca.errors import BackendError, RateLimitError
 
-
 # ---------------------------------------------------------------------------
 # _emit_backend_error — clean one-liner + bulk hint, no traceback
 # ---------------------------------------------------------------------------
