@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nazca.backends import get_backend
+from nazca.backends import get_backend, require_capability
 from nazca.cost import estimate_3d_cost
 from nazca.errors import ThreeDError  # noqa: F401  (re-export for back-compat)
 from nazca.media import write_result
@@ -37,7 +37,7 @@ def make_3d(
 
     out = Path(out)
     resolved = resolve(model or DEFAULT_3D_MODEL, "3d")
-    backend = get_backend(resolved.backend)
+    backend = require_capability(get_backend(resolved.backend), "3d")
 
     op = "i23d" if source else "t23d"
     est = estimate_3d_cost(resolved.shorthand)

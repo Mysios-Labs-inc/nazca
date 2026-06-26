@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from nazca import config
-from nazca.backends import get_backend
+from nazca.backends import get_backend, require_capability
 from nazca.cost import estimate_video_cost
 from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import write_result
@@ -163,7 +163,7 @@ def generate_video(
     out = Path(out)
     resolved_model = model or config.VEO_MODEL
     resolved = resolve(resolved_model, "video")
-    backend = get_backend(resolved.backend)
+    backend = require_capability(get_backend(resolved.backend), "video")
 
     req = VideoRequest(
         prompt=prompt,
@@ -222,7 +222,7 @@ def edit_video(
     edit_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → provider id, or raw passthrough
     spec = _VIDEO_REGISTRY.get(resolved)
     backend_name = spec.backend if spec else "fal"  # per-model backend (fal | atlas)
-    backend = get_backend(backend_name)
+    backend = require_capability(get_backend(backend_name), "video")
     rm = ResolvedModel(
         shorthand=resolved, provider_id=edit_id, backend=backend_name,
         api="", region="", spec=spec,

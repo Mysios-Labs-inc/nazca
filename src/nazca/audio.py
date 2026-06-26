@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nazca.backends import get_backend
+from nazca.backends import get_backend, require_capability
 from nazca.cost import estimate_audio_cost
 from nazca.errors import AudioError  # noqa: F401  (re-export for back-compat)
 from nazca.media import write_result
@@ -48,7 +48,7 @@ def speak(
 
     out = Path(out)
     resolved = resolve(model or DEFAULT_AUDIO_MODEL, "audio")
-    backend = get_backend(resolved.backend)
+    backend = require_capability(get_backend(resolved.backend), "audio")
 
     req = AudioRequest(
         text=text,
