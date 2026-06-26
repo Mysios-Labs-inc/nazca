@@ -205,6 +205,86 @@ def test_map_outputs_reports_rows_with_no_output(tmp_path):
     assert any("no output line returned" in e for e in errors)
 
 
+def _normalized_echo(request_line):
+    """Mimic Vertex echoing our request back with an added/normalized field — which
+    breaks a full-body hash but must NOT break signature correlation."""
+    req = json.loads(json.dumps(request_line["request"]))
+    req["generationConfig"]["candidateCount"] = 1  # field we never sent
+    return req
+
+
+def test_map_outputs_signature_survives_reordering_and_echo_normalization(tmp_path):
+    # THE production bug: Vertex Batch returns predictions OUT OF INPUT ORDER and
+    # echoes a normalized request. Positional/full-hash mapping scrambled every
+    # image across rows. Signature (prompt+refs) must place each image correctly.
+    rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png"), _row(tmp_path, "c.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    # outputs served REVERSED, each carrying a normalized echo of its own request
+    out_lines = [
+        {"request": _normalized_echo(job.request_lines[2]),
+         "response": _resp_with_image(base64.b64encode(b"C").decode())},
+        {"request": _normalized_echo(job.request_lines[0]),
+         "response": _resp_with_image(base64.b64encode(b"A").decode())},
+        {"request": _normalized_echo(job.request_lines[1]),
+         "response": _resp_with_image(base64.b64encode(b"B").decode())},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 3 and errors == []
+    assert (tmp_path / "a.png").read_bytes() == b"A"  # not scrambled
+    assert (tmp_path / "b.png").read_bytes() == b"B"
+    assert (tmp_path / "c.png").read_bytes() == b"C"
+
+
+def test_map_outputs_signature_distinguishes_rows_sharing_a_prompt_by_ref(tmp_path):
+    # Same prompt, different ref → distinct signatures → no cross-contamination.
+    r1 = BatchRow(out=tmp_path / "x.png", prompt="hero", model="nano-banana-pro", refs=["gs://b/r1.png"])
+    r2 = BatchRow(out=tmp_path / "y.png", prompt="hero", model="nano-banana-pro", refs=["gs://b/r2.png"])
+    job = vb.plan_vertex_jobs([r1, r2], "gs://bkt/run")[0]
+    assert len(job.key_to_outs) == 2  # refs disambiguate identical prompts
+    out_lines = [  # reversed order
+        {"request": _normalized_echo(job.request_lines[1]),
+         "response": _resp_with_image(base64.b64encode(b"Y").decode())},
+        {"request": _normalized_echo(job.request_lines[0]),
+         "response": _resp_with_image(base64.b64encode(b"X").decode())},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 2 and errors == []
+    assert (tmp_path / "x.png").read_bytes() == b"X"
+    assert (tmp_path / "y.png").read_bytes() == b"Y"
+
+
+def test_map_outputs_reports_image_safety_with_correct_row(tmp_path):
+    # A safety-filtered row must be reported by its CORRECT identity, even when the
+    # filtered prediction is returned out of order.
+    rows = [_row(tmp_path, "a.png"), _row(tmp_path, "b.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    safety = {"candidates": [{"finishReason": "IMAGE_SAFETY", "content": {"parts": []}}]}
+    out_lines = [  # b is safety-filtered, returned first (out of order)
+        {"request": _normalized_echo(job.request_lines[1]), "response": safety},
+        {"request": _normalized_echo(job.request_lines[0]), "response": _resp_with_image()},
+    ]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 1
+    assert (tmp_path / "a.png").exists()
+    assert not (tmp_path / "b.png").exists()  # filtered → not written
+    assert any("b.png" in e and "IMAGE_SAFETY" in e for e in errors)
+    assert not any("a.png" in e for e in errors)  # a is fine — not mislabeled
+
+
+def test_map_outputs_signature_mismatch_is_error_not_silent_misplace(tmp_path):
+    # An output line whose signature matches nothing must surface as an error, not
+    # get silently dropped into a positional slot.
+    rows = [_row(tmp_path, "a.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    bogus = {"contents": [{"role": "user", "parts": [{"text": "never requested"}]}],
+             "generationConfig": {}}
+    out_lines = [{"request": bogus, "response": _resp_with_image()}]
+    written, errors = vb._map_outputs(job, out_lines)
+    assert written == 0
+    assert not (tmp_path / "a.png").exists()
+    assert any("signature mismatch" in e for e in errors)
+
+
 # --------------------------------------------------------------------------- orchestrator
 def test_run_vertex_batch_dry_run_no_io(tmp_path, monkeypatch):
     # Any live call would blow up — assert none happens in dry-run.
@@ -396,3 +476,91 @@ def test_run_vertex_batch_failed_job_reported(tmp_path, monkeypatch):
     )
     assert summary["written"] == 0
     assert any("JOB_STATE_FAILED" in e for e in summary["errors"])
+
+
+# --------------------------------------------------------------------------- auth-token refresh (long jobs)
+def test_is_auth_error_recognizes_401_and_unauthenticated():
+    assert vb._is_auth_error(vb.VertexBatchError("get job jobs/1 failed: HTTP 401 UNAUTHENTICATED"))
+    assert vb._is_auth_error(vb.VertexBatchError("... ACCESS_TOKEN_TYPE_UNSUPPORTED ..."))
+    assert not vb._is_auth_error(vb.VertexBatchError("get job jobs/1 failed: HTTP 500 boom"))
+
+
+def test_poll_remints_token_each_iteration(monkeypatch):
+    # A long poll must mint a FRESH token per iteration (token lives ~1h; the job
+    # can outlive it). Assert token_fn is called once per GetBatchPredictionJob.
+    minted = {"n": 0}
+    def token_fn():
+        minted["n"] += 1
+        return f"tok-{minted['n']}"
+    seen_tokens = []
+    monkeypatch.setattr(vb, "_get_job", lambda job, loc, tok: (seen_tokens.append(tok), {"state": "JOB_STATE_RUNNING" if len(seen_tokens) < 3 else "JOB_STATE_SUCCEEDED"})[1])
+    state = vb._poll("jobs/1", "global", token_fn, 0, 10, lambda *a: None, lambda s: None)
+    assert state == "JOB_STATE_SUCCEEDED"
+    assert seen_tokens == ["tok-1", "tok-2", "tok-3"]  # fresh token every poll
+
+
+def test_poll_recovers_from_single_401(monkeypatch):
+    # The exact production failure: GetBatchPredictionJob 401s on an expired token
+    # mid-poll. We must re-auth + retry, not abort a job that's still running.
+    calls = {"n": 0}
+    events = []
+    def flaky_get(job, loc, tok):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise vb.VertexBatchError("get job jobs/1 failed: HTTP 401 UNAUTHENTICATED ACCESS_TOKEN_TYPE_UNSUPPORTED")
+        return {"state": "JOB_STATE_SUCCEEDED"}
+    monkeypatch.setattr(vb, "_get_job", flaky_get)
+    state = vb._poll("jobs/1", "global", lambda: "tok", 0, 5, lambda s, d=None: events.append((s, d)), lambda s: None)
+    assert state == "JOB_STATE_SUCCEEDED"
+    assert calls["n"] == 2  # first 401 → re-mint → success
+    assert any(s == "reauth" for s, _ in events)
+
+
+def test_non_auth_error_in_poll_is_not_retried(monkeypatch):
+    calls = {"n": 0}
+    def boom(job, loc, tok):
+        calls["n"] += 1
+        raise vb.VertexBatchError("get job jobs/1 failed: HTTP 500 server error")
+    monkeypatch.setattr(vb, "_get_job", boom)
+    with pytest.raises(vb.VertexBatchError, match="HTTP 500"):
+        vb._poll("jobs/1", "global", lambda: "tok", 0, 5, lambda *a: None, lambda s: None)
+    assert calls["n"] == 1  # 500 is not an auth error → no retry
+
+
+def test_run_vertex_batch_surfaces_submitted_job_id(tmp_path, monkeypatch):
+    # The job id + output dir must be reported (for manual resume of a billed job).
+    rows = [_row(tmp_path, "a.png")]
+    shard = [{"response": _resp_with_image(base64.b64encode(b"A").decode())}]
+    _install_fake_transport(monkeypatch, rows, [shard])
+    events = []
+    summary = vb.run_vertex_batch(
+        rows, "gs://bkt/run", token_fn=lambda: "tok", poll_interval=0, _sleep=lambda s: None,
+        on_event=lambda stage, detail=None: events.append((stage, detail)),
+    )
+    assert summary["written"] == 1
+    assert len(summary["submitted"]) == 1
+    sub = summary["submitted"][0]
+    assert sub["job_name"] == "projects/p/locations/global/batchPredictionJobs/1"
+    assert sub["output_prefix"].endswith("/output/")
+    assert any(stage == "submitted" for stage, _ in events)
+
+
+def test_stream_predictions_recovers_from_401_on_download(tmp_path, monkeypatch):
+    # A download after a long poll can hit an expired token — re-auth + retry once.
+    rows = [_row(tmp_path, "a.png")]
+    job = vb.plan_vertex_jobs(rows, "gs://bkt/run")[0]
+    shard_uri = f"{job.output_prefix}predictions.jsonl-00000-of-00001"
+    monkeypatch.setattr(vb, "_gcs_list", lambda prefix, tok: [shard_uri])
+    calls = {"n": 0}
+    def flaky_download(uri, tok, fileobj, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise vb.VertexBatchError(f"GCS download {uri} failed: HTTP 401 UNAUTHENTICATED")
+        fileobj.write(json.dumps({"request": job.request_lines[0]["request"], "response": _resp_with_image(base64.b64encode(b"A").decode())}).encode())
+    monkeypatch.setattr(vb, "_gcs_download_to_file", flaky_download)
+    sink = vb._OutputSink(job)
+    vb._stream_predictions(job, lambda: "tok", sink)
+    written, errors = sink.result()
+    assert written == 1 and errors == []
+    assert calls["n"] == 2
+    assert (tmp_path / "a.png").read_bytes() == b"A"

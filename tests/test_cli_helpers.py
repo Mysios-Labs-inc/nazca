@@ -12,12 +12,35 @@ import json
 import pytest
 
 from nazca.cli import (
+    _emit_backend_error,
     _emit_image_result,
     _emit_video_result,
     _validate_image_inputs,
     _validate_or_exit,
     _validate_video_inputs,
 )
+from nazca.errors import BackendError, RateLimitError
+
+# ---------------------------------------------------------------------------
+# _emit_backend_error — clean one-liner + bulk hint, no traceback
+# ---------------------------------------------------------------------------
+
+class TestEmitBackendError:
+    def test_rate_limit_exits_1_with_batch_hint(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _emit_backend_error(RateLimitError("Vertex rate limit (HTTP 429) persisted"))
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "❌ Vertex rate limit (HTTP 429) persisted" in err
+        assert "nazca batch" in err and "--vertex-batch" in err
+
+    def test_plain_backend_error_has_no_hint(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            _emit_backend_error(BackendError("HTTP 500 from Vertex"))
+        assert exc.value.code == 1
+        err = capsys.readouterr().err
+        assert "❌ HTTP 500 from Vertex" in err
+        assert "nazca batch" not in err  # hint is rate-limit-only
 
 # ---------------------------------------------------------------------------
 # _validate_or_exit

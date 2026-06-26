@@ -8,7 +8,10 @@ ports that resilience into the backends so it lives in one place.
 Retryable signals: HTTP 429, HTTP 503, a `RESOURCE_EXHAUSTED` status in the body,
 or fal's `x-fal-needs-retry` requeue header. Delays grow geometrically from
 `NAZCA_BACKOFF_BASE` seconds (default 20 → 20, 40, 80, 160, 320…), each jittered up
-to +25% to avoid synchronized retry storms across lanes.
+to +25% to avoid synchronized retry storms across lanes. When the server sends a
+`Retry-After` header (seconds), it is used as a *floor* for that attempt's delay —
+so a provider that tells us exactly when the quota refills gets honored instead of
+us guessing short and burning a retry.
 
 Tunables (env):
   NAZCA_MAX_RETRIES   retries after the first attempt (default 5; 0 = no retry,
@@ -65,6 +68,24 @@ def _is_retryable(code: int, body: str, headers: dict | None) -> bool:
     return _needs_retry_header(headers)
 
 
+def _retry_after_seconds(headers: dict | None) -> float:
+    """Seconds from a `Retry-After` header, or 0.0 if absent/unparseable.
+
+    Only the integer-seconds form is honored (the form Vertex/Google send). The
+    HTTP-date form is rare here and treated as absent — we fall back to the
+    computed exponential delay, which is never worse than guessing.
+    """
+    if not headers:
+        return 0.0
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if raw is None:
+        return 0.0
+    try:
+        return max(0.0, float(str(raw).strip()))
+    except ValueError:
+        return 0.0
+
+
 def post_json(
     url: str,
     body: dict,
@@ -92,10 +113,10 @@ def post_json(
     retries = max_retries()
     base = backoff_base()
 
-    def _backoff(attempt: int) -> None:
+    def _backoff(attempt: int, floor: float = 0.0) -> None:
         delay = base * (2 ** attempt)
         delay += delay * 0.25 * _rand()  # jitter: up to +25%
-        _sleep(delay)
+        _sleep(max(delay, floor))  # honor a server Retry-After as a lower bound
 
     for attempt in range(retries + 1):
         req = urllib.request.Request(url, data=data, headers=headers, method="POST")
@@ -118,18 +139,20 @@ def post_json(
                 return json.loads(payload)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
-            retryable = _is_retryable(e.code, detail, dict(e.headers or {}))
+            err_headers = dict(e.headers or {})
+            retryable = _is_retryable(e.code, detail, err_headers)
             if retryable and attempt < retries:
                 reason_parts = [f"HTTP {e.code}"]
                 if "RESOURCE_EXHAUSTED" in detail:
                     reason_parts.append("RESOURCE_EXHAUSTED")
                 reason = ", ".join(reason_parts)
-                base_delay = base * (2 ** attempt)
+                retry_after = _retry_after_seconds(err_headers)
+                base_delay = max(base * (2 ** attempt), retry_after)
                 logger.warning(
                     f"Retry attempt {attempt + 1}/{retries + 1}: "
                     f"{reason}. Backoff: {base_delay:.1f}s (+jitter)"
                 )
-                _backoff(attempt)
+                _backoff(attempt, retry_after)
                 continue
             if retryable:
                 raise on_rate_limited(e.code, detail)
