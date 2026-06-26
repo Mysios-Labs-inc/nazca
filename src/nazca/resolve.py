@@ -39,6 +39,7 @@ from nazca.models import (
 )
 from nazca.models import (
     ModelSpec,
+    models_for,
 )
 
 Modality = Literal["image", "video", "audio", "3d"]
@@ -123,23 +124,23 @@ def _match_prefix(model: str, allowed: frozenset[str]) -> tuple[str, str] | None
 
 
 # --------------------------------------------------------------------------- #
-# Video derived tables — rebuilt from the canonical registry (NOT imported from
-# nazca.video) so resolve.py has no dependency on the orchestrator it will later
-# replace. Filters match video.py exactly.
+# Video derived tables — rebuilt from the canonical registry via models_for()
+# so resolve.py has no dependency on the orchestrator it will later replace.
+# Filters match video.py exactly.
 # --------------------------------------------------------------------------- #
 _FAL_VIDEO_MODELS: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
-    if spec.backend == "fal" and not spec.ops.isdisjoint({"i2v", "t2v"})
+    for sh, spec in models_for("video", backend="fal").items()
+    if not spec.ops.isdisjoint({"i2v", "t2v"})
 }
 _ARK_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in _VIDEO_REGISTRY.items() if spec.backend == "modelark"
+    sh: spec.provider_id for sh, spec in models_for("video", backend="modelark").items()
 }
 _ATLAS_VIDEO_MODELS: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in _VIDEO_REGISTRY.items() if spec.backend == "atlas"
+    sh: spec.provider_id for sh, spec in models_for("video", backend="atlas").items()
 }
 _VEO_ALIASES: dict[str, str] = {
-    sh: spec.provider_id for sh, spec in _VIDEO_REGISTRY.items() if spec.backend == "vertex"
+    sh: spec.provider_id for sh, spec in models_for("video", backend="vertex").items()
 }
 
 

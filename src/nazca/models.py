@@ -1401,3 +1401,97 @@ def all_audio_shorthands() -> list[str]:
 def all_3d_shorthands() -> list[str]:
     """Return all 3D model shorthands in insertion order."""
     return list(THREED_MODELS)
+
+
+# ---------------------------------------------------------------------------
+# Registry accessor helpers — unified cross-modality API used by the
+# orchestrator projection dicts and any future plan-level tooling.
+# ---------------------------------------------------------------------------
+
+#: Maps the public modality name to its canonical registry dict.
+_REGISTRY_BY_MODALITY: dict[str, dict[str, ModelSpec]] = {
+    "image": MODELS,
+    "video": VIDEO_MODELS,
+    "audio": AUDIO_MODELS,
+    "3d":    THREED_MODELS,
+}
+
+#: Tier defaults per modality — mirrors the _TIER_DEFAULTS in each orchestrator
+#: module (image.py / video.py / audio.py / threed.py).  Centralised here so the
+#: orchestrators can stay as the *policy* layer while this module is the *fact* layer.
+_TIER_DEFAULTS_BY_MODALITY: dict[str, dict[str, str]] = {
+    "image": {"cheap": "nano-banana",          "premium": "nano-banana-pro"},
+    "video": {"cheap": "veo-3.1-lite",         "premium": "veo-3.1"},
+    "audio": {"cheap": "atlas-tts-grok",       "premium": "atlas-tts-elevenlabs-v3"},
+    "3d":    {"cheap": "atlas-hunyuan3d-rapid", "premium": "atlas-hunyuan3d-pro"},
+}
+
+
+def models_for(
+    modality: str,
+    *,
+    backend: str | None = None,
+) -> dict[str, ModelSpec]:
+    """Return the model registry for *modality*, insertion order preserved.
+
+    Parameters
+    ----------
+    modality:
+        One of ``"image"``, ``"video"``, ``"audio"``, or ``"3d"``.
+    backend:
+        When provided, only entries whose ``ModelSpec.backend`` matches this
+        value are included (e.g. ``"vertex"``, ``"fal"``, ``"atlas"``).
+
+    Raises
+    ------
+    ValueError
+        If *modality* is not one of the four known modalities.
+    """
+    try:
+        registry = _REGISTRY_BY_MODALITY[modality]
+    except KeyError:
+        known = ", ".join(sorted(_REGISTRY_BY_MODALITY))
+        raise ValueError(
+            f"Unknown modality {modality!r}. Must be one of: {known}"
+        ) from None
+
+    if backend is None:
+        return dict(registry)
+    return {k: v for k, v in registry.items() if v.backend == backend}
+
+
+def tiers(modality: str) -> dict[str, str]:
+    """Return ``{shorthand: tier}`` for every model in *modality*.
+
+    Mirrors the old ``*_MODEL_TIERS`` projection dicts.  The result preserves
+    the registry's insertion order.
+
+    Raises
+    ------
+    ValueError
+        If *modality* is not recognised (delegated to :func:`models_for`).
+    """
+    return {k: v.tier for k, v in models_for(modality).items()}
+
+
+def tier_default(modality: str, tier: str | None) -> str | None:
+    """Return the default model shorthand for *tier* in *modality*.
+
+    Encodes the same defaults the per-modality orchestrators use
+    (``select_model`` / ``select_audio_model`` / ``select_3d_model``).
+    Returns ``None`` when *tier* is ``None`` or not a recognised tier value,
+    matching the existing orchestrator behaviour.
+
+    Raises
+    ------
+    ValueError
+        If *modality* is not recognised.
+    """
+    if modality not in _REGISTRY_BY_MODALITY:
+        known = ", ".join(sorted(_REGISTRY_BY_MODALITY))
+        raise ValueError(
+            f"Unknown modality {modality!r}. Must be one of: {known}"
+        )
+    if tier is None:
+        return None
+    return _TIER_DEFAULTS_BY_MODALITY[modality].get(tier)

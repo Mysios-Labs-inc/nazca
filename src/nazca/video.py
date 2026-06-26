@@ -20,6 +20,7 @@ from nazca.cost import estimate_video_cost
 from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import write_result
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
+from nazca.models import models_for, tiers
 from nazca.request import VideoRequest
 
 
@@ -42,37 +43,31 @@ def video_cost_label(
 # Shorthand aliases → full Vertex Veo model ids
 VEO_ALIASES: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
-    if spec.backend == "vertex"
+    for sh, spec in models_for("video", backend="vertex").items()
 }
 
 # fal video model shorthands → fal model id
 # (excludes video-edit ops which are tracked in VIDEO_EDIT_MODELS)
 FAL_VIDEO_MODELS: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
-    if spec.backend == "fal" and not spec.ops.isdisjoint({"i2v", "t2v"})
+    for sh, spec in models_for("video", backend="fal").items()
+    if not spec.ops.isdisjoint({"i2v", "t2v"})
 }
 
 # ModelArk video model shorthands → BytePlus ModelArk model id
 ARK_VIDEO_MODELS: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
-    if spec.backend == "modelark"
+    for sh, spec in models_for("video", backend="modelark").items()
 }
 
 # Atlas Cloud video model shorthands → Atlas slug STEM (backend appends op suffix)
 ATLAS_VIDEO_MODELS: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
-    if spec.backend == "atlas"
+    for sh, spec in models_for("video", backend="atlas").items()
 }
 
 # tier tags: each shorthand → "cheap" | "premium"
-VIDEO_MODEL_TIERS: dict[str, str] = {
-    sh: spec.tier
-    for sh, spec in _VIDEO_REGISTRY.items()
-}
+VIDEO_MODEL_TIERS: dict[str, str] = tiers("video")
 
 # tier → default Vertex-direct model (never auto-route to fal)
 _TIER_DEFAULTS: dict[str, str] = {
@@ -98,7 +93,7 @@ _VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset(
 )
 VIDEO_EDIT_MODELS: dict[str, str] = {
     sh: spec.provider_id
-    for sh, spec in _VIDEO_REGISTRY.items()
+    for sh, spec in models_for("video").items()
     if not spec.ops.isdisjoint(_VIDEO_EDIT_OPS_SET)
 }
 # The OP NAMES that route through edit_video (source VIDEO → video). The CLI tests
