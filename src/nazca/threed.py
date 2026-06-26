@@ -13,7 +13,6 @@ from nazca.backends import get_backend
 from nazca.cost import estimate_3d_cost
 from nazca.errors import ThreeDError
 from nazca.media import write_result
-from nazca.models import THREED_MODELS as _THREED_REGISTRY
 from nazca.request import ThreeDRequest
 
 DEFAULT_3D_MODEL = "atlas-hunyuan3d-rapid"
@@ -27,15 +26,11 @@ def select_3d_model(tier: str | None) -> str | None:
 
 def _resolve_3d(model: str | None) -> tuple[str, str]:
     """Resolve a 3D model shorthand to (backend_name, provider_id)."""
+    from nazca.resolve import resolve
+
     model = model or DEFAULT_3D_MODEL
-    if ":" in model:  # backend:rawid passthrough
-        prefix, raw_id = model.split(":", 1)
-        if prefix.lower() == "atlas":
-            return ("atlas", raw_id)
-    spec = _THREED_REGISTRY.get(model)
-    if spec is None:
-        raise ThreeDError(f"unknown 3D model '{model}' (have: {', '.join(_THREED_REGISTRY)})")
-    return (spec.backend, spec.provider_id)
+    resolved = resolve(model, "3d")
+    return (resolved.backend, resolved.provider_id)
 
 
 def make_3d(

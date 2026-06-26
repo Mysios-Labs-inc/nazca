@@ -14,13 +14,9 @@ from nazca.backends import get_backend
 from nazca.cost import estimate_audio_cost
 from nazca.errors import AudioError
 from nazca.media import write_result
-from nazca.models import AUDIO_MODELS as _AUDIO_REGISTRY
 from nazca.request import AudioRequest
 
 DEFAULT_AUDIO_MODEL = "atlas-tts-grok"
-
-# audio shorthand → provider id (derived from the canonical registry)
-AUDIO_MODELS: dict[str, str] = {sh: spec.provider_id for sh, spec in _AUDIO_REGISTRY.items()}
 
 # tier → default audio model shorthand
 _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-tts-grok", "premium": "atlas-tts-elevenlabs-v3"}
@@ -33,17 +29,10 @@ def select_audio_model(tier: str | None) -> str | None:
 
 def _resolve_audio(model: str | None) -> tuple[str, str]:
     """Resolve an audio model shorthand to (backend_name, provider_id)."""
-    model = model or DEFAULT_AUDIO_MODEL
-    if ":" in model:  # backend:rawid passthrough
-        prefix, raw_id = model.split(":", 1)
-        if prefix.lower() == "atlas":
-            return ("atlas", raw_id)
-    spec = _AUDIO_REGISTRY.get(model)
-    if spec is None:
-        raise AudioError(
-            f"unknown audio model '{model}' (have: {', '.join(_AUDIO_REGISTRY)})"
-        )
-    return (spec.backend, spec.provider_id)
+    from nazca.resolve import resolve
+
+    resolved = resolve(model, "audio")
+    return (resolved.backend, resolved.provider_id)
 
 
 def speak(
