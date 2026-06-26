@@ -70,13 +70,15 @@ def load_cube(path: str | Path) -> ImageFilter.Color3DLUT:
             if upper.startswith("DOMAIN_MIN") or upper.startswith("DOMAIN_MAX"):
                 # Silently ignore domain declarations — we assume 0..1.
                 continue
-            # Data line: three floats "R G B"
+            # Data line: three floats "R G B". Some exporters emit other
+            # 3-token keyword lines (e.g. LUT_3D_INPUT_RANGE 0 1); skip any
+            # line whose first token isn't numeric rather than failing on it.
             parts = line.split()
             if len(parts) == 3:
                 try:
                     table.extend(float(v) for v in parts)
                 except ValueError:
-                    raise ValueError(f"{path}: could not parse data line: {line!r}") from None
+                    continue
 
     if size is None:
         raise ValueError(f"{path}: missing LUT_3D_SIZE — not a valid 3-D .cube file.")
@@ -103,7 +105,8 @@ def load_hald(path: str | Path) -> ImageFilter.Color3DLUT:
     channel).  This introduces visible banding on subtle gradients compared
     with a 32-bit float .cube file.  Use .cube for high-quality finishing.
     """
-    img = Image.open(path).convert("RGB")
+    with Image.open(path) as src:
+        img = src.convert("RGB")
     w, h = img.size
     total = w * h
     edge = round(total ** (1.0 / 3.0))
@@ -211,12 +214,22 @@ def apply_grade(
 
     Returns
     -------
-    Graded PIL Image in RGB mode.
+    Graded PIL Image.  RGB for opaque inputs; an alpha channel present on the
+    source (RGBA / LA) is preserved and re-attached after grading, so a
+    transparent cutout (e.g. from ``nazca image --rmbg``) stays transparent.
     """
+    # Preserve transparency: the LUT operates on RGB only, so split the alpha
+    # off, grade the colour, then re-attach. Without this, convert("RGB")
+    # would flatten a cutout onto black.
+    alpha = img.getchannel("A") if img.mode in ("RGBA", "LA") else None
+
     base = img.convert("RGB")
     graded = base.filter(lut)
     if strength < 1.0:
         graded = Image.blend(base, graded, strength)
     # grain / grain_size are threaded through for future PR2 compatibility
     # but not yet implemented — do not add grain logic here.
+
+    if alpha is not None:
+        graded.putalpha(alpha)
     return graded

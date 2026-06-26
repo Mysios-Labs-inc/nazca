@@ -351,17 +351,20 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
 @click.option("--strength", default=1.0, type=click.FloatRange(0, 1), help="Blend graded↔original (1.0 = full grade).")
 def grade(source, out, lut, strength):
     """Apply a color LUT to an image (local, free, deterministic)."""
-    from PIL import Image
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
     from nazca.grade import apply_grade, load_lut
 
     try:
         table = load_lut(lut)
-    except (ValueError, FileNotFoundError, OSError) as e:
+        # exif_transpose honors camera orientation so the visual top is the
+        # real top (keeps later head-safe crops correct on EXIF-rotated inputs).
+        with Image.open(source) as src:
+            img = ImageOps.exif_transpose(src)
+        apply_grade(img, table, strength=strength).save(out)
+    except (ValueError, OSError, UnidentifiedImageError) as e:
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(2) from e
-    img = Image.open(source)
-    apply_grade(img, table, strength=strength).save(out)
     click.echo(f"✅ {out}")
 
 
