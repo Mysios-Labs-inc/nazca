@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nazca.request import ImageRequest, VideoRequest
+    from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
 
 
 class Backend:
@@ -65,3 +65,19 @@ class Backend:
         ``req.dry_run`` is set. Backends that do not do video raise.
         """
         raise NotImplementedError(f"backend '{self.name}' does not support video")
+
+    def run_audio(self, model_id: str, req: AudioRequest) -> bytes | dict:
+        """Synthesize one audio clip (text-to-speech) with the resolved `model_id`.
+
+        Returns raw audio bytes on a real run, or the dry-run plan dict when
+        ``req.dry_run`` is set. Backends that do not do audio raise.
+        """
+        raise NotImplementedError(f"backend '{self.name}' does not support audio")
+
+    def run_3d(self, model_id: str, req: ThreeDRequest) -> bytes | dict:
+        """Generate one 3D asset (GLB mesh) with the resolved `model_id`.
+
+        Returns raw GLB bytes on a real run, or the dry-run plan dict when
+        ``req.dry_run`` is set. Backends that do not do 3D raise.
+        """
+        raise NotImplementedError(f"backend '{self.name}' does not support 3D")

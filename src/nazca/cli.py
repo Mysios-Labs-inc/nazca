@@ -721,6 +721,78 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
 
 
 @cli.command()
+@click.argument("text", required=True)
+@click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
+@click.option("--model", default=None, help="TTS model (default: atlas-tts-grok). Also: atlas-tts-elevenlabs-v3.")
+@click.option("--voice", default=None, help="Named voice (model-specific).")
+@click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
+@click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier when --model is absent.")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def speak(text, out, model, voice, output_format, tier, dry_run):
+    """Synthesize speech from TEXT (text-to-speech).
+
+    \b
+      nazca speak "Hello world" -o hi.mp3
+      nazca speak "..." -o v.mp3 --model atlas-tts-elevenlabs-v3 --voice rachel
+    """
+    from nazca.audio import AudioError, audio_cost_label, select_audio_model
+    from nazca.audio import speak as _speak
+
+    resolved_model = model or select_audio_model(tier)
+    try:
+        result = _speak(
+            out, text, model=resolved_model, voice=voice,
+            output_format=output_format, dry_run=dry_run,
+        )
+    except AudioError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+    if dry_run:
+        click.echo(f"📝 {result}")
+        cost = audio_cost_label(resolved_model or "atlas-tts-grok", chars=len(text))
+        if cost:
+            click.echo(f"💵 {cost}")
+    else:
+        click.echo(f"✅ {result}")
+
+
+@cli.command(name="make3d")
+@click.argument("prompt", required=False)
+@click.option("-o", "--out", required=True, help="Output 3D asset path (.glb).")
+@click.option("--image", "source", default=None, type=click.Path(), help="Input image → image-to-3D (i23d). Omit for text-to-3D (t23d).")
+@click.option("--model", default=None, help="3D model (default: atlas-hunyuan3d-rapid). Also: atlas-hunyuan3d-pro, atlas-seed3d-2.")
+@click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier when --model is absent.")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def make3d(prompt, out, source, model, tier, dry_run):
+    """Generate a 3D asset (GLB) from text PROMPT or an --image.
+
+    \b
+      nazca make3d "a red sports car" -o car.glb
+      nazca make3d -o chair.glb --image chair.png --model atlas-seed3d-2
+    """
+    from nazca.threed import ThreeDError, make_3d, select_3d_model, threed_cost_label
+
+    if not prompt and not source:
+        click.echo("❌ make3d needs a text PROMPT or an --image", err=True)
+        raise SystemExit(2)
+    resolved_model = model or select_3d_model(tier)
+    op = "i23d" if source else "t23d"
+    _validate_or_exit(resolved_model, op)
+    try:
+        result = make_3d(out, prompt or "", source=source, model=resolved_model, dry_run=dry_run)
+    except ThreeDError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+    if dry_run:
+        click.echo(f"📝 {result}")
+        cost = threed_cost_label(resolved_model or "atlas-hunyuan3d-rapid")
+        if cost:
+            click.echo(f"💵 {cost}")
+    else:
+        click.echo(f"✅ {result}")
+
+
+@cli.command()
 def login() -> None:
     """Interactively store API credentials in ~/.config/nazca/config.ini.
 

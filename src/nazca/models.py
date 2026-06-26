@@ -1286,6 +1286,71 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
 }
 
 # ---------------------------------------------------------------------------
+# Audio model registry (text-to-speech). price_usd is None — TTS is billed per
+# 1K characters (handled by cost.estimate_audio_cost).
+# ---------------------------------------------------------------------------
+AUDIO_MODELS: dict[str, ModelSpec] = {
+    "atlas-tts-grok": ModelSpec(
+        shorthand="atlas-tts-grok",
+        provider_id="xai/tts-v1",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="cheap",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
+    "atlas-tts-elevenlabs-v3": ModelSpec(
+        shorthand="atlas-tts-elevenlabs-v3",
+        provider_id="elevenlabs/v3",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# 3D model registry (text/image → GLB mesh). price_usd is the flat per-run price.
+# ---------------------------------------------------------------------------
+THREED_MODELS: dict[str, ModelSpec] = {
+    "atlas-hunyuan3d-rapid": ModelSpec(
+        shorthand="atlas-hunyuan3d-rapid",
+        provider_id="tencent/hunyuan3d-rapid",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="cheap",
+        price_usd=0.02,
+        ops=frozenset({"t23d", "i23d"}),
+    ),
+    "atlas-hunyuan3d-pro": ModelSpec(
+        shorthand="atlas-hunyuan3d-pro",
+        provider_id="tencent/hunyuan3d-pro",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.02,
+        ops=frozenset({"t23d", "i23d"}),
+    ),
+    "atlas-seed3d-2": ModelSpec(
+        shorthand="atlas-seed3d-2",
+        provider_id="bytedance/seed3d-v2.0",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.353,
+        ops=frozenset({"i23d"}),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
 
@@ -1300,3 +1365,13 @@ def all_image_shorthands() -> list[str]:
 def all_video_shorthands() -> list[str]:
     """Return all video model shorthands in insertion order."""
     return list(VIDEO_MODELS)
+
+
+def all_audio_shorthands() -> list[str]:
+    """Return all audio model shorthands in insertion order."""
+    return list(AUDIO_MODELS)
+
+
+def all_3d_shorthands() -> list[str]:
+    """Return all 3D model shorthands in insertion order."""
+    return list(THREED_MODELS)
