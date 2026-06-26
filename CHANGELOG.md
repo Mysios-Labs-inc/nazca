@@ -4,6 +4,28 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [0.10.1] — 2026-06-26
+
+### Fixed
+- **Vertex Batch output correlation (silent data corruption):** batch predictions
+  return out of input order; the old hash-keyed match silently fell back to
+  *positional* mapping → images written to the wrong `out` path, identities
+  cross-contaminated. Now correlates by `request_signature` (prompt + ref URIs,
+  order-independent) and errors on an unmatched line instead of guessing.
+- **Vertex Batch long-job auth-token expiry (lost jobs):** the ~1h ADC token was
+  minted once and reused for the whole poll+download, so a 30-min+ job 401'd and
+  nazca abandoned a job still succeeding server-side. Now mints a fresh token
+  before every long-phase call and re-auths once on a 401.
+
+### Added
+- Clean one-line 429 errors (no traceback) pointing at `nazca batch`; server
+  `Retry-After` honored as a backoff floor; `nazca batch --status`; manifest
+  schema + `nazca batch` README section.
+
+> ⚠️ `vertex_batch` is unit-tested against documented response shapes but **not yet
+> validated against a live Vertex Batch job** — run one small live `--vertex-batch`
+> job before a large bulk. (`docs/batch-followups.md`)
+
 ## [0.10.0] — 2026-06-26
 
 A large internal architecture refactor (no behavior change) plus a few
@@ -54,6 +76,7 @@ backward-compatible user-facing additions.
 
 Earlier releases (0.6.0 and prior) are recorded in the git tag history (`git tag`).
 
+[0.10.1]: https://github.com/Mysios-Labs-inc/nazca/releases/tag/v0.10.1
 [0.10.0]: https://github.com/Mysios-Labs-inc/nazca/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Mysios-Labs-inc/nazca/releases/tag/v0.9.0
 [0.8.1]: https://github.com/Mysios-Labs-inc/nazca/releases/tag/v0.8.1
