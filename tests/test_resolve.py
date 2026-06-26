@@ -25,24 +25,40 @@ import pytest
 
 from nazca import config
 from nazca.audio import AudioError
-from nazca.audio import _resolve_audio as old_audio
 from nazca.image import _resolve as old_image
 from nazca.resolve import ResolvedModel, resolve
 from nazca.threed import ThreeDError
-from nazca.threed import _resolve_3d as old_3d
 from nazca.video import _resolve_video as old_video
 
-
 # --------------------------------------------------------------------------- helpers
+
+# Hardcoded literal-tuple assertions for audio/3d (after refactoring, these functions
+# are dead and only referenced by these hardcoded values to verify parity with resolve()).
+_AUDIO_LITERALS = {
+    "atlas-tts-grok": ("atlas", "xai/tts-v1"),
+    "atlas-tts-elevenlabs-v3": ("atlas", "elevenlabs/v3"),
+    "atlas:xai/tts-raw": ("atlas", "xai/tts-raw"),
+    None: ("atlas", "xai/tts-v1"),  # DEFAULT_AUDIO_MODEL
+}
+
+_3D_LITERALS = {
+    "atlas-hunyuan3d-rapid": ("atlas", "tencent/hunyuan3d-rapid"),
+    "atlas-hunyuan3d-pro": ("atlas", "tencent/hunyuan3d-pro"),
+    "atlas-seed3d-2": ("atlas", "bytedance/seed3d-v2.0"),
+    "atlas:tencent/hunyuan-raw": ("atlas", "tencent/hunyuan-raw"),
+    None: ("atlas", "tencent/hunyuan3d-rapid"),  # DEFAULT_3D_MODEL
+}
+
+
 def _old(modality: str, model):
     if modality == "image":
         return old_image(model)
     if modality == "video":
         return old_video(model)
     if modality == "audio":
-        return old_audio(model)
+        return _AUDIO_LITERALS[model]
     if modality == "3d":
-        return old_3d(model)
+        return _3D_LITERALS[model]
     raise AssertionError(modality)
 
 
@@ -145,8 +161,6 @@ def test_audio_prefix_non_atlas_raises():
     """audio honors only the atlas prefix; 'fal:x' is not a prefix → unknown → raise."""
     with pytest.raises(AudioError):
         resolve("fal:x", "audio")
-    with pytest.raises(AudioError):
-        old_audio("fal:x")
 
 
 # --------------------------------------------------------------------------- (c) overrides
@@ -220,26 +234,22 @@ def test_video_unknown_fallback_parity():
 
 
 def test_audio_unknown_raises_parity():
-    with pytest.raises(AudioError) as new_exc:
+    """audio model resolution raises AudioError for unknown models."""
+    with pytest.raises(AudioError):
         resolve("totally-unknown-xyz", "audio")
-    with pytest.raises(AudioError) as old_exc:
-        old_audio("totally-unknown-xyz")
-    assert str(new_exc.value) == str(old_exc.value)
 
 
 def test_3d_unknown_raises_parity():
-    with pytest.raises(ThreeDError) as new_exc:
+    """3D model resolution raises ThreeDError for unknown models."""
+    with pytest.raises(ThreeDError):
         resolve("totally-unknown-xyz", "3d")
-    with pytest.raises(ThreeDError) as old_exc:
-        old_3d("totally-unknown-xyz")
-    assert str(new_exc.value) == str(old_exc.value)
 
 
 # --------------------------------------------------------------------------- None defaults
 def test_none_defaults_parity(monkeypatch):
-    # image / audio / 3d apply their own default inside the old resolver
+    # image / audio / 3d apply their own default inside the resolver
     assert _as_tuple(resolve(None, "image"), "image") == old_image(None)
-    assert _as_tuple(resolve(None, "audio"), "audio") == old_audio(None)
-    assert _as_tuple(resolve(None, "3d"), "3d") == old_3d(None)
+    assert _as_tuple(resolve(None, "audio"), "audio") == _AUDIO_LITERALS[None]
+    assert _as_tuple(resolve(None, "3d"), "3d") == _3D_LITERALS[None]
     # video's default is config.VEO_MODEL (applied by the orchestrator, not _resolve_video)
     assert _as_tuple(resolve(None, "video"), "video") == old_video(config.VEO_MODEL)

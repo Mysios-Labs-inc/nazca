@@ -301,12 +301,7 @@ class VertexBackend(Backend):
 
     @staticmethod
     def _gemini_extract(resp: dict) -> bytes:
-        for cand in resp.get("candidates", []):
-            for part in cand.get("content", {}).get("parts", []):
-                inline = part.get("inlineData") or part.get("inline_data")
-                if inline and inline.get("data"):
-                    return base64.b64decode(inline["data"])
-        raise ImageError(f"no image part in response: {str(resp)[:400]}")
+        return gemini_extract(resp)
 
     @staticmethod
     def _imagen_body(prompt: str, aspect_ratio: str | None) -> dict:
@@ -324,6 +319,7 @@ class VertexBackend(Backend):
         if not b64:
             raise ImageError(f"no image bytes in imagen prediction: {str(preds[0])[:300]}")
         return base64.b64decode(b64)
+
 
     # ------------------------------------------------------------------ video (Veo)
 
@@ -389,3 +385,22 @@ class VertexBackend(Backend):
                 raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
             raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
         return base64.b64decode(b64)
+
+
+# ---------------------------------------------------------------------------
+# Public helpers — importable from nazca.backends.vertex
+# ---------------------------------------------------------------------------
+
+
+def gemini_extract(resp: dict) -> bytes:
+    """Extract raw image bytes from a Gemini generateContent response dict.
+
+    Exposed as a module-level function so callers outside this module (e.g.
+    vertex_batch) can import it without reaching into image.py internals.
+    """
+    for cand in resp.get("candidates", []):
+        for part in cand.get("content", {}).get("parts", []):
+            inline = part.get("inlineData") or part.get("inline_data")
+            if inline and inline.get("data"):
+                return base64.b64decode(inline["data"])
+    raise ImageError(f"no image part in response: {str(resp)[:400]}")

@@ -19,18 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from nazca.backends import get_backend
-
-# Re-exported for back-compat with callers/tests that reach for these names here.
-from nazca.backends.modelark import (  # noqa: F401
-    _SEEDREAM_EDGE,
-    _SEEDREAM_MAX_PX,
-    _SEEDREAM_MAX_REFS,
-    _SEEDREAM_MIN_PX,
-    _seedream_body,
-    _seedream_size,
-)
 from nazca.backends.openai import OPENAI_ASPECT_MAP as _OPENAI_ASPECT_MAP
-from nazca.backends.vertex import VertexBackend as _VertexBackend
 from nazca.cost import cost_from_openai_usage, estimate_image_cost
 from nazca.errors import ImageError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import encode_image_b64  # noqa: F401  (re-export for vertex_batch)
@@ -38,10 +27,6 @@ from nazca.models import MODELS as _MODEL_REGISTRY
 from nazca.models import tiers
 from nazca.request import ImageRequest
 from nazca.resolve import resolve as _resolve_unified
-
-# Re-export the Gemini extractor for nazca.vertex_batch (batch decode path).
-_gemini_extract = _VertexBackend._gemini_extract
-
 
 # shorthand -> (model id, location/fal-id, api, backend)
 # Derived from the canonical registry in nazca.models — do not edit values here;
