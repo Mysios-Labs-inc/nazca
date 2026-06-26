@@ -30,6 +30,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [Quickstart](#quickstart)
 - [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
+- [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
 - [Custom / overriding models](#custom--overriding-models)
 - [Use with Claude Desktop (MCP)](#use-with-claude-desktop-mcp)
@@ -383,6 +384,26 @@ often and is tier/resolution-dependent — treat those as approximate and `--dry
 Atlas Cloud also fronts **~91 image/video models** (Seedance, Kling, Wan, motion-control, ref2v,
 avatar, …) behind `--model atlas-*` or the `atlas:` passthrough — run **`nazca models`** to print the
 live table (including your overrides).
+
+> **Verified vs. unverified pricing.** `nazca models` marks each model with a **⚠** when its cost/schema
+> is **not live-verified** (the `atlas`, `fal`, and `modelark` backends). Vertex and OpenAI rows are
+> unmarked (proven live). Treat ⚠ figures as estimates and `--dry-run` first.
+
+---
+
+## Diagnostics (`-v` / `-vv`)
+
+nazca is silent by default. Pass **`-v`** (info) or **`-vv`** (debug) for diagnostic logging — it goes to
+**stderr only**, so stdout (the result path, or the `--dry-run` plan JSON) stays clean and pipeable:
+
+```bash
+nazca -v video -s start.png -p "push-in" -o clip.mp4      # poll progress on stderr
+nazca image -p "..." -o out.png --dry-run > plan.json     # stdout = clean JSON, no log noise
+```
+
+Verbose logging surfaces the submit→poll loops (Veo, Atlas, fal), retries, and auth-token minting
+(never the token or any key — secrets and data-URIs are redacted). For non-interactive/MCP use, set
+**`NAZCA_LOG_LEVEL`** (e.g. `NAZCA_LOG_LEVEL=DEBUG`) instead of the flags.
 
 ---
 
