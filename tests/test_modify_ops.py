@@ -33,7 +33,7 @@ def test_infer_image_op_modify_flags_win():
 
 def test_models_supporting_modify_ops():
     assert cap.models_supporting("upscale") == ["atlas-image-upscaler", "upscale"]
-    assert cap.models_supporting("bg_remove") == ["rmbg"]
+    assert cap.models_supporting("bg_remove") == ["atlas-youchuan-image", "rmbg"]
 
 
 # --------------------------------------------------------------------------- modify_image dispatch
