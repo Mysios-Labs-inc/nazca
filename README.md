@@ -277,6 +277,11 @@ name that resolves to one of those files in `$NAZCA_LUT_DIR` or `~/.config/nazca
 directories take precedence over the bundled looks, so you can override any built-in by placing a
 same-named `.cube` in your luts directory).
 
+Large HALD/`.cube` LUTs are handled automatically: Pillow caps a 3-D LUT at a 65-cube, so any
+larger table (e.g. the RawTherapee Film Simulation pack, which ships level-12 / 144-cube HALDs)
+is **resampled over the colour cube** down to 65 before use — a true 3-D resample that preserves
+the lookup, not an image resize. So `--lut "Kodak Portra 400 NC 2.png"` from that pack just works.
+
 nazca is the applicator, not a look library — it ships only these five CC0 starter looks.
 Bring your own `.cube`/HALD packs from wherever you source them via `$NAZCA_LUT_DIR`.
 Do **not** drop third-party film-stock packs into the repo — they carry trademarks and often
