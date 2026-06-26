@@ -1,6 +1,6 @@
 [project]
 name = "nazca"
-version = "0.7.0"
+version = "0.8.0"
 description = "Thin, Claude-driven, capability-aware CLI for AI image + video generation and editing across Vertex (Gemini/Imagen/Veo), fal, and ModelArk"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
