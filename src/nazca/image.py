@@ -35,8 +35,8 @@ from nazca.cost import cost_from_openai_usage, estimate_image_cost
 from nazca.errors import ImageError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import encode_image_b64  # noqa: F401  (re-export for vertex_batch)
 from nazca.models import MODELS as _MODEL_REGISTRY
-from nazca.registry import image_override
 from nazca.request import ImageRequest
+from nazca.resolve import resolve as _resolve_unified
 
 # Re-export the Gemini extractor for nazca.vertex_batch (batch decode path).
 _gemini_extract = _VertexBackend._gemini_extract
@@ -83,38 +83,8 @@ def select_model(tier: str | None) -> str | None:
 
 
 def _resolve(model: str | None) -> tuple[str, str, str, str]:
-    model = model or DEFAULT_MODEL
-
-    # 1. backend:rawid prefix passthrough — route by prefix without touching MODELS
-    if ":" in model:
-        prefix, raw_id = model.split(":", 1)
-        prefix = prefix.lower()
-        if prefix in ("vertex", "veo"):
-            return (raw_id, "us-central1", "gemini", "vertex")
-        if prefix == "fal":
-            return (raw_id, "", "fal", "fal")
-        if prefix in ("ark", "modelark"):
-            return (raw_id, "", "modelark", "modelark")
-        if prefix in ("openai", "oai"):
-            return (raw_id, "", "openai", "openai")
-        if prefix == "atlas":
-            return (raw_id, "", "atlas", "atlas")
-
-    # 2. user override file (~/.config/nazca/models.json)
-    ov = image_override(model)
-    if ov is not None:
-        ov_id = ov.get("id", model)
-        ov_region = ov.get("region", "us-central1")
-        ov_api = ov.get("api", "gemini")
-        ov_backend = ov.get("backend", "vertex")
-        return (ov_id, ov_region, ov_api, ov_backend)
-
-    # 3. built-in MODELS dict (unchanged)
-    if model in MODELS:
-        return MODELS[model]
-
-    # 4. fallback: raw vertex id → assume Gemini family, default region, vertex backend
-    return (model, "us-central1", "gemini", "vertex")
+    rm = _resolve_unified(model, "image")
+    return (rm.provider_id, rm.region, rm.api, rm.backend)
 
 
 def _estimate_image_cost(

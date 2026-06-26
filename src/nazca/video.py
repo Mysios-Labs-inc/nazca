@@ -20,7 +20,6 @@ from nazca.cost import estimate_video_cost
 from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import write_result
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
-from nazca.registry import video_override
 from nazca.request import VideoRequest
 
 
@@ -126,39 +125,14 @@ VEO_BACKEND = "vertex"
 def _resolve_video(model: str) -> tuple[str, str]:
     """Resolve a video model shorthand to (backend_name, model_id).
 
-    Honors the backend:rawid prefix passthrough, the user override file, and the
-    built-in registries. Mirrors the previous dispatch order exactly.
+    Delegates to the unified resolver in nazca.resolve; behavior is identical
+    to the previous hand-rolled implementation (same prefix table, same override
+    lookup, same registry order, same vertex fallback).
     """
-    # 1. backend:rawid prefix passthrough
-    if ":" in model:
-        prefix, raw_id = model.split(":", 1)
-        prefix = prefix.lower()
-        if prefix in ("vertex", "veo"):
-            return ("vertex", raw_id)
-        if prefix == "fal":
-            return ("fal", raw_id)
-        if prefix in ("ark", "modelark"):
-            return ("modelark", raw_id)
-        if prefix == "atlas":
-            return ("atlas", raw_id)
+    from nazca.resolve import resolve  # local import: avoids circular at module load
 
-    # 2. user override file (~/.config/nazca/models.json)
-    ov = video_override(model)
-    if ov is not None:
-        ov_backend = ov.get("backend", "vertex")
-        ov_id = ov.get("id", model)
-        if ov_backend in ("fal", "modelark", "atlas"):
-            return (ov_backend, ov_id)
-        return ("vertex", ov_id)  # vertex override: raw Veo id
-
-    # 3. built-in registries (fal, then ModelArk, then Atlas, then Vertex aliases)
-    if model in FAL_VIDEO_MODELS:
-        return ("fal", FAL_VIDEO_MODELS[model])
-    if model in ARK_VIDEO_MODELS:
-        return ("modelark", ARK_VIDEO_MODELS[model])
-    if model in ATLAS_VIDEO_MODELS:
-        return ("atlas", ATLAS_VIDEO_MODELS[model])
-    return ("vertex", VEO_ALIASES.get(model, model))
+    r = resolve(model, "video")
+    return (r.backend, r.provider_id)
 
 
 def generate_video(
