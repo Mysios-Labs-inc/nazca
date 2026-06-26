@@ -139,6 +139,235 @@ _VEO_PER_SEC: dict[str, dict[tuple[str, bool], float]] = {
         ("720p", False): 0.03, ("720p", True): 0.05,
         ("1080p", False): 0.05, ("1080p", True): 0.08,
     },
+    # --- Atlas Cloud (per-second, 'start from' base rate; approximate) ---
+    "atlas-grok-imagine-video": {
+        ("720p", False): 0.05, ("720p", True): 0.05,
+        ("1080p", False): 0.05, ("1080p", True): 0.05,
+    },
+    "atlas-grok-imagine-video-1.5": {
+        ("720p", False): 0.08, ("720p", True): 0.08,
+        ("1080p", False): 0.08, ("1080p", True): 0.08,
+    },
+    "atlas-hailuo-02": {
+        ("720p", False): 0.1, ("720p", True): 0.1,
+        ("1080p", False): 0.1, ("1080p", True): 0.1,
+    },
+    "atlas-hailuo-2.3": {
+        ("720p", False): 0.19, ("720p", True): 0.19,
+        ("1080p", False): 0.19, ("1080p", True): 0.19,
+    },
+    "atlas-happyhorse-1.0": {
+        ("720p", False): 0.112, ("720p", True): 0.112,
+        ("1080p", False): 0.112, ("1080p", True): 0.112,
+    },
+    "atlas-happyhorse-1.1": {
+        ("720p", False): 0.112, ("720p", True): 0.112,
+        ("1080p", False): 0.112, ("1080p", True): 0.112,
+    },
+    "atlas-kling-effects": {
+        ("720p", False): 0.212, ("720p", True): 0.212,
+        ("1080p", False): 0.212, ("1080p", True): 0.212,
+    },
+    "atlas-kling-o1": {
+        ("720p", False): 0.095, ("720p", True): 0.095,
+        ("1080p", False): 0.095, ("1080p", True): 0.095,
+    },
+    "atlas-kling-o3-4k": {
+        ("720p", False): 0.357, ("720p", True): 0.357,
+        ("1080p", False): 0.357, ("1080p", True): 0.357,
+    },
+    "atlas-kling-o3-pro": {
+        ("720p", False): 0.095, ("720p", True): 0.095,
+        ("1080p", False): 0.095, ("1080p", True): 0.095,
+    },
+    "atlas-kling-o3-std": {
+        ("720p", False): 0.071, ("720p", True): 0.071,
+        ("1080p", False): 0.071, ("1080p", True): 0.071,
+    },
+    "atlas-kling-v1.6-i2v-pro": {
+        ("720p", False): 0.083, ("720p", True): 0.083,
+        ("1080p", False): 0.083, ("1080p", True): 0.083,
+    },
+    "atlas-kling-v1.6-i2v-std": {
+        ("720p", False): 0.048, ("720p", True): 0.048,
+        ("1080p", False): 0.048, ("1080p", True): 0.048,
+    },
+    "atlas-kling-v1.6-multi-i2v-pro": {
+        ("720p", False): 0.083, ("720p", True): 0.083,
+        ("1080p", False): 0.083, ("1080p", True): 0.083,
+    },
+    "atlas-kling-v1.6-multi-i2v-std": {
+        ("720p", False): 0.048, ("720p", True): 0.048,
+        ("1080p", False): 0.048, ("1080p", True): 0.048,
+    },
+    "atlas-kling-v1.6-t2v-std": {
+        ("720p", False): 0.048, ("720p", True): 0.048,
+        ("1080p", False): 0.048, ("1080p", True): 0.048,
+    },
+    "atlas-kling-v2.0-i2v-master": {
+        ("720p", False): 0.238, ("720p", True): 0.238,
+        ("1080p", False): 0.238, ("1080p", True): 0.238,
+    },
+    "atlas-kling-v2.0-t2v-master": {
+        ("720p", False): 0.238, ("720p", True): 0.238,
+        ("1080p", False): 0.238, ("1080p", True): 0.238,
+    },
+    "atlas-kling-v2.1-i2v-master": {
+        ("720p", False): 0.238, ("720p", True): 0.238,
+        ("1080p", False): 0.238, ("1080p", True): 0.238,
+    },
+    "atlas-kling-v2.1-i2v-pro": {
+        ("720p", False): 0.083, ("720p", True): 0.083,
+        ("1080p", False): 0.083, ("1080p", True): 0.083,
+    },
+    "atlas-kling-v2.1-i2v-std": {
+        ("720p", False): 0.048, ("720p", True): 0.048,
+        ("1080p", False): 0.048, ("1080p", True): 0.048,
+    },
+    "atlas-kling-v2.1-t2v-master": {
+        ("720p", False): 0.238, ("720p", True): 0.238,
+        ("1080p", False): 0.238, ("1080p", True): 0.238,
+    },
+    "atlas-kling-v2.5-turbo-pro": {
+        ("720p", False): 0.06, ("720p", True): 0.06,
+        ("1080p", False): 0.06, ("1080p", True): 0.06,
+    },
+    "atlas-kling-v2.6-pro": {
+        ("720p", False): 0.06, ("720p", True): 0.06,
+        ("1080p", False): 0.06, ("1080p", True): 0.06,
+    },
+    "atlas-kling-v3-4k": {
+        ("720p", False): 0.357, ("720p", True): 0.357,
+        ("1080p", False): 0.357, ("1080p", True): 0.357,
+    },
+    "atlas-kling-v3-pro": {
+        ("720p", False): 0.095, ("720p", True): 0.095,
+        ("1080p", False): 0.095, ("1080p", True): 0.095,
+    },
+    "atlas-kling-v3-std": {
+        ("720p", False): 0.071, ("720p", True): 0.071,
+        ("1080p", False): 0.071, ("1080p", True): 0.071,
+    },
+    "atlas-kling-v3-turbo": {
+        ("720p", False): 0.095, ("720p", True): 0.095,
+        ("1080p", False): 0.095, ("1080p", True): 0.095,
+    },
+    "atlas-pixverse-c1": {
+        ("720p", False): 0.03, ("720p", True): 0.03,
+        ("1080p", False): 0.03, ("1080p", True): 0.03,
+    },
+    "atlas-pixverse-v6": {
+        ("720p", False): 0.025, ("720p", True): 0.025,
+        ("1080p", False): 0.025, ("1080p", True): 0.025,
+    },
+    "atlas-seedance-1-pro": {
+        ("720p", False): 0.022, ("720p", True): 0.022,
+        ("1080p", False): 0.022, ("1080p", True): 0.022,
+    },
+    "atlas-seedance-1-pro-fast": {
+        ("720p", False): 0.009, ("720p", True): 0.009,
+        ("1080p", False): 0.009, ("1080p", True): 0.009,
+    },
+    "atlas-seedance-1.5-pro": {
+        ("720p", False): 0.047, ("720p", True): 0.047,
+        ("1080p", False): 0.047, ("1080p", True): 0.047,
+    },
+    "atlas-seedance-2": {
+        ("720p", False): 0.112, ("720p", True): 0.112,
+        ("1080p", False): 0.112, ("1080p", True): 0.112,
+    },
+    "atlas-seedance-2-fast": {
+        ("720p", False): 0.09, ("720p", True): 0.09,
+        ("1080p", False): 0.09, ("1080p", True): 0.09,
+    },
+    "atlas-seedance-2-mini": {
+        ("720p", False): 0.056, ("720p", True): 0.056,
+        ("1080p", False): 0.056, ("1080p", True): 0.056,
+    },
+    "atlas-van-2.5": {
+        ("720p", False): 0.054, ("720p", True): 0.054,
+        ("1080p", False): 0.054, ("1080p", True): 0.054,
+    },
+    "atlas-van-2.6": {
+        ("720p", False): 0.068, ("720p", True): 0.068,
+        ("1080p", False): 0.068, ("1080p", True): 0.068,
+    },
+    "atlas-veed-fabric-1.0": {
+        ("720p", False): 0.088, ("720p", True): 0.088,
+        ("1080p", False): 0.088, ("1080p", True): 0.088,
+    },
+    "atlas-veo-3.1": {
+        ("720p", False): 0.2, ("720p", True): 0.2,
+        ("1080p", False): 0.2, ("1080p", True): 0.2,
+    },
+    "atlas-veo-3.1-fast": {
+        ("720p", False): 0.08, ("720p", True): 0.08,
+        ("1080p", False): 0.08, ("1080p", True): 0.08,
+    },
+    "atlas-veo-3.1-lite": {
+        ("720p", False): 0.05, ("720p", True): 0.05,
+        ("1080p", False): 0.05, ("1080p", True): 0.05,
+    },
+    "atlas-vidu-2.0": {
+        ("720p", False): 0.075, ("720p", True): 0.075,
+        ("1080p", False): 0.075, ("1080p", True): 0.075,
+    },
+    "atlas-vidu-q1": {
+        ("720p", False): 0.34, ("720p", True): 0.34,
+        ("1080p", False): 0.34, ("1080p", True): 0.34,
+    },
+    "atlas-vidu-q2": {
+        ("720p", False): 0.026, ("720p", True): 0.026,
+        ("1080p", False): 0.026, ("1080p", True): 0.026,
+    },
+    "atlas-vidu-q3": {
+        ("720p", False): 0.034, ("720p", True): 0.034,
+        ("1080p", False): 0.034, ("1080p", True): 0.034,
+    },
+    "atlas-wan-2.2-animate": {
+        ("720p", False): 0.084, ("720p", True): 0.084,
+        ("1080p", False): 0.084, ("1080p", True): 0.084,
+    },
+    "atlas-wan-2.2-spicy": {
+        ("720p", False): 0.03, ("720p", True): 0.03,
+        ("1080p", False): 0.03, ("1080p", True): 0.03,
+    },
+    "atlas-wan-2.2-turbo": {
+        ("720p", False): 0.02, ("720p", True): 0.02,
+        ("1080p", False): 0.02, ("1080p", True): 0.02,
+    },
+    "atlas-wan-2.2-turbo-spicy": {
+        ("720p", False): 0.02, ("720p", True): 0.02,
+        ("1080p", False): 0.02, ("1080p", True): 0.02,
+    },
+    "atlas-wan-2.2-video": {
+        ("720p", False): 0.03, ("720p", True): 0.03,
+        ("1080p", False): 0.03, ("1080p", True): 0.03,
+    },
+    "atlas-wan-2.5-video": {
+        ("720p", False): 0.035, ("720p", True): 0.035,
+        ("1080p", False): 0.035, ("1080p", True): 0.035,
+    },
+    "atlas-wan-2.6-spicy": {
+        ("720p", False): 0.07, ("720p", True): 0.07,
+        ("1080p", False): 0.07, ("1080p", True): 0.07,
+    },
+    "atlas-wan-2.6-video": {
+        ("720p", False): 0.07, ("720p", True): 0.07,
+        ("1080p", False): 0.07, ("1080p", True): 0.07,
+    },
+    "atlas-wan-2.7-spicy": {
+        ("720p", False): 0.1, ("720p", True): 0.1,
+        ("1080p", False): 0.1, ("1080p", True): 0.1,
+    },
+    "atlas-wan-2.7-video": {
+        ("720p", False): 0.1, ("720p", True): 0.1,
+        ("1080p", False): 0.1, ("1080p", True): 0.1,
+    },
+    "atlas-youchuan-v8.1-video": {
+        ("720p", False): 0.086, ("720p", True): 0.086,
+        ("1080p", False): 0.086, ("1080p", True): 0.086,
+    },
 }
 _RES_ORDER = {"720p": 0, "1080p": 1, "4k": 2}
 
