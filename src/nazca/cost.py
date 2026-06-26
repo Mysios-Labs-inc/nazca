@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from nazca.models import MODELS as _MODEL_REGISTRY
+from nazca.models import THREED_MODELS as _THREED_REGISTRY
 
 # --------------------------------------------------------------------------- flat prices
 # USD per generated image — derived from the canonical registry in nazca.models.
@@ -435,11 +436,12 @@ def estimate_audio_cost(model_shorthand: str | None, *, chars: int) -> CostEstim
 
 
 # --------------------------------------------------------------------------- 3D prices
-# 3D generation is billed per run (flat). Unknown models return None.
+# 3D generation is billed per run (flat) — derived from the canonical registry so the
+# price has a single source of truth (the ModelSpec), not a literal copy here.
 _3D_PER_RUN: dict[str, float] = {
-    "atlas-hunyuan3d-rapid": 0.02,
-    "atlas-hunyuan3d-pro": 0.02,
-    "atlas-seed3d-2": 0.353,
+    sh: spec.price_usd
+    for sh, spec in _THREED_REGISTRY.items()
+    if spec.price_usd is not None
 }
 
 

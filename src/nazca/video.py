@@ -12,13 +12,13 @@ ModelArk path (opt-in, ARK_API_KEY): Seedance async task — schema UNVERIFIED.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from nazca import config
 from nazca.backends import get_backend
 from nazca.cost import estimate_video_cost
 from nazca.errors import VeoError  # noqa: F401  (re-exported for back-compat)
+from nazca.media import write_result
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
 from nazca.registry import video_override
 from nazca.request import VideoRequest
@@ -208,14 +208,7 @@ def generate_video(
         dry_run=dry_run,
     )
 
-    result = backend.run_video(model_id, "", req)
-
-    if dry_run:
-        dbg = out.with_suffix(".request.json")
-        dbg.write_text(json.dumps(result, indent=2))
-        return dbg
-    out.write_bytes(result)
-    return out
+    return write_result(out, backend.run_video(model_id, "", req), dry_run)
 
 
 def edit_video(
@@ -266,10 +259,4 @@ def edit_video(
         dry_run=dry_run,
     )
 
-    result = backend.run_video(edit_id, "", req)
-    if dry_run:
-        dbg = out.with_suffix(".request.json")
-        dbg.write_text(json.dumps(result, indent=2))
-        return dbg
-    out.write_bytes(result)
-    return out
+    return write_result(out, backend.run_video(edit_id, "", req), dry_run)

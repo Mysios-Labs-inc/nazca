@@ -8,12 +8,12 @@ write the result (or the dry-run plan). TTS is billed per 1,000 input characters
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from nazca.backends import get_backend
 from nazca.cost import estimate_audio_cost
 from nazca.errors import BackendError
+from nazca.media import write_result
 from nazca.models import AUDIO_MODELS as _AUDIO_REGISTRY
 from nazca.request import AudioRequest
 
@@ -76,13 +76,7 @@ def speak(
         dry_run=dry_run,
     )
 
-    result = backend.run_audio(provider_id, req)
-    if dry_run:
-        dbg = out.with_suffix(".request.json")
-        dbg.write_text(json.dumps(result, indent=2))
-        return dbg
-    out.write_bytes(result)
-    return out
+    return write_result(out, backend.run_audio(provider_id, req), dry_run)
 
 
 def audio_cost_label(model: str | None, *, chars: int) -> str | None:
