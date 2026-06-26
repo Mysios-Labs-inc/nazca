@@ -94,18 +94,29 @@ def select_model(tier: str | None) -> str | None:
 # input field are verified (research workflow, fal.ai 2026-06-22); v2v/extend are
 # deferred pending a live input-field probe.
 # Derived from the canonical registry in nazca.models.
-_VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset({"reframe", "v2v", "extend"})
+_VIDEO_EDIT_OPS_SET: frozenset[str] = frozenset(
+    {"reframe", "v2v", "extend", "motion_control", "video_upscale"}
+)
 VIDEO_EDIT_MODELS: dict[str, str] = {
     sh: spec.provider_id
     for sh, spec in _VIDEO_REGISTRY.items()
     if not spec.ops.isdisjoint(_VIDEO_EDIT_OPS_SET)
 }
-VIDEO_EDIT_OPS = tuple(VIDEO_EDIT_MODELS)
+# The OP NAMES that route through edit_video (source VIDEO → video). The CLI tests
+# `op in VIDEO_EDIT_OPS`, so this is the op set, not the model shorthands.
+VIDEO_EDIT_OPS = tuple(sorted(_VIDEO_EDIT_OPS_SET))
+
+# Ops whose shorthand isn't the op name need a default model (fal reframe/v2v/extend
+# use op==shorthand; the Atlas-only ops point at a concrete Atlas model).
+_EDIT_OP_DEFAULTS: dict[str, str] = {
+    "motion_control": "atlas-kling-v2.6-pro",
+    "video_upscale": "atlas-video-upscaler",
+}
 
 
 def default_video_edit_model(op: str) -> str:
-    """Default model shorthand for a video-edit op (the op name is the shorthand)."""
-    return op
+    """Default model shorthand for a video-edit op (op name == shorthand for fal ops)."""
+    return _EDIT_OP_DEFAULTS.get(op, op)
 
 
 # Vertex backend name (isolate so future providers stay additive)
@@ -161,6 +172,8 @@ def generate_video(
     aspect_ratio: str = "9:16",
     resolution: str = "720p",
     generate_audio: bool = False,
+    op: str | None = None,
+    refs: list[str] | None = None,
     dry_run: bool = False,
 ) -> Path:
     """Generate a video clip — text-to-video, or from a start frame (+ optional end).
@@ -169,7 +182,9 @@ def generate_video(
     fal: start frame as data-URI when given; end/resolution/audio support varies.
 
     `start=None` produces text-to-video; the per-backend image field is simply
-    omitted. (The CLI validates that the chosen model supports the inferred op.)
+    omitted. `op` (when given) is the explicit op for backends that encode it in the
+    model slug (Atlas: keyframe/effects/ref2v); `refs` carries reference images for
+    ref2v. (The CLI validates that the chosen model supports the inferred op.)
 
     Returns the output path (or .request.json for dry-run).
     """
@@ -182,10 +197,12 @@ def generate_video(
         prompt=prompt,
         start=str(start) if start is not None else None,
         end=str(end) if end is not None else None,
+        refs=[str(r) for r in (refs or [])],
         aspect_ratio=aspect_ratio,
         resolution=resolution,
         duration=int(duration),
         audio=generate_audio,
+        op=op,
         dry_run=dry_run,
     )
 
@@ -234,8 +251,9 @@ def edit_video(
         )
 
     resolved = model or default_video_edit_model(op)
-    fal_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → fal id, or raw passthrough
-    backend = get_backend("fal")
+    edit_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → provider id, or raw passthrough
+    spec = _VIDEO_REGISTRY.get(resolved)
+    backend = get_backend(spec.backend if spec else "fal")  # per-model backend (fal | atlas)
 
     req = VideoRequest(
         prompt=prompt or "",
@@ -246,7 +264,7 @@ def edit_video(
         dry_run=dry_run,
     )
 
-    result = backend.run_video(fal_id, "", req)
+    result = backend.run_video(edit_id, "", req)
     if dry_run:
         dbg = out.with_suffix(".request.json")
         dbg.write_text(json.dumps(result, indent=2))

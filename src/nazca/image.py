@@ -147,6 +147,7 @@ def generate_image(
     quality: str | None = None,
     output_format: str | None = None,
     transparent: bool = False,
+    op: str | None = None,
     dry_run: bool = False,
 ) -> Path | dict:
     """Generate (or restyle, when ref is given) one image.
@@ -180,6 +181,7 @@ def generate_image(
         quality=quality,
         output_format=output_format,
         transparent=transparent,
+        op=op,
         est_cost_usd=_estimate_image_cost(
             model, backend_name, aspect_ratio=aspect_ratio, size=size, quality=quality
         ),

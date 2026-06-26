@@ -184,11 +184,12 @@ def _validate_video_inputs(
     in video() lines 468-504.
     """
     if in_edit_ops:
+        flag = op.replace("_", "-")
         if not source:
-            click.echo(f"❌ --{op} needs a SOURCE video URL: nazca video CLIP_URL --{op}", err=True)
+            click.echo(f"❌ --{flag} needs a SOURCE video URL: nazca video CLIP_URL --{flag}", err=True)
             raise SystemExit(2)
         if start or end:
-            click.echo(f"❌ --start/--end are for frame ops; --{op} takes a SOURCE video, not frames", err=True)
+            click.echo(f"❌ --start/--end are for frame ops; --{flag} takes a SOURCE video, not frames", err=True)
             raise SystemExit(2)
         if op in ("v2v", "extend") and not prompt:
             click.echo(f"❌ --{op} needs -p/--prompt", err=True)
@@ -268,9 +269,10 @@ def _emit_video_result(result, dry_run: bool) -> None:
 @click.option("--quality", default="high", type=click.Choice(["low", "medium", "high", "auto"]), help="gpt-image-2 only: cost/speed lever (medium ≈ 4× cheaper & faster than high). Ignored by other models.")
 @click.option("--format", "output_format", default="png", type=click.Choice(["png", "jpeg", "webp"]), help="Output image format (gpt-image-2 only for jpeg/webp; default png).")
 @click.option("--transparent", is_flag=True, help="Transparent background (gpt-image-2 only; sets background:transparent).")
+@click.option("--style", "do_style", is_flag=True, help="Style transfer: apply a --ref image's look to the prompt (Atlas style-transfer models).")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
-def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, quality, output_format, transparent, tier, dry_run):
+def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expand, upscale_factor, model, aspect_ratio, size, quality, output_format, transparent, do_style, tier, dry_run):
     """Generate, restyle (--ref), or modify (SOURCE + --upscale/--rmbg/--mask/--outpaint) an image.
 
     \b
@@ -299,12 +301,15 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         select_model,
     )
 
-    # The op is inferred from the flags: modify signals win, else refs count.
-    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg, mask=bool(mask), outpaint=do_outpaint)
+    # The op is inferred from the flags: modify signals win, then --style, else refs count.
+    op = infer_image_op(len(ref), upscale=do_upscale, bg_remove=do_rmbg, mask=bool(mask), outpaint=do_outpaint, style=do_style)
     modify = op in MODIFY_OPS
 
     # Validate mutual-exclusion rules (raises SystemExit(2) on conflict).
     _validate_image_inputs(source, ref, do_upscale, do_rmbg, mask, do_outpaint, op, prompt, modify)
+    if op == "style" and not ref:
+        click.echo("❌ --style needs a --ref style image (and -p/--prompt for the content)", err=True)
+        raise SystemExit(2)
 
     if modify:
         resolved_model = model or default_modify_model(op)
@@ -339,7 +344,11 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
         result = generate_image(
             out, eff_prompt, ref=ref_paths or None, model=resolved_model,
             aspect_ratio=aspect_ratio, size=size, quality=quality, output_format=output_format,
-            transparent=transparent, dry_run=dry_run,
+            transparent=transparent,
+            # only force `op` for ops a backend can't infer (style); leave None for
+            # t2i/i2i/compose so the fal backend keeps treating op=None as "generate".
+            op=("style" if op == "style" else None),
+            dry_run=dry_run,
         )
     _emit_image_result(result, dry_run, modify, resolved_model, DEFAULT_MODEL, aspect_ratio, size, quality)
 
@@ -533,6 +542,11 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("--reframe", "do_reframe", is_flag=True, help="Re-aspect a SOURCE video URL to --aspect (fal luma ray-2).")
 @click.option("--v2v", "do_v2v", is_flag=True, help="Restyle/edit a SOURCE video URL from -p (fal wan-vace).")
 @click.option("--extend", "do_extend", is_flag=True, help="Extend a SOURCE video URL by --duration 5|8s (fal pixverse). Needs -p.")
+@click.option("--motion-control", "do_motion", is_flag=True, help="Motion-transfer: drive a SOURCE video URL's motion (Atlas Kling motion-control).")
+@click.option("--video-upscale", "do_vupscale", is_flag=True, help="Upscale a SOURCE video URL to higher resolution (Atlas video-upscaler).")
+@click.option("--effects", "do_effects", is_flag=True, help="Apply an effect template to a --start image (Atlas Kling effects).")
+@click.option("--ref2v", "do_ref2v", is_flag=True, help="Reference-to-video: drive generation from --ref image(s) (Atlas ref2v models).")
+@click.option("--ref", "ref", multiple=True, help="Reference image for --ref2v. Repeatable.")
 @click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001).")
 @click.option("--duration", default=8, type=int, help="Seconds (Veo: 4/6/8; extend: 5 or 8 added).")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
@@ -540,7 +554,7 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("--audio", is_flag=True, help="Let Veo generate audio.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier: pick cheap or premium default model. Ignored when --model is given.")
 @click.option("--dry-run", is_flag=True, help="Write request JSON; no API call / no credits.")
-def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
+def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v, ref, model, duration, aspect_ratio, resolution, audio, tier, dry_run):
     """Generate or edit a video.
 
     \b
@@ -564,13 +578,40 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
         video_cost_label,
     )
 
-    # At most one video-edit signal.
-    if sum([do_reframe, do_v2v, do_extend]) > 1:
-        click.echo("❌ choose one video-edit op: --reframe / --v2v / --extend", err=True)
+    # At most one op selector.
+    if sum([do_reframe, do_v2v, do_extend, do_motion, do_vupscale, do_effects, do_ref2v]) > 1:
+        click.echo(
+            "❌ choose one op: --reframe/--v2v/--extend/--motion-control/--video-upscale/--effects/--ref2v",
+            err=True,
+        )
         raise SystemExit(2)
 
-    op = infer_video_op(bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend)
+    op = infer_video_op(
+        bool(start), bool(end), reframe=do_reframe, v2v=do_v2v, extend=do_extend,
+        motion_control=do_motion, video_upscale=do_vupscale, effects=do_effects, ref2v=do_ref2v,
+    )
     in_edit_ops = op in VIDEO_EDIT_OPS
+
+    # ---- Atlas ref2v / effects: frame-style ops (--ref images / --start image) ----
+    if op in ("ref2v", "effects"):
+        if source:
+            click.echo("❌ a positional SOURCE is for source-video ops; ref2v/effects use --ref/--start", err=True)
+            raise SystemExit(2)
+        if op == "ref2v" and not ref:
+            click.echo("❌ --ref2v needs at least one --ref image", err=True)
+            raise SystemExit(2)
+        if op == "effects" and not start:
+            click.echo("❌ --effects needs a --start image", err=True)
+            raise SystemExit(2)
+        resolved_model = model or select_model(tier)
+        _validate_or_exit(resolved_model, op, n_refs=len(ref))
+        result = generate_video(
+            out, start, prompt or "", model=resolved_model, duration=duration,
+            aspect_ratio=aspect_ratio, resolution=resolution, op=op,
+            refs=list(ref) or None, dry_run=dry_run,
+        )
+        _emit_video_result(result, dry_run)
+        return
 
     # ---- validate inputs (raises SystemExit(2) on conflict) ----------------
     _validate_video_inputs(source, start, end, prompt, op, in_edit_ops)
@@ -598,6 +639,8 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, model,
     validate_target = resolved_model or {v: k for k, v in VEO_ALIASES.items()}.get(config.VEO_MODEL)
     _validate_or_exit(validate_target, op)
 
+    # NB: do NOT pass `op` here — fal treats a non-None req.op as a video-EDIT op.
+    # The atlas backend infers t2v/i2v/keyframe from start/end itself.
     result = generate_video(
         out, start, prompt, end=end, model=resolved_model, duration=duration,
         aspect_ratio=aspect_ratio, resolution=resolution,
