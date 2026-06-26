@@ -16,7 +16,7 @@ Public library API (importable as ``from nazca import ...``):
     BackendError, RateLimitError  — shared exception hierarchy
 """
 
-__version__ = "0.8.1"
+__version__ = "0.9.0"
 
 # Public API — only light-weight, always-available symbols here.
 # Heavy CLI deps (questionary, mcp) are NOT imported at this level.
