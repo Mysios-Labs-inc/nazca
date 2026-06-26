@@ -20,8 +20,14 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP, Image
 
+import nazca.log as _log
 from nazca import image as image_mod
 from nazca import video as video_mod
+
+# Configure logging at startup so MCP diagnostic output goes to stderr only
+# (stdout is reserved for the MCP stdio protocol — writing there would corrupt
+# the protocol framing). configure() defaults stream=sys.stderr.
+_log.configure(os.getenv("NAZCA_LOG_LEVEL", "WARNING"))
 
 mcp = FastMCP("nazca")
 

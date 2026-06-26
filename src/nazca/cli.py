@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import click
@@ -107,8 +108,18 @@ def _prompt_secret(label: str) -> str:
 
 @click.group()
 @click.version_option(__version__)
-def cli() -> None:
+@click.option(
+    "-v", "--verbose",
+    count=True,
+    help="Increase log verbosity: -v INFO, -vv DEBUG. Overridden by NAZCA_LOG_LEVEL env.",
+)
+def cli(verbose: int) -> None:
     """Thin CLI for AI image + video generation. Claude-driven."""
+    import nazca.log as _log
+
+    env_level = os.environ.get("NAZCA_LOG_LEVEL")
+    level: int | str = env_level if env_level else _log.level_from_verbosity(verbose)
+    _log.configure(level)
 
 
 # ---------------------------------------------------------------------------

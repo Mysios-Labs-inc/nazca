@@ -25,7 +25,10 @@ from nazca import config, retry
 from nazca.backends.base import Backend
 from nazca.errors import BackendError, ImageError, VeoError
 from nazca.errors import RateLimitError as _SharedRateLimitError
+from nazca.log import get_logger
 from nazca.media import encode_image_b64
+
+logger = get_logger("backends.vertex")
 
 if TYPE_CHECKING:
     from nazca.request import ImageRequest, VideoRequest
@@ -207,6 +210,7 @@ class VertexBackend(Backend):
     name = "vertex"
 
     def auth_token(self) -> str:
+        logger.debug("minting token")
         return access_token()
 
     def build_url(self, model: str, op: str, location: str | None = None) -> str:
@@ -357,11 +361,13 @@ class VertexBackend(Backend):
         if not op:
             raise VeoError(f"submit failed: {json.dumps(submit)[:500]}")
 
-        for _ in range(config.POLL_MAX_TRIES):
+        for attempt in range(1, config.POLL_MAX_TRIES + 1):
             time.sleep(config.POLL_INTERVAL)
             poll = self.post(
                 self.build_url(model_id, "fetchPredictOperation"), {"operationName": op}, token
             )
+            status = "done" if poll.get("done") else "pending"
+            logger.info(f"poll attempt {attempt}/{config.POLL_MAX_TRIES}: {status}")
             if poll.get("done"):
                 break
         else:

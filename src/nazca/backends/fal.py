@@ -25,7 +25,10 @@ from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
 from nazca.errors import BackendError, ImageError, VeoError
 from nazca.errors import RateLimitError as _SharedRateLimitError
+from nazca.log import get_logger
 from nazca.media import encode_image_b64, encode_image_data_uri, summarize_data_uri
+
+logger = get_logger("backends.fal")
 
 if TYPE_CHECKING:
     from nazca.request import ImageRequest, VideoRequest
@@ -125,6 +128,7 @@ class FalBackend(Backend):
                     "video" → result["video"]["url"]
         """
         # 1. Submit
+        logger.debug(f"submitting {media_type} request to fal queue: {url}")
         submit = self.post(url, body, token)
         status_url = submit.get("status_url")
         response_url = submit.get("response_url")
@@ -132,13 +136,15 @@ class FalBackend(Backend):
             raise FalError(f"fal submit missing status/response URLs: {json.dumps(submit)[:400]}")
 
         # 2. Poll
-        for _ in range(config.POLL_MAX_TRIES):
+        for attempt in range(1, config.POLL_MAX_TRIES + 1):
             time.sleep(config.POLL_INTERVAL)
             status = self._get(status_url, token)
-            if status.get("status") == "COMPLETED":
+            current_status = status.get("status")
+            logger.info(f"poll attempt {attempt}/{config.POLL_MAX_TRIES}: status={current_status}")
+            if current_status == "COMPLETED":
                 break
-            if status.get("status") in ("FAILED", "CANCELLED"):
-                raise FalError(f"fal job {status.get('status')}: {json.dumps(status)[:400]}")
+            if current_status in ("FAILED", "CANCELLED"):
+                raise FalError(f"fal job {current_status}: {json.dumps(status)[:400]}")
         else:
             raise FalError(
                 f"timed out waiting for fal job after "
@@ -164,6 +170,7 @@ class FalBackend(Backend):
                 raise FalError(f"no image URL in fal result: {json.dumps(result)[:400]}")
 
         # 5. Download bytes
+        logger.debug(f"downloading {media_type} from fal CDN")
         dl_req = urllib.request.Request(media_url, method="GET")
         try:
             with urllib.request.urlopen(dl_req) as resp:  # noqa: S310 (fal CDN)
