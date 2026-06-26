@@ -35,6 +35,7 @@ from nazca.cost import cost_from_openai_usage, estimate_image_cost
 from nazca.errors import ImageError  # noqa: F401  (re-exported for back-compat)
 from nazca.media import encode_image_b64  # noqa: F401  (re-export for vertex_batch)
 from nazca.models import MODELS as _MODEL_REGISTRY
+from nazca.models import tiers
 from nazca.request import ImageRequest
 from nazca.resolve import resolve as _resolve_unified
 
@@ -63,10 +64,7 @@ _MODIFY_DEFAULT_MODEL = {
 
 # tier tags: each shorthand → "cheap" | "premium"
 # Derived from the canonical registry in nazca.models.
-MODEL_TIERS: dict[str, str] = {
-    sh: spec.tier
-    for sh, spec in _MODEL_REGISTRY.items()
-}
+MODEL_TIERS: dict[str, str] = tiers("image")
 
 # tier → default Vertex-direct model (never auto-route to fal)
 _TIER_DEFAULTS: dict[str, str] = {
