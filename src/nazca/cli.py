@@ -695,6 +695,42 @@ def speak(text, out, model, voice, output_format, tier, dry_run):
         click.echo(f"✅ {result}")
 
 
+@cli.command(name="make3d")
+@click.argument("prompt", required=False)
+@click.option("-o", "--out", required=True, help="Output 3D asset path (.glb).")
+@click.option("--image", "source", default=None, type=click.Path(), help="Input image → image-to-3D (i23d). Omit for text-to-3D (t23d).")
+@click.option("--model", default=None, help="3D model (default: atlas-hunyuan3d-rapid). Also: atlas-hunyuan3d-pro, atlas-seed3d-2.")
+@click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier when --model is absent.")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def make3d(prompt, out, source, model, tier, dry_run):
+    """Generate a 3D asset (GLB) from text PROMPT or an --image.
+
+    \b
+      nazca make3d "a red sports car" -o car.glb
+      nazca make3d -o chair.glb --image chair.png --model atlas-seed3d-2
+    """
+    from nazca.threed import ThreeDError, make_3d, select_3d_model, threed_cost_label
+
+    if not prompt and not source:
+        click.echo("❌ make3d needs a text PROMPT or an --image", err=True)
+        raise SystemExit(2)
+    resolved_model = model or select_3d_model(tier)
+    op = "i23d" if source else "t23d"
+    _validate_or_exit(resolved_model, op)
+    try:
+        result = make_3d(out, prompt or "", source=source, model=resolved_model, dry_run=dry_run)
+    except ThreeDError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
+    if dry_run:
+        click.echo(f"📝 {result}")
+        cost = threed_cost_label(resolved_model or "atlas-hunyuan3d-rapid")
+        if cost:
+            click.echo(f"💵 {cost}")
+    else:
+        click.echo(f"✅ {result}")
+
+
 @cli.command()
 def login() -> None:
     """Interactively store API credentials in ~/.config/nazca/config.ini.

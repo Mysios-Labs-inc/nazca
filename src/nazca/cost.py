@@ -434,6 +434,23 @@ def estimate_audio_cost(model_shorthand: str | None, *, chars: int) -> CostEstim
     return CostEstimate(usd, approx=True, basis=f"≈${rate:g}/1K chars × {n} chars")
 
 
+# --------------------------------------------------------------------------- 3D prices
+# 3D generation is billed per run (flat). Unknown models return None.
+_3D_PER_RUN: dict[str, float] = {
+    "atlas-hunyuan3d-rapid": 0.02,
+    "atlas-hunyuan3d-pro": 0.02,
+    "atlas-seed3d-2": 0.353,
+}
+
+
+def estimate_3d_cost(model_shorthand: str | None) -> CostEstimate | None:
+    """Estimate the cost of one 3D generation (flat per run)."""
+    rate = _3D_PER_RUN.get(model_shorthand or "")
+    if rate is None:
+        return None
+    return CostEstimate(rate, approx=True, basis="flat per 3D run")
+
+
 @dataclass(frozen=True)
 class PlanCost:
     """Aggregate estimate for a multi-step plan — the whole bill before any step runs.

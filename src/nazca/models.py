@@ -1314,6 +1314,43 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
 
 
 # ---------------------------------------------------------------------------
+# 3D model registry (text/image → GLB mesh). price_usd is the flat per-run price.
+# ---------------------------------------------------------------------------
+THREED_MODELS: dict[str, ModelSpec] = {
+    "atlas-hunyuan3d-rapid": ModelSpec(
+        shorthand="atlas-hunyuan3d-rapid",
+        provider_id="tencent/hunyuan3d-rapid",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="cheap",
+        price_usd=0.02,
+        ops=frozenset({"t23d", "i23d"}),
+    ),
+    "atlas-hunyuan3d-pro": ModelSpec(
+        shorthand="atlas-hunyuan3d-pro",
+        provider_id="tencent/hunyuan3d-pro",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.02,
+        ops=frozenset({"t23d", "i23d"}),
+    ),
+    "atlas-seed3d-2": ModelSpec(
+        shorthand="atlas-seed3d-2",
+        provider_id="bytedance/seed3d-v2.0",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.353,
+        ops=frozenset({"i23d"}),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
 
@@ -1333,3 +1370,8 @@ def all_video_shorthands() -> list[str]:
 def all_audio_shorthands() -> list[str]:
     """Return all audio model shorthands in insertion order."""
     return list(AUDIO_MODELS)
+
+
+def all_3d_shorthands() -> list[str]:
+    """Return all 3D model shorthands in insertion order."""
+    return list(THREED_MODELS)

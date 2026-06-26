@@ -38,7 +38,7 @@ from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_data_uri, summarize_data_uri
 
 if TYPE_CHECKING:
-    from nazca.request import AudioRequest, ImageRequest, VideoRequest
+    from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
 
 ATLAS_MEDIA_BASE = "https://api.atlascloud.ai/api/v1"  # media (async); LLM uses /v1
 
@@ -62,6 +62,9 @@ _OP_SUFFIX: dict[str, str] = {
     "avatar": "avatar",  # Kling avatar; standalone avatar models override via _STANDALONE_STEMS
     # audio
     "tts": "text-to-speech",
+    # 3d
+    "t23d": "text-to-3d",
+    "i23d": "image-to-3d",
 }
 
 # Ops whose model slug is STANDALONE (the stem is already the full slug, no operation
@@ -119,6 +122,9 @@ class AtlasBackend(Backend):
 
     def audio_endpoint(self) -> str:
         return f"{ATLAS_MEDIA_BASE}/model/generateAudio"  # verify endpoint name
+
+    def threed_endpoint(self) -> str:
+        return f"{ATLAS_MEDIA_BASE}/model/generate3D"  # verify endpoint name
 
     def encode_image_data_uri(self, path, max_edge: int | None = None) -> str:
         """Atlas takes ref images as data URIs (or uploaded URLs); verify per model."""
@@ -299,3 +305,30 @@ class AtlasBackend(Backend):
         if not pred_id:
             raise AtlasError(f"No prediction id in response: {resp}")
         return self._poll(pred_id, download_timeout=60)
+
+    def run_3d(self, model_id, req: ThreeDRequest):
+        """Async text/image → 3D (GLB). Endpoint + schema UNVERIFIED → dry-run safe."""
+        slug = _model_slug(model_id, req.op or "t23d", "text-to-3d")
+        body: dict = {"model": slug}
+        if req.prompt:
+            body["prompt"] = req.prompt
+        if req.source:  # i23d: input image
+            body["image_url"] = self.encode_image_data_uri(req.source, max_edge=1280)  # verify
+
+        if req.dry_run:
+            preview = dict(body)
+            if isinstance(preview.get("image_url"), str) and preview["image_url"].startswith("data:"):
+                preview["image_url"] = summarize_data_uri(preview["image_url"])
+            return {
+                "url": self.threed_endpoint(),
+                "model": slug,
+                "backend": self.name,
+                "est_cost_usd": req.est_cost_usd,
+                "body": preview,
+            }
+
+        resp = self._post("/model/generate3D", body)
+        pred_id = resp.get("data", {}).get("id")
+        if not pred_id:
+            raise AtlasError(f"No prediction id in response: {resp}")
+        return self._poll(pred_id, download_timeout=120)

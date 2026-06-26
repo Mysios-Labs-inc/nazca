@@ -12,6 +12,7 @@ import pytest
 from nazca import capabilities as cap
 from nazca.image import MODELS as IMG_MODELS
 from nazca.models import AUDIO_MODELS as _AUDIO_MODELS
+from nazca.models import THREED_MODELS as _THREED_MODELS
 from nazca.video import (
     ARK_VIDEO_MODELS,
     ATLAS_VIDEO_MODELS,
@@ -27,6 +28,10 @@ def _all_video_shorthands():
 
 def _all_audio_shorthands():
     return set(_AUDIO_MODELS)
+
+
+def _all_3d_shorthands():
+    return set(_THREED_MODELS)
 
 
 # --------------------------------------------------------------------------- coverage
@@ -45,8 +50,13 @@ def test_every_audio_model_has_caps():
     assert not missing, f"audio models missing Caps: {missing}"
 
 
+def test_every_3d_model_has_caps():
+    missing = [sh for sh in _all_3d_shorthands() if sh not in cap.CAPS]
+    assert not missing, f"3D models missing Caps: {missing}"
+
+
 def test_no_orphan_caps_entries():
-    known = set(IMG_MODELS) | _all_video_shorthands() | _all_audio_shorthands()
+    known = set(IMG_MODELS) | _all_video_shorthands() | _all_audio_shorthands() | _all_3d_shorthands()
     orphans = [sh for sh in cap.CAPS if sh not in known]
     assert not orphans, f"Caps entries for unknown models: {orphans}"
 
@@ -66,15 +76,18 @@ def test_produces_matches_op_family():
             assert c.ops <= cap.VIDEO_OPS, f"{sh} produces video but has non-video ops"
         elif c.produces == "audio":
             assert c.ops <= cap.AUDIO_OPS, f"{sh} produces audio but has non-audio ops"
+        elif c.produces == "model3d":
+            assert c.ops <= cap.THREED_OPS, f"{sh} produces 3D but has non-3D ops"
         else:
             raise AssertionError(f"{sh} has unexpected produces={c.produces!r}")
 
 
 def test_op_families_are_disjoint():
-    assert cap.IMAGE_OPS.isdisjoint(cap.VIDEO_OPS)
-    assert cap.IMAGE_OPS.isdisjoint(cap.AUDIO_OPS)
-    assert cap.VIDEO_OPS.isdisjoint(cap.AUDIO_OPS)
-    assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS | cap.AUDIO_OPS
+    families = [cap.IMAGE_OPS, cap.VIDEO_OPS, cap.AUDIO_OPS, cap.THREED_OPS]
+    for i, a in enumerate(families):
+        for b in families[i + 1:]:
+            assert a.isdisjoint(b)
+    assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS | cap.AUDIO_OPS | cap.THREED_OPS
 
 
 def test_every_model_supports_at_least_one_op():

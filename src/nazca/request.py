@@ -84,3 +84,18 @@ class AudioRequest:
     op: str = "tts"
     est_cost_usd: float | None = None
     dry_run: bool = False
+
+
+@dataclass
+class ThreeDRequest:
+    """Everything a backend needs to generate one 3D asset (GLB mesh).
+
+    `op` is "t23d" (text → 3D) or "i23d" (image → 3D); `source` is the input image
+    for i23d. `est_cost_usd` is precomputed and echoed into the plan.
+    """
+
+    prompt: str = ""
+    source: str | None = None
+    op: str = "t23d"
+    est_cost_usd: float | None = None
+    dry_run: bool = False

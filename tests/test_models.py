@@ -20,6 +20,7 @@ from nazca.image import MODEL_TIERS as IMG_TIERS
 from nazca.image import MODELS as IMG_MODELS
 from nazca.models import AUDIO_MODELS as AUD_REGISTRY
 from nazca.models import MODELS as IMG_REGISTRY
+from nazca.models import THREED_MODELS as THREED_REGISTRY
 from nazca.models import VALID_TIERS
 from nazca.models import VIDEO_MODELS as VID_REGISTRY
 from nazca.video import ARK_VIDEO_MODELS, FAL_VIDEO_MODELS, VEO_ALIASES, VIDEO_MODEL_TIERS
@@ -126,7 +127,12 @@ def test_caps_video_shorthands_are_subset_of_video_registry():
 def test_caps_ops_match_registry_ops():
     """For every shorthand in CAPS, the ops frozenset must match the registry."""
     for sh, caps_entry in cap.CAPS.items():
-        spec = IMG_REGISTRY.get(sh) or VID_REGISTRY.get(sh) or AUD_REGISTRY.get(sh)
+        spec = (
+            IMG_REGISTRY.get(sh)
+            or VID_REGISTRY.get(sh)
+            or AUD_REGISTRY.get(sh)
+            or THREED_REGISTRY.get(sh)
+        )
         assert spec is not None, f"CAPS has {sh!r} absent from all registries"
         assert caps_entry.ops == spec.ops, (
             f"{sh}: CAPS.ops={caps_entry.ops} but registry.ops={spec.ops}"

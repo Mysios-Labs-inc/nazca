@@ -20,6 +20,7 @@ from dataclasses import dataclass
 
 from nazca.models import AUDIO_MODELS as _AUDIO_REGISTRY
 from nazca.models import MODELS as _MODEL_REGISTRY
+from nazca.models import THREED_MODELS as _THREED_REGISTRY
 from nazca.models import VIDEO_MODELS as _VIDEO_REGISTRY
 
 
@@ -29,6 +30,7 @@ def _ops(shorthand: str) -> frozenset[str]:
         _MODEL_REGISTRY.get(shorthand)
         or _VIDEO_REGISTRY.get(shorthand)
         or _AUDIO_REGISTRY.get(shorthand)
+        or _THREED_REGISTRY.get(shorthand)
     )
     if spec is None:
         raise KeyError(f"No ModelSpec for shorthand {shorthand!r} in models registry")
@@ -70,7 +72,13 @@ AUDIO_OPS: frozenset[str] = frozenset(
         "tts",       # text                  → audio   (text-to-speech)
     }
 )
-OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS | AUDIO_OPS
+THREED_OPS: frozenset[str] = frozenset(
+    {
+        "t23d",      # text                  → 3D (GLB mesh)
+        "i23d",      # image                 → 3D (GLB mesh)
+    }
+)
+OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS | AUDIO_OPS | THREED_OPS
 
 # Which ops imply which inputs — used by the (future) CLI op-inference and by the
 # coverage test that keeps this module honest.
@@ -142,6 +150,11 @@ def _vid(shorthand: str, **kw) -> Caps:
 def _aud(shorthand: str, **kw) -> Caps:
     """Build an audio Caps entry, pulling ops from the canonical model registry."""
     return Caps(produces="audio", ops=_ops(shorthand), **kw)
+
+
+def _3d(shorthand: str, **kw) -> Caps:
+    """Build a 3D Caps entry, pulling ops from the canonical model registry."""
+    return Caps(produces="model3d", ops=_ops(shorthand), **kw)
 
 
 # --------------------------------------------------------------------------- registry
@@ -298,13 +311,17 @@ CAPS: dict[str, Caps] = {
     # --- Atlas Cloud audio (text-to-speech; async media API; schema unverified) ---
     "atlas-tts-grok":          _aud("atlas-tts-grok",          note="Atlas; xai/tts-v1; 20 langs, 80+ voices; $0.015/1K chars; schema unverified"),
     "atlas-tts-elevenlabs-v3": _aud("atlas-tts-elevenlabs-v3", note="Atlas; elevenlabs/v3; $0.10/1K chars; schema unverified"),
+    # --- Atlas Cloud 3D (text/image → GLB mesh; async media API; schema unverified) ---
+    "atlas-hunyuan3d-rapid":   _3d("atlas-hunyuan3d-rapid",    note="Atlas; tencent/hunyuan3d-rapid; $0.02/run; schema unverified"),
+    "atlas-hunyuan3d-pro":     _3d("atlas-hunyuan3d-pro",      note="Atlas; tencent/hunyuan3d-pro; $0.02/run; schema unverified"),
+    "atlas-seed3d-2":          _3d("atlas-seed3d-2",           note="Atlas; bytedance/seed3d-v2.0; image-to-3D; $0.353/run; schema unverified"),
 }
 
 
 # Stable display order so `nazca models` ops output is deterministic.
 _OPS_ORDER = ("t2i", "i2i", "compose", "style", "inpaint", "outpaint", "upscale", "bg_remove",
               "t2v", "i2v", "keyframe", "ref2v", "v2v", "reframe", "extend",
-              "motion_control", "effects", "video_upscale", "avatar", "tts")
+              "motion_control", "effects", "video_upscale", "avatar", "tts", "t23d", "i23d")
 
 
 class CapabilityError(ValueError):
