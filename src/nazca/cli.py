@@ -389,12 +389,19 @@ def grade(source, out, lut, strength, grain, grain_size):
 )
 def format_cmd(source, out, preset, gravity):
     """Head-safe crop to a platform aspect preset (local, free, deterministic)."""
-    from PIL import Image
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
     from nazca.grade import crop_to_preset
 
-    img = Image.open(source)
-    crop_to_preset(img, preset, gravity=gravity).save(out)
+    try:
+        # exif_transpose so "north" anchors on the visual top of EXIF-rotated
+        # inputs — otherwise a head-safe crop could trim the wrong edge.
+        with Image.open(source) as src:
+            img = ImageOps.exif_transpose(src)
+        crop_to_preset(img, preset, gravity=gravity).save(out)
+    except (ValueError, OSError, UnidentifiedImageError) as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(2) from e
     click.echo(f"✅ {out}")
 
 
