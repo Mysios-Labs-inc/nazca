@@ -35,11 +35,14 @@ from nazca.backends.base import Backend
 from nazca.backends.error_hints import hint
 from nazca.errors import BackendError
 from nazca.errors import RateLimitError as _SharedRateLimitError
+from nazca.log import get_logger
 from nazca.media import encode_image_data_uri, summarize_data_uri
 from nazca.models import AUDIO_MODELS, MODELS, THREED_MODELS, VIDEO_MODELS
 
 if TYPE_CHECKING:
     from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
+
+logger = get_logger("backends.atlas")
 
 ATLAS_MEDIA_BASE = "https://api.atlascloud.ai/api/v1"  # media (async); LLM uses /v1
 
@@ -170,10 +173,11 @@ class AtlasBackend(Backend):
 
     def _poll(self, pred_id: str, download_timeout: int) -> bytes:
         """Poll prediction until terminal, then download the first output URL."""
-        for _ in range(config.POLL_MAX_TRIES):
+        for attempt in range(config.POLL_MAX_TRIES):
             time.sleep(config.POLL_INTERVAL)
             data = self._get(f"/model/prediction/{pred_id}").get("data", {})
             status = data.get("status")
+            logger.info(f"Poll attempt {attempt + 1}/{config.POLL_MAX_TRIES}, status: {status}")
             if status == "completed":
                 outputs = data.get("outputs") or []
                 if not outputs:
@@ -220,6 +224,7 @@ class AtlasBackend(Backend):
                 "body": plan,
             }
 
+        logger.debug(f"Submitting image request: model={slug}, op={op}")
         resp = self._post("/model/generateImage", body)
         pred_id = resp.get("data", {}).get("id")
         if not pred_id:
@@ -269,6 +274,7 @@ class AtlasBackend(Backend):
                 "body": preview,
             }
 
+        logger.debug(f"Submitting video request: model={slug}, op={op}")
         resp = self._post("/model/generateVideo", body)
         pred_id = resp.get("data", {}).get("id")
         if not pred_id:
@@ -293,6 +299,7 @@ class AtlasBackend(Backend):
                 "body": dict(body),
             }
 
+        logger.debug(f"Submitting audio request: model={slug}, op={req.op or 'tts'}")
         resp = self._post("/model/generateAudio", body)
         pred_id = resp.get("data", {}).get("id")
         if not pred_id:
@@ -320,6 +327,7 @@ class AtlasBackend(Backend):
                 "body": preview,
             }
 
+        logger.debug(f"Submitting 3D request: model={slug}, op={req.op or 't23d'}")
         resp = self._post("/model/generate3D", body)
         pred_id = resp.get("data", {}).get("id")
         if not pred_id:

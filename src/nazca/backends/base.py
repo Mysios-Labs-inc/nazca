@@ -33,7 +33,13 @@ class Backend:
         raise NotImplementedError
 
     def post(self, url: str, body: dict, token: str) -> dict:
-        """HTTP POST a JSON body, return decoded JSON."""
+        """HTTP POST a JSON body, return decoded JSON.
+
+        Abstract: each backend implements its own POST. Per-request HTTP DEBUG
+        logging is deferred to the uniform-seam PR (Stage 3), which gives all
+        backends a single shared dispatch point to instrument once instead of
+        five divergent ``post()`` methods.
+        """
         raise NotImplementedError
 
     def encode_image_b64(

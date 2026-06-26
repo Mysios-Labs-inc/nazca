@@ -26,6 +26,10 @@ import urllib.error
 import urllib.request
 from typing import Callable
 
+from nazca.log import get_logger
+
+logger = get_logger("retry")
+
 RETRYABLE_STATUS = frozenset({429, 503})
 
 
@@ -101,6 +105,11 @@ def post_json(
                 # fal requeue signal rides on a successful (2xx) response.
                 if _needs_retry_header(dict(resp.headers or {})):
                     if attempt < retries:
+                        base_delay = base * (2 ** attempt)
+                        logger.warning(
+                            f"Retry attempt {attempt + 1}/{retries + 1}: "
+                            f"x-fal-needs-retry. Backoff: {base_delay:.1f}s (+jitter)"
+                        )
                         _backoff(attempt)
                         continue
                     raise on_rate_limited(
@@ -111,6 +120,15 @@ def post_json(
             detail = e.read().decode(errors="replace")[:600]
             retryable = _is_retryable(e.code, detail, dict(e.headers or {}))
             if retryable and attempt < retries:
+                reason_parts = [f"HTTP {e.code}"]
+                if "RESOURCE_EXHAUSTED" in detail:
+                    reason_parts.append("RESOURCE_EXHAUSTED")
+                reason = ", ".join(reason_parts)
+                base_delay = base * (2 ** attempt)
+                logger.warning(
+                    f"Retry attempt {attempt + 1}/{retries + 1}: "
+                    f"{reason}. Backoff: {base_delay:.1f}s (+jitter)"
+                )
                 _backoff(attempt)
                 continue
             if retryable:
