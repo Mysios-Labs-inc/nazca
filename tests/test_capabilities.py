@@ -11,6 +11,7 @@ import pytest
 
 from nazca import capabilities as cap
 from nazca.image import MODELS as IMG_MODELS
+from nazca.models import AUDIO_MODELS as _AUDIO_MODELS
 from nazca.video import (
     ARK_VIDEO_MODELS,
     ATLAS_VIDEO_MODELS,
@@ -24,6 +25,10 @@ def _all_video_shorthands():
     return {*VEO_ALIASES, *FAL_VIDEO_MODELS, *ARK_VIDEO_MODELS, *ATLAS_VIDEO_MODELS, *VIDEO_EDIT_MODELS}
 
 
+def _all_audio_shorthands():
+    return set(_AUDIO_MODELS)
+
+
 # --------------------------------------------------------------------------- coverage
 def test_every_image_model_has_caps():
     missing = [sh for sh in IMG_MODELS if sh not in cap.CAPS]
@@ -35,8 +40,13 @@ def test_every_video_model_has_caps():
     assert not missing, f"video models missing Caps: {missing}"
 
 
+def test_every_audio_model_has_caps():
+    missing = [sh for sh in _all_audio_shorthands() if sh not in cap.CAPS]
+    assert not missing, f"audio models missing Caps: {missing}"
+
+
 def test_no_orphan_caps_entries():
-    known = set(IMG_MODELS) | _all_video_shorthands()
+    known = set(IMG_MODELS) | _all_video_shorthands() | _all_audio_shorthands()
     orphans = [sh for sh in cap.CAPS if sh not in known]
     assert not orphans, f"Caps entries for unknown models: {orphans}"
 
@@ -54,13 +64,17 @@ def test_produces_matches_op_family():
             assert c.ops <= cap.IMAGE_OPS, f"{sh} produces image but has non-image ops"
         elif c.produces == "video":
             assert c.ops <= cap.VIDEO_OPS, f"{sh} produces video but has non-video ops"
+        elif c.produces == "audio":
+            assert c.ops <= cap.AUDIO_OPS, f"{sh} produces audio but has non-audio ops"
         else:
             raise AssertionError(f"{sh} has unexpected produces={c.produces!r}")
 
 
-def test_image_and_video_op_sets_are_disjoint():
+def test_op_families_are_disjoint():
     assert cap.IMAGE_OPS.isdisjoint(cap.VIDEO_OPS)
-    assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS
+    assert cap.IMAGE_OPS.isdisjoint(cap.AUDIO_OPS)
+    assert cap.VIDEO_OPS.isdisjoint(cap.AUDIO_OPS)
+    assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS | cap.AUDIO_OPS
 
 
 def test_every_model_supports_at_least_one_op():

@@ -38,7 +38,7 @@ from nazca.errors import RateLimitError as _SharedRateLimitError
 from nazca.media import encode_image_data_uri, summarize_data_uri
 
 if TYPE_CHECKING:
-    from nazca.request import ImageRequest, VideoRequest
+    from nazca.request import AudioRequest, ImageRequest, VideoRequest
 
 ATLAS_MEDIA_BASE = "https://api.atlascloud.ai/api/v1"  # media (async); LLM uses /v1
 
@@ -60,6 +60,8 @@ _OP_SUFFIX: dict[str, str] = {
     "extend": "extend-video",
     "motion_control": "motion-control",
     "avatar": "avatar",  # Kling avatar; standalone avatar models override via _STANDALONE_STEMS
+    # audio
+    "tts": "text-to-speech",
 }
 
 # Ops whose model slug is STANDALONE (the stem is already the full slug, no operation
@@ -73,6 +75,7 @@ _STANDALONE_STEMS: frozenset[str] = frozenset({
     "kwaivgi/kling-effects",
     "atlascloud/infinitetalk",
     "bytedance/avatar-omni-human-v1.5",
+    "xai/tts-v1",
 })
 
 
@@ -113,6 +116,9 @@ class AtlasBackend(Backend):
 
     def video_endpoint(self) -> str:
         return f"{ATLAS_MEDIA_BASE}/model/generateVideo"
+
+    def audio_endpoint(self) -> str:
+        return f"{ATLAS_MEDIA_BASE}/model/generateAudio"  # verify endpoint name
 
     def encode_image_data_uri(self, path, max_edge: int | None = None) -> str:
         """Atlas takes ref images as data URIs (or uploaded URLs); verify per model."""
@@ -269,3 +275,27 @@ class AtlasBackend(Backend):
         if not pred_id:
             raise AtlasError(f"No prediction id in response: {resp}")
         return self._poll(pred_id, download_timeout=120)
+
+    def run_audio(self, model_id, req: AudioRequest):
+        """Async text-to-speech. Endpoint + schema UNVERIFIED → dry-run safe."""
+        slug = _model_slug(model_id, req.op or "tts", "text-to-speech")
+        body: dict = {"model": slug, "text": req.text}
+        if req.voice:
+            body["voice"] = req.voice  # verify field name
+        if req.output_format:
+            body["format"] = req.output_format  # verify field name
+
+        if req.dry_run:
+            return {
+                "url": self.audio_endpoint(),
+                "model": slug,
+                "backend": self.name,
+                "est_cost_usd": req.est_cost_usd,
+                "body": dict(body),
+            }
+
+        resp = self._post("/model/generateAudio", body)
+        pred_id = resp.get("data", {}).get("id")
+        if not pred_id:
+            raise AtlasError(f"No prediction id in response: {resp}")
+        return self._poll(pred_id, download_timeout=60)

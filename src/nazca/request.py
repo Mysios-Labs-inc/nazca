@@ -68,3 +68,19 @@ class VideoRequest:
     op: str | None = None
     source: str | None = None
     dry_run: bool = False
+
+
+@dataclass
+class AudioRequest:
+    """Everything a backend needs to synthesize one audio clip (text-to-speech).
+
+    `op` is "tts" today (text → speech). `voice` selects a named voice; `output_format`
+    is the container (mp3/wav). `est_cost_usd` is precomputed and echoed into the plan.
+    """
+
+    text: str = ""
+    voice: str | None = None
+    output_format: str = "mp3"
+    op: str = "tts"
+    est_cost_usd: float | None = None
+    dry_run: bool = False

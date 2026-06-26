@@ -1286,6 +1286,34 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
 }
 
 # ---------------------------------------------------------------------------
+# Audio model registry (text-to-speech). price_usd is None — TTS is billed per
+# 1K characters (handled by cost.estimate_audio_cost).
+# ---------------------------------------------------------------------------
+AUDIO_MODELS: dict[str, ModelSpec] = {
+    "atlas-tts-grok": ModelSpec(
+        shorthand="atlas-tts-grok",
+        provider_id="xai/tts-v1",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="cheap",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
+    "atlas-tts-elevenlabs-v3": ModelSpec(
+        shorthand="atlas-tts-elevenlabs-v3",
+        provider_id="elevenlabs/v3",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
 # Convenience helpers
 # ---------------------------------------------------------------------------
 
@@ -1300,3 +1328,8 @@ def all_image_shorthands() -> list[str]:
 def all_video_shorthands() -> list[str]:
     """Return all video model shorthands in insertion order."""
     return list(VIDEO_MODELS)
+
+
+def all_audio_shorthands() -> list[str]:
+    """Return all audio model shorthands in insertion order."""
+    return list(AUDIO_MODELS)

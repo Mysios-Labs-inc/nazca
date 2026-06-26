@@ -415,6 +415,25 @@ def estimate_video_cost(
     return CostEstimate(usd, approx=True, basis=basis)
 
 
+# --------------------------------------------------------------------------- audio prices
+# Text-to-speech is billed per 1,000 characters of input text (Atlas "start from"
+# rates). Unknown models return None ("cost unknown").
+_TTS_PER_1K_CHARS: dict[str, float] = {
+    "atlas-tts-grok": 0.015,
+    "atlas-tts-elevenlabs-v3": 0.10,
+}
+
+
+def estimate_audio_cost(model_shorthand: str | None, *, chars: int) -> CostEstimate | None:
+    """Estimate the cost of one TTS synthesis (per-1K-characters × char count)."""
+    rate = _TTS_PER_1K_CHARS.get(model_shorthand or "")
+    if rate is None:
+        return None
+    n = max(0, int(chars))
+    usd = round(rate * n / 1000, 4)
+    return CostEstimate(usd, approx=True, basis=f"≈${rate:g}/1K chars × {n} chars")
+
+
 @dataclass(frozen=True)
 class PlanCost:
     """Aggregate estimate for a multi-step plan — the whole bill before any step runs.
