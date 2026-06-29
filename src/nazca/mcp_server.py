@@ -228,6 +228,49 @@ def modify_image(
 
 
 @mcp.tool()
+def try_on_image(
+    person_image: str,
+    garment_images: list[str],
+    filename: str = "try_on.png",
+    model: str | None = None,
+    dry_run: bool = False,
+) -> list:
+    """Apply virtual try-on and save the result to disk.
+
+    Dress a person in one or more garment images using Vertex AI Virtual Try-On.
+
+    Args:
+        person_image: Path to the person image to dress.
+        garment_images: List of garment image paths (up to 4). The model will try
+            the person in each garment.
+        filename: Output filename. A bare name (e.g. "look.png") is saved in the
+            current working directory, which is where the host surfaces files —
+            prefer this so the image shows up in chat. An absolute path is used
+            as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
+        model: Model shorthand (default: "try-on"). See list_models for available
+            shorthand or use "<backend>:<raw-id>" to bypass the table.
+        dry_run: If true, return the request plan without calling any API
+            (no credentials needed).
+
+    Returns the saved path (and an inline preview of the result image).
+    """
+    out = _resolve_out(filename)
+    result = image_mod.try_on_image(
+        out,
+        person_image,
+        garment_images,
+        model=model,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        import json
+
+        return [f"DRY RUN — no API call made:\n{json.dumps(result, indent=2)}"]
+    path = Path(result)
+    return [f"Saved try-on image to {path}", Image(path=str(path))]
+
+
+@mcp.tool()
 def generate_video(
     prompt: str,
     start: str,

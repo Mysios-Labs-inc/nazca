@@ -392,6 +392,39 @@ def image(source, out, prompt, ref, do_upscale, do_rmbg, mask, do_outpaint, expa
     _emit_image_result(result, dry_run, modify, resolved_model, DEFAULT_MODEL, aspect_ratio, size, quality)
 
 
+@cli.command(name="try-on")
+@click.argument("person", type=click.Path(exists=True, dir_okay=False))
+@click.argument("garments", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", required=True, help="Output image path (.png).")
+@click.option("--model", default=None, help="Try-on model shorthand (default: try-on).")
+@click.option("--dry-run", is_flag=True, help="Print the planned request; no API call.")
+def try_on(person, garments, out, model, dry_run):
+    """Virtual try-on: dress PERSON in one or more GARMENT images.
+
+    \b
+      nazca try-on me.jpg dress.jpg -o look.png
+      nazca try-on me.jpg top.jpg bottom.jpg -o look.png
+    """
+    from nazca.errors import BackendError
+    from nazca.image import DEFAULT_MODEL, DEFAULT_TRYON_MODEL, try_on_image
+
+    resolved_model = model or DEFAULT_TRYON_MODEL
+
+    # Capability check — raises SystemExit(2) if the model can't perform try_on.
+    _validate_or_exit(resolved_model, "try_on", n_refs=len(garments))
+
+    try:
+        result = try_on_image(
+            out, person, garments, model=resolved_model, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+    _emit_image_result(
+        result, dry_run, modify=True, resolved_model=resolved_model,
+        default_model=DEFAULT_MODEL, aspect_ratio="1:1", size="2K", quality="high",
+    )
+
+
 @cli.command()
 @click.argument("source", type=click.Path(exists=True, dir_okay=False))
 @click.option("-o", "--out", required=True, help="Output image path.")
