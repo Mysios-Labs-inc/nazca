@@ -4,6 +4,27 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [0.11.0] — 2026-06-28
+
+### Added
+- **Virtual Try-On (`try_on` op):** new image operation backed by Vertex AI
+  `virtual-try-on-001` (GA) — dress a person photo in one or more garment/product
+  images. It rides the predict-style path (like Imagen/Veo) via a new Vertex
+  `api="vto"` sub-route and reuses the Imagen response extractor. Surfaces:
+  `nazca try-on PERSON GARMENT... -o out.png` (variadic garments, up to 4) and the
+  `try_on_image` MCP tool. Reuses existing `ImageRequest` fields (person → source,
+  garments → refs); no new request knobs.
+
+### Fixed
+- **Try-on cost estimate:** a no-model `try_on_image` call (MCP tool / direct API)
+  reported the `nano-banana` default price; now keyed to the resolved `try-on`
+  model (price unset → cost-unknown).
+
+> ⚠️ `virtual-try-on-001` is wired and unit-/dry-run-tested but **not yet validated
+> against a live Vertex call** — confirm the served region (`us-central1` assumed)
+> and set the per-image `price_usd` (currently `None` = cost-unknown) before relying
+> on it. Run `pytest -m live -k try_on` against a project with the model enabled.
+
 ## [0.10.1] — 2026-06-26
 
 ### Fixed
