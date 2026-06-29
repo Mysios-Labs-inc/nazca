@@ -37,6 +37,7 @@ MODELS: dict[str, tuple[str, str, str, str]] = {
 }
 
 DEFAULT_MODEL = "nano-banana"
+DEFAULT_TRYON_MODEL = "try-on"
 
 # Source-image modify ops and their default models.
 MODIFY_OPS = ("upscale", "bg_remove", "inpaint", "outpaint")
@@ -217,6 +218,48 @@ def modify_image(
         mask=str(mask) if mask is not None else None,
         upscale_factor=upscale_factor,
         expand=expand,
+        dry_run=dry_run,
+    )
+
+    result = backend.run_image(rm, req)
+    if dry_run:
+        return result
+    out.write_bytes(result)
+    return out
+
+
+def try_on_image(
+    out: str | Path,
+    person: str | Path,
+    garments: str | Path | list[str | Path],
+    *,
+    model: str | None = None,
+    dry_run: bool = False,
+) -> Path | dict:
+    """Dress *person* in one or more *garments* via Vertex AI Virtual Try-On.
+
+    person   — path to the person photo (PNG or JPEG).
+    garments — single garment path or a list of up to 4 garment paths.
+    model    — override the default "try-on" shorthand (rarely needed).
+
+    Returns the output path on success; dry_run returns the plan dict (no API
+    call, no credentials required).
+    """
+    out = Path(out)
+    chosen = model or DEFAULT_TRYON_MODEL
+    rm = _resolve_unified(chosen, "image")
+    backend = require_capability(get_backend(rm.backend), "image")
+
+    if isinstance(garments, (str, Path)):
+        garments_list: list[str] = [str(garments)]
+    else:
+        garments_list = [str(g) for g in garments]
+
+    req = ImageRequest(
+        op="try_on",
+        source=str(person),
+        refs=garments_list,
+        est_cost_usd=_estimate_image_cost(chosen, rm.backend, aspect_ratio=None, size=None, quality=None),
         dry_run=dry_run,
     )
 

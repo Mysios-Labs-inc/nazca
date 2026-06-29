@@ -49,6 +49,7 @@ IMAGE_OPS: frozenset[str] = frozenset(
         "outpaint",  # source (+text)        → image   (extend canvas)
         "upscale",   # source                → image
         "bg_remove", # source                → image+alpha
+        "try_on",    # person source + product ref[1..N] → image (virtual try-on)
         "style",     # text + ref[1..N]      → image   (style transfer)
     }
 )
@@ -82,8 +83,8 @@ OPS: frozenset[str] = IMAGE_OPS | VIDEO_OPS | AUDIO_OPS | THREED_OPS
 
 # Which ops imply which inputs — used by the (future) CLI op-inference and by the
 # coverage test that keeps this module honest.
-OPS_NEEDING_REFS: frozenset[str] = frozenset({"i2i", "compose", "style", "ref2v"})
-OPS_NEEDING_SOURCE_IMAGE: frozenset[str] = frozenset({"inpaint", "outpaint", "upscale", "bg_remove"})
+OPS_NEEDING_REFS: frozenset[str] = frozenset({"i2i", "compose", "style", "ref2v", "try_on"})
+OPS_NEEDING_SOURCE_IMAGE: frozenset[str] = frozenset({"inpaint", "outpaint", "upscale", "bg_remove", "try_on"})
 OPS_NEEDING_START: frozenset[str] = frozenset({"i2v", "keyframe", "effects", "avatar"})
 OPS_NEEDING_END: frozenset[str] = frozenset({"keyframe"})
 OPS_NEEDING_SOURCE_VIDEO: frozenset[str] = frozenset({"v2v", "reframe", "extend", "motion_control", "video_upscale"})
@@ -176,6 +177,8 @@ CAPS: dict[str, Caps] = {
     "imagen-4-fast":   _img("imagen-4-fast"),
     "imagen-4":        _img("imagen-4"),
     "imagen-3":        _img("imagen-3"),
+    # --- Vertex Virtual Try-On: person + garments → image ---
+    "try-on":          _img("try-on", max_refs=4, note="Vertex virtual-try-on-001; person + garment(s) → image"),
     # --- fal FLUX: text-to-image + single-ref image-to-image (FLUX takes one ref) ---
     "flux-schnell":    _img("flux-schnell",    max_refs=1, note="fal id unverified; single ref only"),
     "flux-2-dev":      _img("flux-2-dev",      max_refs=1, note="fal id unverified; single ref only"),
@@ -319,7 +322,7 @@ CAPS: dict[str, Caps] = {
 
 
 # Stable display order so `nazca models` ops output is deterministic.
-_OPS_ORDER = ("t2i", "i2i", "compose", "style", "inpaint", "outpaint", "upscale", "bg_remove",
+_OPS_ORDER = ("t2i", "i2i", "compose", "style", "inpaint", "outpaint", "upscale", "bg_remove", "try_on",
               "t2v", "i2v", "keyframe", "ref2v", "v2v", "reframe", "extend",
               "motion_control", "effects", "video_upscale", "avatar", "tts", "t23d", "i23d")
 

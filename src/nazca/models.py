@@ -121,6 +121,17 @@ MODELS: dict[str, ModelSpec] = {
         price_usd=0.02,
         ops=frozenset({"t2i"}),
     ),
+    # --- Vertex: Virtual Try-On (person + garments → image) ---
+    "try-on": ModelSpec(
+        shorthand="try-on",
+        provider_id="virtual-try-on-001",
+        backend="vertex",
+        api="vto",
+        region="us-central1",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"try_on"}),
+    ),
     # --- fal.ai: FLUX long tail ---
     "flux-schnell": ModelSpec(
         shorthand="flux-schnell",

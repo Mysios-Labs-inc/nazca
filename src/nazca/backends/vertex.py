@@ -242,7 +242,7 @@ class VertexBackend(Backend):
     # ------------------------------------------------------------------ image
 
     def run_image(self, resolved, req: ImageRequest):
-        """Gemini (:generateContent) or Imagen (:predict) — owns body + extract + plan."""
+        """Gemini (:generateContent), Imagen (:predict), or VTO (:predict) — owns body + extract + plan."""
         model_id, api, region = resolved.provider_id, resolved.api, resolved.region
         if api == "imagen" and req.refs:
             raise ImageError(
@@ -253,6 +253,10 @@ class VertexBackend(Backend):
             op = "predict"
             body = self._imagen_body(req.prompt, req.aspect_ratio)
             extract = self._imagen_extract
+        elif api == "vto":
+            op = "predict"
+            body = self._vto_body(req.source, req.refs)
+            extract = self._imagen_extract  # same predictions[0].bytesBase64Encoded shape
         else:
             op = "generateContent"
             body = self._gemini_body(req.prompt, req.refs, req.aspect_ratio, req.size)
@@ -270,6 +274,9 @@ class VertexBackend(Backend):
             }
             if api == "imagen":
                 info["parameters"] = body["parameters"]
+            elif api == "vto":
+                info["parameters"] = body["parameters"]
+                info["products"] = len(req.refs)
             else:
                 info["generationConfig"] = body["generationConfig"]
                 info["parts"] = [
@@ -309,6 +316,22 @@ class VertexBackend(Backend):
         if aspect_ratio:
             params["aspectRatio"] = aspect_ratio
         return {"instances": [{"prompt": prompt}], "parameters": params}
+
+    @staticmethod
+    def _vto_body(person: str, products: list[str]) -> dict:
+        """Virtual Try-On :predict body — person image + up to 4 garment images, no prompt."""
+        p_b64, _ = encode_image_b64(person, max_edge=2048, fmt="PNG")
+        prod = []
+        for g in products:
+            g_b64, _ = encode_image_b64(g, max_edge=2048, fmt="PNG")
+            prod.append({"image": {"bytesBase64Encoded": g_b64}})
+        return {
+            "instances": [{
+                "personImage": {"image": {"bytesBase64Encoded": p_b64}},
+                "productImages": prod,
+            }],
+            "parameters": {"sampleCount": 1},
+        }
 
     @staticmethod
     def _imagen_extract(resp: dict) -> bytes:

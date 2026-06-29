@@ -180,3 +180,68 @@ def test_live_vertex_nano_banana():
             os.environ.pop("VERTEX_PROJECT_ID", None)
         else:
             os.environ["VERTEX_PROJECT_ID"] = orig
+
+
+# ---------------------------------------------------------------------------
+# vertex — Virtual Try-On (VTO)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(not _has("VERTEX_PROJECT"), reason="VERTEX_PROJECT not set")
+def test_live_vertex_try_on():
+    """Real call to Vertex AI Virtual Try-On — two tiny solid PNGs, cheapest config.
+
+    Requires:
+      VERTEX_PROJECT  — GCP project with VTO model activated (virtual-try-on-001).
+      Active gcloud ADC credentials (gcloud auth application-default login).
+    """
+    _require("VERTEX_PROJECT")
+
+    import shutil
+
+    from PIL import Image
+
+    if not shutil.which("gcloud"):
+        import os as _os
+
+        fallbacks = (
+            "~/google-cloud-sdk/bin/gcloud",
+            "/opt/homebrew/bin/gcloud",
+            "/usr/local/bin/gcloud",
+        )
+        found = any(
+            Path(p).expanduser().is_file()
+            for p in fallbacks
+            if not _os.getenv("GCLOUD_BIN")
+        )
+        if not found:
+            pytest.skip("gcloud binary not found on PATH or fallback locations")
+
+    orig = os.environ.get("VERTEX_PROJECT_ID")
+    os.environ["VERTEX_PROJECT_ID"] = os.environ["VERTEX_PROJECT"]
+    try:
+        from nazca.image import try_on_image
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+
+            # Create minimal solid-colour PNGs — person image and one garment.
+            person_path  = tmp_path / "person.png"
+            garment_path = tmp_path / "garment.png"
+            Image.new("RGB", (64, 64), color=(200, 150, 100)).save(person_path)
+            Image.new("RGB", (64, 64), color=(50, 100, 200)).save(garment_path)
+
+            out = tmp_path / "tryon_result.png"
+            result = try_on_image(
+                out,
+                person_path,
+                [garment_path],
+                dry_run=False,
+            )
+            assert result == out
+            data = out.read_bytes()
+            assert len(data) > 100, "try-on image payload unexpectedly small"
+    finally:
+        if orig is None:
+            os.environ.pop("VERTEX_PROJECT_ID", None)
+        else:
+            os.environ["VERTEX_PROJECT_ID"] = orig
