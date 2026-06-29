@@ -259,7 +259,7 @@ def try_on_image(
         op="try_on",
         source=str(person),
         refs=garments_list,
-        est_cost_usd=_estimate_image_cost(model, rm.backend, aspect_ratio=None, size=None, quality=None),
+        est_cost_usd=_estimate_image_cost(chosen, rm.backend, aspect_ratio=None, size=None, quality=None),
         dry_run=dry_run,
     )
 

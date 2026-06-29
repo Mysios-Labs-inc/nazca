@@ -47,6 +47,9 @@ def test_try_on_dry_run_plan_shape(tmp_path, monkeypatch):
     assert plan["model"] == "virtual-try-on-001"
     # two garments handed in
     assert plan["products"] == 2
+    # cost is keyed to the resolved try-on model (price unset → None), NOT the
+    # nano-banana default — a no-model call must never report another model's price.
+    assert plan["est_cost_usd"] is None
     # no file written
     assert not out.exists()
 
