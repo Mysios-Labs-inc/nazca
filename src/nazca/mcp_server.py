@@ -119,10 +119,11 @@ def generate_image(
             as-is. ($NAZCA_OUTPUT_DIR overrides the directory if set.)
         ref: Optional list of reference image paths. Several models support
             references: nano-banana / nano-banana-2 (Gemini, count unpinned),
-            nano-banana-pro (Gemini, up to 14 refs), gpt-image-2 (OpenAI,
-            up to 5 refs via /images/edits), seedream (ModelArk, up to 14 refs),
-            flux-schnell / flux-2-dev (fal FLUX, 1 ref). Imagen models are
-            text-to-image only and reject refs.
+            nano-banana-2-lite (Gemini, 1 ref only), nano-banana-pro (Gemini,
+            up to 14 refs), gpt-image-2 (OpenAI, up to 5 refs via
+            /images/edits), seedream (ModelArk, up to 14 refs), flux-schnell /
+            flux-2-dev (fal FLUX, 1 ref). Imagen models are text-to-image only
+            and reject refs.
         model: Model shorthand (see list_models) or "<backend>:<raw-id>". Defaults
             to nano-banana.
         aspect_ratio: e.g. "9:16", "16:9", "1:1", "4:3", "3:4".
@@ -296,16 +297,19 @@ def generate_video(
         end: Optional path to an end frame for keyframe interpolation (Vertex Veo
             and some fal models).
         model: Model shorthand (see list_models) or "<backend>:<raw-id>". Defaults
-            to the configured Veo model.
-        duration: Clip length in seconds.
+            to the configured Veo model. omni-flash (Gemini Omni Flash) is t2v/i2v
+            only — fixed ~10s/720p+audio output, ignores duration/resolution/
+            generate_audio, and resolves synchronously (no long-running poll).
+        duration: Clip length in seconds. Ignored by omni-flash.
         aspect_ratio: e.g. "9:16", "16:9".
-        resolution: e.g. "720p", "1080p" (Vertex Veo).
-        generate_audio: Whether to generate audio (Vertex Veo).
+        resolution: e.g. "720p", "1080p" (Vertex Veo). Ignored by omni-flash.
+        generate_audio: Whether to generate audio (Vertex Veo). Ignored by
+            omni-flash (always generates audio).
         dry_run: If true, write the request plan to <filename>.request.json and
             return its path without calling any API.
 
-    Note: video generation is long-running (polls until done); expect this to
-    take a while. Returns the saved path.
+    Note: Veo video generation is long-running (polls until done); expect this
+    to take a while. omni-flash returns synchronously. Returns the saved path.
     """
     out = _resolve_out(filename)
     result = video_mod.generate_video(

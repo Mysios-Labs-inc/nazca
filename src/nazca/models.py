@@ -78,6 +78,18 @@ MODELS: dict[str, ModelSpec] = {
         price_usd=0.039,
         ops=frozenset({"t2i", "i2i", "compose"}),
     ),
+    "nano-banana-2-lite": ModelSpec(
+        shorthand="nano-banana-2-lite",
+        provider_id="gemini-3.1-flash-lite-image",
+        backend="vertex",
+        api="gemini",
+        region="global",
+        tier="cheap",
+        price_usd=0.034,
+        # not optimized for multiple reference inputs or multi-turn sequential
+        # editing (per Google's model card) — single-ref i2i only, no compose.
+        ops=frozenset({"t2i", "i2i"}),
+    ),
     "nano-banana-pro": ModelSpec(
         shorthand="nano-banana-pro",
         provider_id="gemini-3-pro-image",
@@ -601,6 +613,18 @@ MODELS: dict[str, ModelSpec] = {
 # unverified. The registry carries ops and tier for parity checks.
 # ---------------------------------------------------------------------------
 VIDEO_MODELS: dict[str, ModelSpec] = {
+    # --- Vertex Gemini Omni Flash: multimodal generateContent, not Veo predictLongRunning ---
+    "omni-flash": ModelSpec(
+        shorthand="omni-flash",
+        provider_id="gemini-omni-flash-preview",
+        backend="vertex",
+        api="omni",
+        region="global",  # global-only per Google's model card; no other region
+        tier="cheap",
+        # $0.10/sec flat — handled by cost.py's _VEO_PER_SEC["omni-flash"] table.
+        price_usd=None,
+        ops=frozenset({"t2v", "i2v"}),
+    ),
     # --- Vertex Veo 3.1 ---
     "veo-3.1-lite": ModelSpec(
         shorthand="veo-3.1-lite",

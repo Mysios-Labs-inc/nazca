@@ -197,9 +197,13 @@ def _resolve_video(model: str) -> ResolvedModel:
         return ResolvedModel(
             model, _ATLAS_VIDEO_MODELS[model], "atlas", "", "", _VIDEO_REGISTRY[model]
         )
-    # Vertex alias hit carries a spec; raw-id fallback does not.
+    # Vertex alias hit carries a spec; raw-id fallback does not. api/region come
+    # from the spec (e.g. omni-flash needs api="omni", region="global" to route
+    # off the Veo predictLongRunning path) — "" only for the raw-id fallback.
     spec = _VIDEO_REGISTRY.get(model) if model in _VEO_ALIASES else None
-    return ResolvedModel(model, _VEO_ALIASES.get(model, model), "vertex", "", "", spec)
+    api = spec.api if spec is not None else ""
+    region = spec.region if spec is not None else ""
+    return ResolvedModel(model, _VEO_ALIASES.get(model, model), "vertex", api, region, spec)
 
 
 def _resolve_audio(model: str) -> ResolvedModel:

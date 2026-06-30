@@ -347,8 +347,10 @@ class VertexBackend(Backend):
     # ------------------------------------------------------------------ video (Veo)
 
     def run_video(self, resolved, req: VideoRequest):
-        """Veo predictLongRunning + poll — owns body + poll + extract + plan."""
+        """Veo predictLongRunning + poll, or Omni Flash generateContent — owns body + extract + plan."""
         model_id = resolved.provider_id
+        if resolved.api == "omni":
+            return self._run_omni_video(model_id, resolved.region, req)
         instance: dict = {"prompt": req.prompt}
         if req.start:  # omit `image` for text-to-video
             start_b64, mime = self.encode_image_b64(req.start, max_edge=1280, fmt="JPEG")
@@ -408,6 +410,48 @@ class VertexBackend(Backend):
                 raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
             raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
         return base64.b64decode(b64)
+
+    def _run_omni_video(self, model_id: str, region: str | None, req: VideoRequest):
+        """Gemini Omni Flash (:generateContent) — t2v / i2v, synchronous (no poll).
+
+        Unlike Veo, Omni Flash is a multimodal Gemini model: video comes back
+        inline in the same generateContent response shape as nano-banana images,
+        just with responseModalities=["TEXT", "VIDEO"] (TEXT must be included —
+        VIDEO alone is rejected; the text part carries the model's "thought").
+        """
+        body = self._omni_body(req.prompt, req.start)
+
+        if req.dry_run:
+            preview = json.loads(json.dumps(body))
+            for part in preview["contents"][0]["parts"]:
+                if "inlineData" in part:
+                    part["inlineData"]["data"] = f"<{len(part['inlineData']['data'])} b64 chars>"
+            return {"url": self._plan_url(model_id, "generateContent", region), **preview}
+
+        token = self.auth_token()
+        resp = self.post(self.build_url(model_id, "generateContent", region), body, token)
+        return self._omni_extract(resp)
+
+    @staticmethod
+    def _omni_body(prompt: str, start: str | None) -> dict:
+        parts: list[dict] = []
+        if start:  # image-to-video: image part first, then prompt (mirrors Veo's i2v)
+            b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
+            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+        parts.append({"text": prompt})
+        return {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": {"responseModalities": ["TEXT", "VIDEO"]},
+        }
+
+    @staticmethod
+    def _omni_extract(resp: dict) -> bytes:
+        for cand in resp.get("candidates", []):
+            for part in cand.get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                if inline and inline.get("data") and inline.get("mimeType", "").startswith("video/"):
+                    return base64.b64decode(inline["data"])
+        raise VeoError(f"no video part in response: {str(resp)[:400]}")
 
 
 # ---------------------------------------------------------------------------
