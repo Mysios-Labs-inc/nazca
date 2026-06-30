@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -32,6 +33,20 @@ logger = get_logger("backends.vertex")
 
 if TYPE_CHECKING:
     from nazca.request import ImageRequest, VideoRequest
+
+
+def _video_mime(path: str | Path) -> str:
+    """Guess a video MIME type from extension; defaults to mp4 (Omni Flash's
+    documented supported types are video/x-flv, quicktime, mpeg, mp4, webm, wmv,
+    3gpp — all standard extensions mimetypes resolves correctly)."""
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "video/mp4"
+
+
+def _read_b64(path: str | Path) -> str:
+    """Read a local file's raw bytes and base64-encode — no resizing/re-encoding
+    (unlike encode_image_b64, which is image-specific)."""
+    return base64.b64encode(Path(path).read_bytes()).decode("ascii")
 
 
 class VertexError(BackendError):
@@ -412,14 +427,24 @@ class VertexBackend(Backend):
         return base64.b64decode(b64)
 
     def _run_omni_video(self, model_id: str, region: str | None, req: VideoRequest):
-        """Gemini Omni Flash (:generateContent) — t2v / i2v, synchronous (no poll).
+        """Gemini Omni Flash (:generateContent) — t2v / i2v / ref2v / v2v(local edit),
+        synchronous (no poll).
 
         Unlike Veo, Omni Flash is a multimodal Gemini model: video comes back
         inline in the same generateContent response shape as nano-banana images,
         just with responseModalities=["TEXT", "VIDEO"] (TEXT must be included —
         VIDEO alone is rejected; the text part carries the model's "thought").
+
+        req.source (v2v): edit an existing LOCAL video — sent as a single inlineData
+        video part + prompt. Verified live: this is also how Omni's "conversational"
+        multi-turn editing works on Vertex — there's no documented server-side
+        interaction-state API here (that's the consumer Gemini API's Interactions
+        API, a different surface), so continuing an edit just means feeding the
+        prior output's bytes back in as the next call's source.
+        req.refs (ref2v) / req.start (i2v): image parts before the prompt. Verified
+        live with 2 refs; Google's docs example uses up to 6 (untested beyond 2).
         """
-        body = self._omni_body(req.prompt, req.start)
+        body = self._omni_body(req.prompt, req.start, req.refs, req.source)
 
         if req.dry_run:
             preview = json.loads(json.dumps(body))
@@ -433,16 +458,31 @@ class VertexBackend(Backend):
         return self._omni_extract(resp)
 
     @staticmethod
-    def _omni_body(prompt: str, start: str | None) -> dict:
+    def _omni_body(prompt: str, start: str | None, refs: list[str], source: str | None) -> dict:
         parts: list[dict] = []
-        if start:  # image-to-video: image part first, then prompt (mirrors Veo's i2v)
-            b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
-            parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+        if source:  # v2v: edit an existing video — verified live, LOCAL file only
+            parts.append({"inlineData": {"mimeType": _video_mime(source), "data": _read_b64(source)}})
+            task = "edit"
+        else:
+            if start:  # i2v: start frame first (mirrors Veo's i2v)
+                b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
+                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+            for r in refs:  # ref2v: subject/style reference images
+                b64, mime = encode_image_b64(r, max_edge=1280, fmt="JPEG")
+                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+            if start and refs:
+                task = None  # mixed i2v+ref2v — let the model infer from the prompt
+            elif start:
+                task = "image_to_video"
+            elif refs:
+                task = "reference_to_video"
+            else:
+                task = "text_to_video"
         parts.append({"text": prompt})
-        return {
-            "contents": [{"role": "user", "parts": parts}],
-            "generationConfig": {"responseModalities": ["TEXT", "VIDEO"]},
-        }
+        gen_cfg: dict = {"responseModalities": ["TEXT", "VIDEO"]}
+        if task:
+            gen_cfg["videoConfig"] = {"task": task}
+        return {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen_cfg}
 
     @staticmethod
     def _omni_extract(resp: dict) -> bytes:

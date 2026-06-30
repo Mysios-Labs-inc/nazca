@@ -623,7 +623,10 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
         tier="cheap",
         # $0.10/sec flat — handled by cost.py's _VEO_PER_SEC["omni-flash"] table.
         price_usd=None,
-        ops=frozenset({"t2v", "i2v"}),
+        # ref2v: multi-image reference (verified live, 2 refs); v2v: edit a LOCAL
+        # source video (verified live) — note this is the opposite of fal's v2v,
+        # which takes a URL (see video.edit_video's is_omni branch).
+        ops=frozenset({"t2v", "i2v", "ref2v", "v2v"}),
     ),
     # --- Vertex Veo 3.1 ---
     "veo-3.1-lite": ModelSpec(

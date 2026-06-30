@@ -90,7 +90,7 @@ the API level — that's a later, per-provider step where native role fields exi
 | `veo-3.1-lite` | vertex | t2v, i2v, keyframe | `--start` optional (t2v) / one frame (i2v) / two (keyframe) |
 | `veo-3.1-fast` | vertex | t2v, i2v, keyframe | |
 | `veo-3.1` | vertex | t2v, i2v, keyframe | |
-| `omni-flash` | vertex | t2v, i2v | gemini-omni-flash-preview; `:generateContent` not `:predictLongRunning` — synchronous, no poll; fixed ~10s/720p+audio, ignores duration/resolution/audio flags; verified against live Vertex calls 2026-06-30 |
+| `omni-flash` | vertex | t2v, i2v, ref2v, v2v | gemini-omni-flash-preview; `:generateContent` not `:predictLongRunning` — synchronous, no poll; fixed ~10s/720p+audio, ignores duration/resolution/audio/aspect flags (Vertex rejects `videoConfig.aspectRatio`); ref2v verified live to 2 imgs (`--ref`, max_refs=6 per Google's docs example, untested beyond 2); v2v takes a LOCAL file via `--v2v SOURCE` (opposite of fal's URL convention — `edit_video` branches on `spec.api == "omni"`); all verified against live Vertex calls 2026-06-30 |
 | `seedance-2-fast` | fal | i2v | fal id unverified |
 | `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video`; reachable now (no `--start`) |
 | `seedance-pro` | modelark | i2v | needs BytePlus activation |

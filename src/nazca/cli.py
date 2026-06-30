@@ -715,16 +715,16 @@ def _run_vertex_batch_cmd(rows, gcs, only_models, dry_run):
 @click.option("-p", "--prompt", default=None, help="Motion prompt (optional for --reframe).")
 @click.option("--end", default=None, help="Optional end frame (keyframe interpolation).")
 @click.option("--reframe", "do_reframe", is_flag=True, help="Re-aspect a SOURCE video URL to --aspect (fal luma ray-2).")
-@click.option("--v2v", "do_v2v", is_flag=True, help="Restyle/edit a SOURCE video URL from -p (fal wan-vace).")
+@click.option("--v2v", "do_v2v", is_flag=True, help="Restyle/edit a SOURCE video from -p. fal wan-vace: SOURCE is a URL. --model omni-flash: SOURCE is a LOCAL file instead (sent inline).")
 @click.option("--extend", "do_extend", is_flag=True, help="Extend a SOURCE video URL by --duration 5|8s (fal pixverse). Needs -p.")
 @click.option("--motion-control", "do_motion", is_flag=True, help="Motion-transfer: drive a SOURCE video URL's motion (Atlas Kling motion-control).")
 @click.option("--video-upscale", "do_vupscale", is_flag=True, help="Upscale a SOURCE video URL to higher resolution (Atlas video-upscaler).")
 @click.option("--effects", "do_effects", is_flag=True, help="Apply an effect template to a --start image (Atlas Kling effects).")
-@click.option("--ref2v", "do_ref2v", is_flag=True, help="Reference-to-video: drive generation from --ref image(s) (Atlas ref2v models).")
-@click.option("--ref", "ref", multiple=True, help="Reference image for --ref2v. Repeatable.")
+@click.option("--ref2v", "do_ref2v", is_flag=True, help="Reference-to-video: drive generation from --ref image(s) (Atlas ref2v models, or --model omni-flash).")
+@click.option("--ref", "ref", multiple=True, help="Reference image for --ref2v. Repeatable. omni-flash: verified to 2 imgs, max_refs=6 per Google's docs (untested beyond 2).")
 @click.option("--avatar", "do_avatar", is_flag=True, help="Lip-sync talking head: animate a --start portrait with --audio-in (Atlas InfiniteTalk/OmniHuman/Kling avatar).")
 @click.option("--audio-in", "audio_in", default=None, type=click.Path(), help="Driving audio track for --avatar (path or URL).")
-@click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001) | omni-flash (Gemini, t2v/i2v, fixed ~10s/720p+audio, ignores --duration).")
+@click.option("--model", default=None, help="Veo model (default: veo-3.1-fast-generate-001) | omni-flash (Gemini, t2v/i2v/ref2v/v2v, fixed ~10s/720p+audio, ignores --duration/--aspect).")
 @click.option("--duration", default=8, type=int, help="Seconds (Veo: 4/6/8; extend: 5 or 8 added). Ignored by omni-flash.")
 @click.option("--aspect", "aspect_ratio", default="9:16", help="9:16 or 16:9 (reframe: target aspect).")
 @click.option("--resolution", default="720p", help="720p | 1080p.")
@@ -741,6 +741,8 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
       nazca video CLIP_URL --reframe --aspect 9:16    # reframe a source video
       nazca video CLIP_URL --v2v -p "make it neon"    # restyle a source video
       nazca video CLIP_URL --extend -p "..." --duration 8  # lengthen a clip
+      nazca video -p "..." --model omni-flash --ref2v --ref a.png --ref b.png  # multi-ref
+      nazca video CLIP.mp4 --v2v -p "..." --model omni-flash  # edit a LOCAL clip (not a URL)
     """
     from nazca import config
     from nazca.capabilities import infer_video_op
