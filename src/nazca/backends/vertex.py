@@ -444,18 +444,21 @@ class VertexBackend(Backend):
         req.refs (ref2v) / req.start (i2v): image parts before the prompt. Verified
         live with 2 refs; Google's docs example uses up to 6 (untested beyond 2).
         """
-        body = self._omni_body(req.prompt, req.start, req.refs, req.source)
+        body = self._omni_body(req.prompt, req.start, req.refs, req.source, dry_run=req.dry_run)
 
         if req.dry_run:
-            # Shallow-copy + redact in place — the base64 payload can be tens of MB
-            # (v2v inlines a whole source video via _read_b64), so a deep copy via
-            # json.dumps/json.loads would serialize and re-parse that full string
-            # just to discard it a line later.
-            preview_parts = [
-                {**p, "inlineData": {**p["inlineData"], "data": f"<{len(p['inlineData']['data'])} b64 chars>"}}
-                if "inlineData" in p else p
-                for p in body["contents"][0]["parts"]
-            ]
+            if req.source:
+                # _omni_body already skipped the file read for dry_run and put a
+                # size-derived placeholder in the source part — nothing left to redact.
+                preview_parts = body["contents"][0]["parts"]
+            else:
+                # i2v/ref2v images are small (resized to max_edge=1280) — read eagerly
+                # above, so just redact the resulting b64 string in the preview.
+                preview_parts = [
+                    {**p, "inlineData": {**p["inlineData"], "data": f"<{len(p['inlineData']['data'])} b64 chars>"}}
+                    if "inlineData" in p else p
+                    for p in body["contents"][0]["parts"]
+                ]
             preview = {**body, "contents": [{**body["contents"][0], "parts": preview_parts}]}
             return {"url": self._plan_url(model_id, "generateContent", region), **preview}
 
@@ -464,10 +467,19 @@ class VertexBackend(Backend):
         return self._omni_extract(resp)
 
     @staticmethod
-    def _omni_body(prompt: str, start: str | None, refs: list[str], source: str | None) -> dict:
+    def _omni_body(
+        prompt: str, start: str | None, refs: list[str], source: str | None, dry_run: bool = False
+    ) -> dict:
         parts: list[dict] = []
         if source:  # v2v: edit an existing video — verified live, LOCAL file only
-            parts.append({"inlineData": {"mimeType": _video_mime(source), "data": _read_b64(source)}})
+            if dry_run:
+                # Skip reading the (potentially tens-of-MB) source file — a dry-run
+                # never sends it, so estimate the b64 length from disk size instead.
+                b64_len = (Path(source).stat().st_size + 2) // 3 * 4
+                data = f"<{b64_len} b64 chars>"
+            else:
+                data = _read_b64(source)
+            parts.append({"inlineData": {"mimeType": _video_mime(source), "data": data}})
             task = "edit"
         else:
             if start:  # i2v: start frame first (mirrors Veo's i2v)

@@ -220,7 +220,11 @@ def _validate_video_inputs(
     if in_edit_ops:
         flag = op.replace("_", "-")
         if not source:
-            click.echo(f"❌ --{flag} needs a SOURCE video URL: nazca video CLIP_URL --{flag}", err=True)
+            click.echo(
+                f"❌ --{flag} needs a SOURCE video (URL for fal/Atlas, local file for "
+                f"omni-flash): nazca video CLIP_URL --{flag}",
+                err=True,
+            )
             raise SystemExit(2)
         if start or end:
             click.echo(f"❌ --start/--end are for frame ops; --{flag} takes a SOURCE video, not frames", err=True)
