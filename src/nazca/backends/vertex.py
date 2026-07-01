@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import json
+import mimetypes
 import os
 import shutil
 import subprocess
@@ -32,6 +33,20 @@ logger = get_logger("backends.vertex")
 
 if TYPE_CHECKING:
     from nazca.request import ImageRequest, VideoRequest
+
+
+def _video_mime(path: str | Path) -> str:
+    """Guess a video MIME type from extension; defaults to mp4 (Omni Flash's
+    documented supported types are video/x-flv, quicktime, mpeg, mp4, webm, wmv,
+    3gpp — all standard extensions mimetypes resolves correctly)."""
+    guessed, _ = mimetypes.guess_type(str(path))
+    return guessed or "video/mp4"
+
+
+def _read_b64(path: str | Path) -> str:
+    """Read a local file's raw bytes and base64-encode — no resizing/re-encoding
+    (unlike encode_image_b64, which is image-specific)."""
+    return base64.b64encode(Path(path).read_bytes()).decode("ascii")
 
 
 class VertexError(BackendError):
@@ -347,8 +362,10 @@ class VertexBackend(Backend):
     # ------------------------------------------------------------------ video (Veo)
 
     def run_video(self, resolved, req: VideoRequest):
-        """Veo predictLongRunning + poll — owns body + poll + extract + plan."""
+        """Veo predictLongRunning + poll, or Omni Flash generateContent — owns body + extract + plan."""
         model_id = resolved.provider_id
+        if resolved.api == "omni":
+            return self._run_omni_video(model_id, resolved.region, req)
         instance: dict = {"prompt": req.prompt}
         if req.start:  # omit `image` for text-to-video
             start_b64, mime = self.encode_image_b64(req.start, max_edge=1280, fmt="JPEG")
@@ -408,6 +425,92 @@ class VertexBackend(Backend):
                 raise VeoError(f"stored at {gcs} (no inline bytes) — fetch with gsutil cp")
             raise VeoError(f"unrecognized video payload: {json.dumps(v)[:300]}")
         return base64.b64decode(b64)
+
+    def _run_omni_video(self, model_id: str, region: str | None, req: VideoRequest):
+        """Gemini Omni Flash (:generateContent) — t2v / i2v / ref2v / v2v(local edit),
+        synchronous (no poll).
+
+        Unlike Veo, Omni Flash is a multimodal Gemini model: video comes back
+        inline in the same generateContent response shape as nano-banana images,
+        just with responseModalities=["TEXT", "VIDEO"] (TEXT must be included —
+        VIDEO alone is rejected; the text part carries the model's "thought").
+
+        req.source (v2v): edit an existing LOCAL video — sent as a single inlineData
+        video part + prompt. Verified live: this is also how Omni's "conversational"
+        multi-turn editing works on Vertex — there's no documented server-side
+        interaction-state API here (that's the consumer Gemini API's Interactions
+        API, a different surface), so continuing an edit just means feeding the
+        prior output's bytes back in as the next call's source.
+        req.refs (ref2v) / req.start (i2v): image parts before the prompt. Verified
+        live with 2 refs; Google's docs example uses up to 6 (untested beyond 2).
+        """
+        body = self._omni_body(req.prompt, req.start, req.refs, req.source, dry_run=req.dry_run)
+
+        if req.dry_run:
+            if req.source:
+                # _omni_body already skipped the file read for dry_run and put a
+                # size-derived placeholder in the source part — nothing left to redact.
+                preview_parts = body["contents"][0]["parts"]
+            else:
+                # i2v/ref2v images are small (resized to max_edge=1280) — read eagerly
+                # above, so just redact the resulting b64 string in the preview.
+                preview_parts = [
+                    {**p, "inlineData": {**p["inlineData"], "data": f"<{len(p['inlineData']['data'])} b64 chars>"}}
+                    if "inlineData" in p else p
+                    for p in body["contents"][0]["parts"]
+                ]
+            preview = {**body, "contents": [{**body["contents"][0], "parts": preview_parts}]}
+            return {"url": self._plan_url(model_id, "generateContent", region), **preview}
+
+        token = self.auth_token()
+        resp = self.post(self.build_url(model_id, "generateContent", region), body, token)
+        return self._omni_extract(resp)
+
+    @staticmethod
+    def _omni_body(
+        prompt: str, start: str | None, refs: list[str], source: str | None, dry_run: bool = False
+    ) -> dict:
+        parts: list[dict] = []
+        if source:  # v2v: edit an existing video — verified live, LOCAL file only
+            if dry_run:
+                # Skip reading the (potentially tens-of-MB) source file — a dry-run
+                # never sends it, so estimate the b64 length from disk size instead.
+                b64_len = (Path(source).stat().st_size + 2) // 3 * 4
+                data = f"<{b64_len} b64 chars>"
+            else:
+                data = _read_b64(source)
+            parts.append({"inlineData": {"mimeType": _video_mime(source), "data": data}})
+            task = "edit"
+        else:
+            if start:  # i2v: start frame first (mirrors Veo's i2v)
+                b64, mime = encode_image_b64(start, max_edge=1280, fmt="JPEG")
+                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+            for r in refs:  # ref2v: subject/style reference images
+                b64, mime = encode_image_b64(r, max_edge=1280, fmt="JPEG")
+                parts.append({"inlineData": {"mimeType": mime, "data": b64}})
+            if start and refs:
+                task = None  # mixed i2v+ref2v — let the model infer from the prompt
+            elif start:
+                task = "image_to_video"
+            elif refs:
+                task = "reference_to_video"
+            else:
+                task = "text_to_video"
+        parts.append({"text": prompt})
+        gen_cfg: dict = {"responseModalities": ["TEXT", "VIDEO"]}
+        if task:
+            gen_cfg["videoConfig"] = {"task": task}
+        return {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen_cfg}
+
+    @staticmethod
+    def _omni_extract(resp: dict) -> bytes:
+        for cand in resp.get("candidates", []):
+            for part in cand.get("content", {}).get("parts", []):
+                inline = part.get("inlineData") or part.get("inline_data")
+                mime = inline.get("mimeType") or inline.get("mime_type", "") if inline else ""
+                if inline and inline.get("data") and mime.startswith("video/"):
+                    return base64.b64decode(inline["data"])
+        raise VeoError(f"no video part in response: {str(resp)[:400]}")
 
 
 # ---------------------------------------------------------------------------

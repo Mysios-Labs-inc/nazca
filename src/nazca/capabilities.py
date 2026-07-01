@@ -172,6 +172,7 @@ CAPS: dict[str, Caps] = {
     # --- Vertex Gemini image: text-to-image + reference image-to-image ---
     "nano-banana":     _img("nano-banana",     ref_roles=REF_ROLES, note="2.5-flash-image; ref/edit, count unpinned"),
     "nano-banana-2":   _img("nano-banana-2",   ref_roles=REF_ROLES, note="3.1-flash-image; ref/edit, count unpinned"),
+    "nano-banana-2-lite": _img("nano-banana-2-lite", max_refs=1, note="3.1-flash-lite-image; single-ref edit only, no compose"),
     "nano-banana-pro": _img("nano-banana-pro", max_refs=14, ref_roles=REF_ROLES, note="3-pro-image; up to 14 refs, legible text"),
     # --- Vertex Imagen: text-to-image ONLY (rejects refs — encoded, not runtime) ---
     "imagen-4-fast":   _img("imagen-4-fast"),
@@ -206,6 +207,9 @@ CAPS: dict[str, Caps] = {
     "veo-3.1-lite":    _vid("veo-3.1-lite"),
     "veo-3.1-fast":    _vid("veo-3.1-fast"),
     "veo-3.1":         _vid("veo-3.1"),
+    # --- Vertex Gemini Omni Flash: generateContent (not predictLongRunning), fixed
+    #     10s/720p/24fps output, always with audio; t2v drops the image part. ---
+    "omni-flash":      _vid("omni-flash",      max_refs=6, note="gemini-omni-flash-preview; fixed 10s/720p/24fps+audio, $0.10/s; ref2v verified live to 2 imgs (6 is Google's documented example, untested beyond 2); v2v takes a LOCAL file (opposite of fal's URL convention)"),
     # --- fal video ---
     "seedance-2-fast": _vid("seedance-2-fast", note="fal id unverified"),
     "wan-2.6":         _vid("wan-2.6",         note="fal id is .../text-to-video — t2v, NOT i2v (current command mismatch)"),

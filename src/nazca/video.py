@@ -161,10 +161,10 @@ def edit_video(
     duration: int = 8,
     dry_run: bool = False,
 ) -> Path:
-    """Video-edit ops (source VIDEO → video) via fal.
+    """Video-edit ops (source VIDEO → video) via fal, or omni-flash (Vertex, local file).
 
-    The source is passed as a URL (`video_url`), NOT inlined as a base64 data-URI
-    — a real clip is MB-scale and fal expects a URL. Local-file → fal-storage
+    fal/Atlas: the source is passed as a URL (`video_url`), NOT inlined as a base64
+    data-URI — a real clip is MB-scale and fal expects a URL. Local-file → fal-storage
     upload is a planned follow-up; for now SOURCE must be a public http(s) URL.
 
       reframe → fal-ai/luma-dream-machine/ray-2/reframe  {video_url, aspect_ratio}
@@ -174,11 +174,24 @@ def edit_video(
     NOTE: the `video_url` field for v2v/extend is fal's convention but UNVERIFIED
     live — dry-run safe; verify with a real call before spending.
 
+    omni-flash (--model omni-flash --v2v): the opposite convention — SOURCE must be
+    a LOCAL file, sent inline as base64 (verified live; no fal-storage/URL step).
+
     Returns the output path (or .request.json for dry-run).
     """
     out = Path(out)
     src = str(source)
-    if not (src.startswith("http://") or src.startswith("https://")):
+    resolved = model or default_video_edit_model(op)
+    spec = _VIDEO_REGISTRY.get(resolved)
+    is_omni = spec is not None and spec.api == "omni"
+
+    if is_omni:
+        if src.startswith("http://") or src.startswith("https://"):
+            raise VeoError(
+                f"{op} on omni-flash needs a LOCAL video file (sent inline) — "
+                f"got a URL: {src}"
+            )
+    elif not (src.startswith("http://") or src.startswith("https://")):
         raise VeoError(
             f"{op} SOURCE must be a public https:// video URL "
             f"(local-file upload to fal storage is a planned follow-up); got: {src}"
@@ -186,14 +199,12 @@ def edit_video(
 
     from nazca.resolve import ResolvedModel  # local import: avoids circular at module load
 
-    resolved = model or default_video_edit_model(op)
     edit_id = VIDEO_EDIT_MODELS.get(resolved, resolved)  # shorthand → provider id, or raw passthrough
-    spec = _VIDEO_REGISTRY.get(resolved)
-    backend_name = spec.backend if spec else "fal"  # per-model backend (fal | atlas)
+    backend_name = spec.backend if spec else "fal"  # per-model backend (fal | atlas | vertex)
     backend = require_capability(get_backend(backend_name), "video")
     rm = ResolvedModel(
         shorthand=resolved, provider_id=edit_id, backend=backend_name,
-        api="", region="", spec=spec,
+        api=spec.api if spec else "", region=spec.region if spec else "", spec=spec,
     )
 
     req = VideoRequest(

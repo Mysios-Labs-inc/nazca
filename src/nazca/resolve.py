@@ -10,7 +10,9 @@ posture — so callers can be migrated one at a time with zero behavior drift.
 
 Parity map (old tuple → ResolvedModel fields):
   image  : (provider_id, region, api, backend) → (provider_id, region, api, backend)
-  video  : (backend, provider_id)              → backend, provider_id; region="", api=""
+  video  : (backend, provider_id)              → backend, provider_id; region/api from
+                                                  spec when one exists (e.g. Vertex
+                                                  veo/omni), else ""
   audio  : (backend, provider_id)              → backend, provider_id; region="", api=""
   3d     : (backend, provider_id)              → backend, provider_id; region="", api=""
 
@@ -73,8 +75,10 @@ class ResolvedModel:
     provider_id the raw upstream model id handed to the backend.
     backend     dispatch key: "vertex" | "fal" | "modelark" | "openai" | "atlas".
     api         sub-routing within the backend ("gemini"/"imagen"/"fal"/... for
-                image; "" for video/audio/3d — matching the old 2-tuples).
-    region      provider region (vertex image only; "" everywhere else).
+                image; "veo"/"omni" for Vertex video when spec carries one, else
+                "" for audio/3d — matching the old 2-tuples).
+    region      provider region (vertex image/video when spec carries one; ""
+                everywhere else).
     spec        canonical ModelSpec when resolved via a built-in registry, else
                 None (prefix-passthrough / raw-id fallback / user override).
     """
@@ -197,9 +201,13 @@ def _resolve_video(model: str) -> ResolvedModel:
         return ResolvedModel(
             model, _ATLAS_VIDEO_MODELS[model], "atlas", "", "", _VIDEO_REGISTRY[model]
         )
-    # Vertex alias hit carries a spec; raw-id fallback does not.
+    # Vertex alias hit carries a spec; raw-id fallback does not. api/region come
+    # from the spec (e.g. omni-flash needs api="omni", region="global" to route
+    # off the Veo predictLongRunning path) — "" only for the raw-id fallback.
     spec = _VIDEO_REGISTRY.get(model) if model in _VEO_ALIASES else None
-    return ResolvedModel(model, _VEO_ALIASES.get(model, model), "vertex", "", "", spec)
+    api = spec.api if spec is not None else ""
+    region = spec.region if spec is not None else ""
+    return ResolvedModel(model, _VEO_ALIASES.get(model, model), "vertex", api, region, spec)
 
 
 def _resolve_audio(model: str) -> ResolvedModel:

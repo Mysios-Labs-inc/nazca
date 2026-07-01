@@ -140,6 +140,13 @@ _VEO_PER_SEC: dict[str, dict[tuple[str, bool], float]] = {
         ("720p", False): 0.03, ("720p", True): 0.05,
         ("1080p", False): 0.05, ("1080p", True): 0.08,
     },
+    # Omni Flash: flat $0.10/sec regardless of audio (always generates audio, no
+    # toggle); fixed 720p output — only a 720p entry, so any other resolution falls
+    # back here via the nearest-resolution lookup above. Verified against Google's
+    # published Gemini API/Vertex pricing (sourced 2026-06-30).
+    "omni-flash": {
+        ("720p", False): 0.10, ("720p", True): 0.10,
+    },
     # --- Atlas Cloud (per-second, 'start from' base rate; approximate) ---
     "atlas-grok-imagine-video": {
         ("720p", False): 0.05, ("720p", True): 0.05,
@@ -410,6 +417,11 @@ def estimate_video_cost(
             return None
         res = min(avail, key=lambda r: abs(_RES_ORDER.get(r, 1) - _RES_ORDER.get(res, 1)))
         rate = table[(res, audio)]
+    # omni-flash has no --duration control — it always renders up to its 10s max,
+    # regardless of the CLI's default (8s), so estimate against that ceiling rather
+    # than systematically underquoting.
+    if model_shorthand == "omni-flash":
+        duration = 10
     dur = int(duration or 8)
     usd = round(rate * dur, 4)
     basis = f"≈${rate:g}/s × {dur}s @{res}{'+audio' if audio else ''}"

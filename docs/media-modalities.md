@@ -70,6 +70,7 @@ the API level — that's a later, per-provider step where native role fields exi
 |---|---|---|---|
 | `nano-banana` | vertex/gemini | t2i, i2i, compose | 2.5-flash-image; ref count unpinned |
 | `nano-banana-2` | vertex/gemini | t2i, i2i, compose | 3.1-flash-image |
+| `nano-banana-2-lite` | vertex/gemini | t2i, i2i | 3.1-flash-lite-image; **single ref only**, no compose, fastest/cheapest tier |
 | `nano-banana-pro` | vertex/gemini | t2i, i2i, compose | 3-pro-image; **up to 14 refs**, legible text |
 | `imagen-4-fast` | vertex/imagen | t2i | **t2i only** — rejects refs |
 | `imagen-4` | vertex/imagen | t2i | t2i only |
@@ -89,6 +90,7 @@ the API level — that's a later, per-provider step where native role fields exi
 | `veo-3.1-lite` | vertex | t2v, i2v, keyframe | `--start` optional (t2v) / one frame (i2v) / two (keyframe) |
 | `veo-3.1-fast` | vertex | t2v, i2v, keyframe | |
 | `veo-3.1` | vertex | t2v, i2v, keyframe | |
+| `omni-flash` | vertex | t2v, i2v, ref2v, v2v | gemini-omni-flash-preview; `:generateContent` not `:predictLongRunning` — synchronous, no poll; fixed ~10s/720p+audio, ignores duration/resolution/audio/aspect flags (Vertex rejects `videoConfig.aspectRatio`); ref2v verified live to 2 imgs (`--ref`, max_refs=6 per Google's docs example, untested beyond 2); v2v takes a LOCAL file via `--v2v SOURCE` (opposite of fal's URL convention — `edit_video` branches on `spec.api == "omni"`); all verified against live Vertex calls 2026-06-30 |
 | `seedance-2-fast` | fal | i2v | fal id unverified |
 | `wan-2.6` | fal | **t2v** | fal id is `.../text-to-video`; reachable now (no `--start`) |
 | `seedance-pro` | modelark | i2v | needs BytePlus activation |

@@ -19,7 +19,6 @@ from nazca import config
 from nazca.backends.vertex import VertexBackend
 from nazca.image import try_on_image
 
-
 # --------------------------------------------------------------------------- helpers
 
 def _png(p):

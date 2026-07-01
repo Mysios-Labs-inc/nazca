@@ -208,6 +208,7 @@ nazca image dish.png -o styled.png --style --ref look.png -p "..."  # style tran
 |---|---|---|---|
 | `nano-banana` *(default)* | gemini-2.5-flash-image | us-central1 | ✅ |
 | `nano-banana-2` | gemini-3.1-flash-image | global | ✅ |
+| `nano-banana-2-lite` | gemini-3.1-flash-lite-image | global | ✅ (1 ref) |
 | `nano-banana-pro` | gemini-3-pro-image | global | ✅ (≤14) |
 | `imagen-4` · `imagen-4-fast` · `imagen-3` | imagen-4.0-\* / 3.0 | us-central1 | ❌ (text-to-image only) |
 | `gpt-image-2` | gpt-image-2 (OpenAI) | — | ✅ (≤5, via `/images/edits`) |
@@ -243,10 +244,22 @@ nazca video -o clip.mp4 -p "drone sweep over a smoky parrilla at dusk" --model a
 
 # lip-sync talking head: portrait + driving audio (Atlas avatar)
 nazca video -o vo.mp4 -s host.png --avatar --audio-in vo.mp3
+
+# Gemini Omni Flash: t2v/i2v, fixed ~10s/720p+audio, resolves synchronously (no poll)
+nazca video -o clip.mp4 -p "a marble rolling down a wooden ramp" --model omni-flash
+
+# Omni Flash ref2v: combine subject/style reference images (no --start needed)
+nazca video -o clip.mp4 -p "a cat batting at a ball of yarn" --model omni-flash --ref2v --ref cat.png --ref yarn.png
+
+# Omni Flash v2v: edit a LOCAL video file (not a URL — opposite of fal's --v2v)
+nazca video clip.mp4 -o edited.mp4 -p "make it night time, add stars" --model omni-flash --v2v
 ```
 
 **Flags:** `-o/--out` · `-s/--start` · `-p/--prompt` · `--end` · `--model` (default `veo-3.1-fast`) ·
 `--duration 4\|6\|8` · `--aspect 9:16\|16:9` · `--resolution 720p\|1080p` · `--audio` · `--tier` · `--dry-run`.
+`omni-flash` ignores `--duration`/`--resolution`/`--audio`/`--aspect` (fixed ~10s/720p+audio, landscape only)
+and supports t2v/i2v/`--ref2v` (multi-image reference, `--ref` repeatable) /`--v2v` (no `--end`/keyframe).
+Unlike fal's `--v2v`, omni-flash's `--v2v` SOURCE must be a **local file**, sent inline — not a URL.
 
 **Atlas video ops** (opt-in, one at a time): `--avatar --audio-in <file>` (lip-sync) · `--ref2v --ref <img>`
 (reference-to-video) · `--effects --start <img>` · `--motion-control <SOURCE url>` · `--video-upscale <SOURCE url>` ·
@@ -433,6 +446,7 @@ often and is tier/resolution-dependent — treat those as approximate and `--dry
 | `veo-3.1-lite` | video | $0.05 / s (720p) | cheap | Vertex |
 | `veo-3.1-fast` *(default)* | video | $0.10 / s (720p) | cheap | Vertex |
 | `veo-3.1` | video | $0.20 / s · **+audio $0.40** | premium | Vertex |
+| `omni-flash` | video | $0.10 / s (fixed ~10s/720p+audio) | cheap | Vertex |
 | `wan-2.6`, `seedance-2-fast` | video | tier/res-dependent | cheap | fal |
 | `seedance-lite`, `seedance-pro` | video | tier/res-dependent | cheap / premium | ModelArk |
 | `atlas-tts-grok` *(default speech)* | audio | ~$0.015 / 1K chars | cheap | Atlas |
