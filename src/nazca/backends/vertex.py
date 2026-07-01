@@ -447,10 +447,16 @@ class VertexBackend(Backend):
         body = self._omni_body(req.prompt, req.start, req.refs, req.source)
 
         if req.dry_run:
-            preview = json.loads(json.dumps(body))
-            for part in preview["contents"][0]["parts"]:
-                if "inlineData" in part:
-                    part["inlineData"]["data"] = f"<{len(part['inlineData']['data'])} b64 chars>"
+            # Shallow-copy + redact in place — the base64 payload can be tens of MB
+            # (v2v inlines a whole source video via _read_b64), so a deep copy via
+            # json.dumps/json.loads would serialize and re-parse that full string
+            # just to discard it a line later.
+            preview_parts = [
+                {**p, "inlineData": {**p["inlineData"], "data": f"<{len(p['inlineData']['data'])} b64 chars>"}}
+                if "inlineData" in p else p
+                for p in body["contents"][0]["parts"]
+            ]
+            preview = {**body, "contents": [{**body["contents"][0], "parts": preview_parts}]}
             return {"url": self._plan_url(model_id, "generateContent", region), **preview}
 
         token = self.auth_token()
@@ -489,7 +495,8 @@ class VertexBackend(Backend):
         for cand in resp.get("candidates", []):
             for part in cand.get("content", {}).get("parts", []):
                 inline = part.get("inlineData") or part.get("inline_data")
-                if inline and inline.get("data") and inline.get("mimeType", "").startswith("video/"):
+                mime = inline.get("mimeType") or inline.get("mime_type", "") if inline else ""
+                if inline and inline.get("data") and mime.startswith("video/"):
                     return base64.b64decode(inline["data"])
         raise VeoError(f"no video part in response: {str(resp)[:400]}")
 
