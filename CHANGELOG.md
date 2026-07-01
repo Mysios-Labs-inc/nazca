@@ -4,6 +4,32 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [0.12.0] — 2026-07-01
+
+### Added
+- **Gemini Omni Flash (`omni-flash` video model):** new Vertex-backed video model
+  (`gemini-omni-flash-preview`), routed through a new `api="omni"` sub-route that
+  calls `:generateContent` synchronously (no long-running-operation polling, unlike
+  Veo). Supports t2v, i2v, ref2v (up to 2 reference images verified live; Google's
+  docs example goes to 6), and v2v (local-file video edit — the opposite of fal's
+  URL convention). Fixed output: ~10s / 720p / 24fps, always includes audio, no
+  aspect-ratio control. `--v2v`/`--ref2v` reuse the existing CLI flags and ops
+  vocabulary.
+- **Nano Banana 2 Lite (`nano-banana-2-lite` image model):** new Vertex-backed
+  image model (`gemini-3.1-flash-lite-image`) for fast/cheap 1K generation and
+  single-reference editing ($0.034/image); rides the existing `api="gemini"` path,
+  no new code needed beyond the registry entry.
+
+### Fixed
+- **`_resolve_video` region/api propagation:** the Vertex video resolver hardcoded
+  `api=""`/`region=""` on every resolution, silently discarding a model's declared
+  `api` sub-route (invisible until `omni-flash` needed `api="omni"` to route off
+  the Veo `predictLongRunning` path). Now reads both fields from the model's spec.
+- **Omni Flash dry-run cost:** `--v2v --model omni-flash --dry-run` was reading and
+  base64-encoding the entire local source video before redacting it for the
+  preview; now derives the redacted placeholder from the file's on-disk size
+  without ever reading its contents.
+
 ## [0.11.0] — 2026-06-28
 
 ### Added
