@@ -1,11 +1,20 @@
-"""Voice creation (Fish Audio `voice_clone`/`voice_design`) — issue #122 phase A2.
+"""Voice creation (`voice_clone`/`voice_design`) — issue #122 phases A2/A3.
 
 Mirrors `audio.py`'s style (module docstring, resolve+backend pattern) but these
 two functions don't fit `speak()`'s text->single-file shape: `clone_voice`
 uploads audio samples and returns model metadata (no media file is produced),
 and `design_voice` returns several audio *candidates* in one response instead
 of one output file. So they live in their own module rather than being bolted
-onto `audio.speak()`/`AudioRequest`.
+onto `audio.speak()`/`AudioRequest`. Fish Audio (`fish-voice-clone`/
+`fish-voice-design`, phase A2) and ElevenLabs (`elevenlabs-voice-clone`,
+phase A3) both dispatch through these same two functions — the backend
+Protocol (`SupportsVoiceClone`/`SupportsVoiceDesign`) is the only contract, so
+adding a backend needs no changes here.
+
+`visibility`/`tags` are Fish-specific concepts (accepted by every
+voice_clone-capable backend's call signature, per the shared Protocol, but
+silently ignored by backends that don't support them, e.g. ElevenLabs) — see
+each backend's own docstring for exactly which fields it honors.
 """
 
 from __future__ import annotations
@@ -19,6 +28,12 @@ from nazca.errors import AudioError
 
 DEFAULT_VOICE_CLONE_MODEL = "fish-voice-clone"
 DEFAULT_VOICE_DESIGN_MODEL = "fish-voice-design"
+
+# response key each voice_clone-capable backend uses to identify the created
+# voice — checked in this order since "_id" (Fish) won't collide with
+# "voice_id" (ElevenLabs). Extend this tuple, not clone_voice()'s body, when a
+# new backend uses yet another key.
+_VOICE_ID_KEYS = ("_id", "voice_id")
 
 
 def clone_voice(
@@ -34,7 +49,15 @@ def clone_voice(
     """Create a reusable voice from audio samples.
 
     Returns the created model's metadata dict (not a Path — no media file is
-    produced); the caller uses the `_id` field as `nazca speak --voice <_id>`.
+    produced); the id field name is backend-specific (Fish: `_id`, ElevenLabs:
+    `voice_id`) — use `result["voice_id"]` for `nazca speak --voice <id>`,
+    added below alongside the backend's own key so callers don't need to know
+    which backend they hit.
+
+    `visibility`/`tags` are silently dropped by backends that don't support
+    them (currently ElevenLabs) — if either is non-default and the resolved
+    backend isn't Fish (the only one that honors them today), this raises an
+    `AudioError` rather than pretending the values took effect.
     """
     from nazca.capabilities import validate_op
     from nazca.resolve import resolve  # local import: avoids circular at module load
@@ -43,13 +66,30 @@ def clone_voice(
     validate_op(resolved.shorthand, "voice_clone")
     backend = require_capability(get_backend(resolved.backend), "voice_clone")
 
-    return backend.voice_clone(
+    if resolved.backend != "fish" and (visibility != "private" or tags):
+        raise AudioError(
+            f"--visibility/--tags aren't supported by {resolved.shorthand!r} "
+            "(Fish-only) — omit them for this backend."
+        )
+
+    result = backend.voice_clone(
         title,
         audio_paths,
         description=description,
         visibility=visibility,
         tags=tags,
         dry_run=dry_run,
+    )
+    if dry_run:
+        return result
+
+    for key in _VOICE_ID_KEYS:
+        if key in result:
+            result.setdefault("voice_id", result[key])
+            return result
+    raise AudioError(
+        f"{resolved.shorthand} voice_clone response is missing an id field "
+        f"(expected one of {_VOICE_ID_KEYS}): {result!r}"
     )
 
 

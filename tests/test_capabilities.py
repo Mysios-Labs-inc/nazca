@@ -127,9 +127,10 @@ def test_no_audio_model_supports_unwired_ops_yet():
 
 def test_models_supporting_tts_nonempty_others_empty():
     assert cap.models_supporting("tts")
-    # #122 phase A2: voice_clone/voice_design are now wired — only by the two
-    # dedicated Fish Audio placeholders, not by fish-tts or any other model.
-    assert cap.models_supporting("voice_clone") == ["fish-voice-clone"]
+    # #122 phase A2: voice_clone/voice_design are now wired — only by the
+    # dedicated Fish Audio placeholders (plus, since phase A3,
+    # elevenlabs-voice-clone), not by fish-tts or any other model.
+    assert cap.models_supporting("voice_clone") == ["elevenlabs-voice-clone", "fish-voice-clone"]
     assert cap.models_supporting("voice_design") == ["fish-voice-design"]
     # #122 phase A3: sfx is now wired — only by elevenlabs-sfx.
     assert cap.models_supporting("sfx") == ["elevenlabs-sfx"]

@@ -336,6 +336,7 @@ CAPS: dict[str, Caps] = {
     # --- ElevenLabs (issue #122 phase A3; sync REST; xi-api-key auth) ---
     "elevenlabs-tts":          _aud("elevenlabs-tts",          note="ElevenLabs; eleven_multilingual_v2 by default; xi-api-key auth; pricing subscription-tier-based, unpriced here; --voice required"),
     "elevenlabs-sfx":          _aud("elevenlabs-sfx",          note="ElevenLabs; POST /v1/sound-generation; text description -> sound effect, no --voice; pricing subscription-tier-based, unpriced here"),
+    "elevenlabs-voice-clone":  _aud("elevenlabs-voice-clone",  note="ElevenLabs; POST /v1/voices/add; --title + 1+ audio samples -> voice_id; workspace cap 500 total voices, no per-call cap"),
     # --- Atlas Cloud music (issue #122 phase A4; async media API; schema confirmed via live model-list API's per-model OpenAPI link) ---
     "atlas-music-minimax":     _aud("atlas-music-minimax",     note="Atlas; minimax/music-2.6; $0.15/gen and request schema both confirmed via live model-list API; style prompt + optional --lyrics/--format"),
     # --- Atlas Cloud 3D (text/image → GLB mesh; async media API; schema unverified) ---

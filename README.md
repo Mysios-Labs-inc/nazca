@@ -336,16 +336,22 @@ from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id
 
 ### `nazca voice-clone` and `nazca voice-design`
 
-Two Fish Audio voice-creation commands (needs `FISH_API_KEY`) — distinct from `nazca speak`
-because neither produces a single TTS output file: `voice-clone` derives a reusable voice
-from audio samples (returns a `reference_id`, no media file), and `voice-design` generates
-several candidate voices from a text description (returns N preview clips).
+Two voice-creation commands — distinct from `nazca speak` because neither produces a single
+TTS output file: `voice-clone` derives a reusable voice from audio samples (returns a voice
+id, no media file), and `voice-design` generates several candidate voices from a text
+description (returns N preview clips). `voice-clone` is available on two backends: Fish Audio
+(needs `FISH_API_KEY`, the default) and, since issue #122 phase A3, ElevenLabs (needs
+`ELEVENLABS_API_KEY`, via `--model elevenlabs-voice-clone`); `voice-design` is Fish Audio only.
 
 ```bash
-# Clone a reusable voice from one or more samples
+# Clone a reusable voice from one or more samples (Fish Audio, the default)
 nazca voice-clone sample1.mp3 sample2.mp3 --title "My Voice"
 # ✅ Voice cloned: <reference_id>
 #    ↳ use it: nazca speak "..." -o out.mp3 --model fish-tts --voice <reference_id>
+
+# Same, on ElevenLabs instead
+nazca voice-clone sample1.mp3 sample2.mp3 --title "My Voice" --model elevenlabs-voice-clone
+#    ↳ use it: nazca speak "..." -o out.mp3 --model elevenlabs-tts --voice <voice_id>
 
 # Generate candidate voices from a text description
 nazca voice-design "Warm, confident studio narrator" -o narrator
@@ -354,9 +360,13 @@ nazca voice-design "Warm, confident studio narrator" -o narrator
 
 **`nazca voice-clone` flags:** one or more positional audio sample paths (required) ·
 `--title` (required) · `--description` · `--visibility private\|unlist\|public` (default
-`private` — Fish's own API default is `public`; nazca defaults to the safer choice) ·
-`--tags a,b` · `--model` (default `fish-voice-clone`) · `--dry-run` (prints the request plan
-to stdout — file sizes/names only, never the raw audio bytes).
+`private` — Fish's own API default is `public`; nazca defaults to the safer choice;
+ElevenLabs has no visibility concept, so this flag is accepted-but-ignored on that backend) ·
+`--tags a,b` (Fish only — also accepted-but-ignored on ElevenLabs) · `--model` (default
+`fish-voice-clone`; pass `elevenlabs-voice-clone` for ElevenLabs) · `--dry-run` (prints the
+request plan to stdout — file sizes/names only, never the raw audio bytes). Fish caps at 20
+samples/call; ElevenLabs documents no per-call cap, only a workspace-wide 500-total-voices
+limit nazca can't check client-side.
 
 **`nazca voice-design` flags:** positional text INSTRUCTION (required) · `-o/--out` — an
 **output filename prefix**, not a full path (default `voice_design`; writes
@@ -366,7 +376,8 @@ to stdout — file sizes/names only, never the raw audio bytes).
 `<prefix>.request.json`, same sidecar convention as `speak`/`make3d`).
 
 > Both commands are unpriced (`--dry-run` shows the request plan, not a cost estimate) —
-> Fish Audio pricing is unverified against a live key, same posture as `fish-tts`.
+> Fish Audio pricing is unverified against a live key (same posture as `fish-tts`), and
+> ElevenLabs pricing is subscription-tier-based (same posture as `elevenlabs-tts`).
 
 ### `nazca music`
 
