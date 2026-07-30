@@ -6,6 +6,8 @@ All notable changes to nazca are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-07-30
+
 ### Added
 - **Atlas music generation (`atlas-music-minimax` / `nazca music`, issue #122 phase
   A4):** `music` was named in `capabilities.AUDIO_OPS` since phase A1 but never
