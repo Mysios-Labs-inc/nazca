@@ -4,6 +4,17 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [0.13.2] — 2026-07-30
+
+### Added
+- **PyPI distribution (`nazca-cli`):** nazca is now published to PyPI under the
+  project name `nazca-cli` (the plain `nazca` name is already taken by an
+  unrelated library) — the `nazca` command, importable `nazca` module, and repo
+  name are unaffected, only the PyPI project name differs. A GitHub Actions
+  workflow (`.github/workflows/publish.yml`) builds and publishes on every
+  `v*.*.*` tag push via a `PYPI_API_TOKEN` repo secret (trusted publishing/OIDC
+  is the longer-term goal, blocked on a pending PyPI Organization approval).
+
 ## [0.13.1] — 2026-07-30
 
 ### Fixed
