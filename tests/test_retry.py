@@ -255,3 +255,44 @@ def test_modelark_rate_limit_type_is_distinct():
     assert issubclass(vertex.RateLimitError, vertex.VertexError)
     assert issubclass(fal.FalRateLimitError, fal.FalError)
     assert issubclass(modelark.ModelArkRateLimitError, modelark.ModelArkError)
+
+
+def _call_bytes(slept, urlopen):
+    with mock.patch("urllib.request.urlopen", urlopen):
+        return retry.post_bytes(
+            "http://x",
+            {},
+            {},
+            on_http_error=lambda c, d: RuntimeError(f"http {c}"),
+            on_rate_limited=lambda c, d: vertex.RateLimitError(f"rl {c}"),
+            _sleep=slept.append,
+            _rand=lambda: 0.0,
+        )
+
+
+def test_post_bytes_returns_raw_body_unparsed(fast_retry):
+    """`post_bytes` must hand back the raw bytes, never json.loads them — a body
+    that isn't valid JSON (like an audio stream) would otherwise raise here.
+    """
+    slept = fast_retry
+    not_json = b"\xff\xd8\xff not json audio bytes"
+    out = _call_bytes(slept, lambda req, timeout=None: _Resp(not_json))
+    assert out == not_json
+    assert isinstance(out, bytes)
+
+
+def test_post_bytes_persistent_429_exhausts_to_rate_limit_error(fast_retry):
+    """`post_bytes` shares the same retry/backoff loop as `post_json` — verify
+    that sharing didn't drop rate-limit handling for the raw-bytes path.
+    """
+    slept = fast_retry
+    calls = {"n": 0}
+
+    def always_429(req, timeout=None):
+        calls["n"] += 1
+        raise _http_error(429, "RESOURCE_EXHAUSTED quota")
+
+    with pytest.raises(vertex.RateLimitError):
+        _call_bytes(slept, always_429)
+
+    assert calls["n"] == 6  # 1 initial + 5 retries

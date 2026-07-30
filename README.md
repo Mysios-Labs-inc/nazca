@@ -53,21 +53,25 @@ flowchart LR
     R -.->|opt-in| OA[OpenAI backend<br/>OPENAI_API_KEY]
     R -.->|opt-in · audio/3D| AT[Atlas backend<br/>ATLAS_API_KEY]
     R -.->|opt-in · speech| WD[Worder backend<br/>WORDER_API_KEY]
+    R -.->|opt-in · speech| FI[Fish Audio backend<br/>FISH_API_KEY]
     V --> G[(Google Vertex<br/>Gemini · Imagen · Veo)]
     F --> FP[(fal.ai<br/>FLUX · Wan · Seedance)]
     M --> MP[(ByteDance<br/>Seedream · Seedance)]
     OA --> OP[(OpenAI<br/>gpt-image-2)]
     AT --> ATP[(Atlas Cloud<br/>~91 models · TTS · 3D · avatar)]
     WD --> WDP[(Worder<br/>human voice actor TTS)]
-    G & FP & MP & OP & ATP & WDP --> O[/output file<br/>.png · .mp4 · .mp3 · .glb/]
+    FI --> FIP[(Fish Audio<br/>hosted + community voice models)]
+    G & FP & MP & OP & ATP & WDP & FIP --> O[/output file<br/>.png · .mp4 · .mp3 · .glb/]
     O --> A
 ```
 
 **Direct-first.** Google models always go straight to Vertex — the cheapest path, no API key. fal,
-ModelArk, OpenAI, Atlas Cloud, and Worder are *dotted* because they're opt-in: a Vertex-only run never
-reaches for their keys. **Atlas Cloud** is one async API fronting ~91 models and is the home of the
-**speech (TTS)**, **3D (GLB)**, and **avatar / lip-sync** modalities. **Worder** is a second, alternative
-speech provider — a marketplace of real, ethically-sourced human voice actors instead of a house TTS model.
+ModelArk, OpenAI, Atlas Cloud, Worder, and Fish Audio are *dotted* because they're opt-in: a Vertex-only
+run never reaches for their keys. **Atlas Cloud** is one async API fronting ~91 models and is the home of
+the **speech (TTS)**, **3D (GLB)**, and **avatar / lip-sync** modalities. **Worder** and **Fish Audio** are
+two further, alternative speech providers — Worder a marketplace of real, ethically-sourced human voice
+actors instead of a house TTS model; Fish Audio a platform of hosted + community voice models selected by
+`reference_id`.
 
 ---
 
@@ -280,8 +284,8 @@ Unlike fal's `--v2v`, omni-flash's `--v2v` SOURCE must be a **local file**, sent
 
 ### `nazca speak`
 
-Text-to-speech, via **Atlas Cloud** (needs `ATLAS_API_KEY`) or **Worder** (needs `WORDER_API_KEY`).
-Takes the text as a positional argument, writes an `.mp3` or `.wav`.
+Text-to-speech, via **Atlas Cloud** (needs `ATLAS_API_KEY`), **Worder** (needs `WORDER_API_KEY`), or
+**Fish Audio** (needs `FISH_API_KEY`). Takes the text as a positional argument, writes an `.mp3` or `.wav`.
 
 ```bash
 nazca speak "Fresh off the grill, every night." -o vo.mp3
@@ -289,17 +293,27 @@ nazca speak "..." -o vo.wav --format wav --model atlas-tts-elevenlabs-v3 --voice
 
 # Worder — TTS from real, ethically-sourced human voice actors (marketplace pricing)
 nazca speak "[happy] Fresh off the grill, every night." -o vo.mp3 --model worder-tts --voice <voice_id>
+
+# Fish Audio — hosted + community voice models, selected by reference_id
+nazca speak "Fresh off the grill, every night." -o vo.mp3 --model fish-tts --voice <reference_id>
 ```
 
 **Flags:** `-o/--out` (`.mp3`/`.wav`) · `--model` (default `atlas-tts-grok`; also `atlas-tts-elevenlabs-v3`,
-`worder-tts`) · `--voice <name>` (model-specific; **required** for `worder-tts` — a `voice_id` from
-`GET https://worder.com/api/v1/voices`) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
+`worder-tts`, `fish-tts`) · `--voice <name>` (model-specific; **required** for `worder-tts` — a `voice_id`
+from `GET https://worder.com/api/v1/voices` — and for `fish-tts` — a `reference_id` from
+`GET https://api.fish.audio/model`) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
 
 > **Worder** is a TTS marketplace of verified human voice actors, not a house model — there's no
 > default voice, pricing is per-second and set per actor (from $0.01/s, so `nazca` can't estimate
 > `--dry-run` cost for it), and text supports direction tags (`[happy]`), pause tags (`[pause N]`),
 > emphasis tags, and pronunciation overrides (`{written|spoken}`). A synthesis that fails Worder's
 > Whisper-transcript quality check (<90% similarity) returns HTTP 422 and is **not charged**.
+
+> **Fish Audio** is a TTS platform of hosted + community voice models, also with no single default
+> voice — pick one via `--voice <reference_id>` (from `GET https://api.fish.audio/model`). The
+> synthesis quality tier (`s1`, `s2-pro`, `s2.1-pro`, `s2.1-pro-free`) is a separate `model` HTTP
+> header nazca defaults to `s2-pro`; pricing is unverified against a live key, so `--dry-run` shows
+> the request plan, not a cost estimate.
 
 ### `nazca make3d`
 
@@ -449,8 +463,8 @@ nazca image -o out.png -p "..." --tier cheap      # → nano-banana
 nazca video -o clip.mp4 -s a.png -p "..." --tier premium   # → veo-3.1
 ```
 
-Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI/Atlas/Worder pricing
-changes often and is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
+Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI/Atlas/Worder/Fish
+Audio pricing changes often and is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
 
 | model | kind | $/unit | tier | backend |
 |---|---|---|---|---|
@@ -470,6 +484,7 @@ changes often and is tier/resolution-dependent — treat those as approximate an
 | `atlas-tts-grok` *(default speech)* | audio | ~$0.015 / 1K chars | cheap | Atlas |
 | `atlas-tts-elevenlabs-v3` | audio | ~$0.10 / 1K chars | premium | Atlas |
 | `worder-tts` | audio | per voice actor, from $0.01/s | premium | Worder |
+| `fish-tts` | audio | unverified against a live key | premium | Fish Audio |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |
@@ -620,6 +635,23 @@ direction tags (`[happy]`), pause tags (`[pause N]`), emphasis tags, and pronunc
 (`{written|spoken}`). Pricing is per-second, set per voice actor (from $0.01/s) — `nazca` can't
 `--dry-run` estimate it the way it does the flat-rate Atlas voices.
 
+### Fish Audio (opt-in — hosted + community voice models, alternative to Atlas/Worder speech)
+
+A TTS platform where every voice is a `reference_id` naming a specific model — Fish's own hosted models
+or ones the community publishes. Get a key at [fish.audio](https://fish.audio/), then store it:
+
+```bash
+nazca login   # → Fish Audio  (FISH_API_KEY)
+# or: nazca config set fish_api_key <key>   # or export FISH_API_KEY=<key>
+```
+
+There's no default voice — list models at `GET https://api.fish.audio/model` (filter by `title`, `tags`,
+`author`, `language`) and pass one's id via `--voice <reference_id>` or the `fish:<reference_id>` prefix.
+The synthesis quality tier (`s1`, `s2-pro`, `s2.1-pro`, `s2.1-pro-free`) is a separate `model` HTTP header
+that nazca sends automatically (default `s2-pro`) — there is no flag for it today. Fish's `/v1/tts`
+streams raw audio bytes directly (not a JSON envelope), and pricing is unverified against a live key, so
+`--dry-run` shows the request plan, not a cost estimate.
+
 ---
 
 ## Custom / overriding models
@@ -635,6 +667,7 @@ nazca image --model "openai:gpt-image-2"      -o out.png -p "..."
 nazca image --model "atlas:bytedance/seedream-v4.5" -o out.png -p "..."
 nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "..."
 nazca speak "..." --model "worder:voice_abc123" -o vo.mp3   # a specific Worder voice_id
+nazca speak "..." --model "fish:ref_abc123" -o vo.mp3       # a specific Fish Audio reference_id
 ```
 
 | prefix | backend | needs |
@@ -644,6 +677,7 @@ nazca speak "..." --model "worder:voice_abc123" -o vo.mp3   # a specific Worder 
 | `openai:` / `oai:` | OpenAI | `OPENAI_API_KEY` |
 | `atlas:` | Atlas Cloud | `ATLAS_API_KEY` |
 | `worder:` | Worder (audio only) | `WORDER_API_KEY` |
+| `fish:` | Fish Audio (audio only) | `FISH_API_KEY` |
 | `vertex:` / `veo:` | Vertex | gcloud auth |
 
 **2. `~/.config/nazca/models.json` override** — re-point a shorthand (or add one) without a release:
@@ -761,7 +795,8 @@ src/nazca/
 │   ├── modelark.py   ByteDance ModelArk — ARK_API_KEY + REST
 │   ├── openai.py     OpenAI Images — OPENAI_API_KEY + generations/edits
 │   ├── atlas.py      Atlas Cloud — ATLAS_API_KEY + async submit→poll (image · video · audio · 3D)
-│   └── worder.py     Worder — WORDER_API_KEY + sync REST (audio / human voice actor TTS)
+│   ├── worder.py     Worder — WORDER_API_KEY + sync REST (audio / human voice actor TTS)
+│   └── fish.py       Fish Audio — FISH_API_KEY + sync REST (audio / hosted + community voice models)
 ├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
 ├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
 ├── audio.py          thin orchestrator: text-to-speech → backend.run_audio()
@@ -819,6 +854,11 @@ sequenceDiagram
   API docs but **unverified against a live key** — benchmark before relying on it. It requires an explicit
   `--voice <voice_id>` (no default voice exists — Worder is a voice-actor marketplace, not a house model),
   and its per-second, per-actor pricing means `--dry-run` cannot estimate cost the way it does for Atlas.
+- **Fish Audio** (a third `speak` backend, `fish-tts` / `fish:<reference_id>`) is integrated per its
+  published OpenAPI schema but **unverified against a live key** — benchmark before relying on it. It
+  requires an explicit `--voice <reference_id>` (no default voice exists), its `/v1/tts` response is a raw
+  audio stream rather than a JSON envelope (handled by `retry.post_bytes`), and pricing is unverified, so
+  `--dry-run` cannot estimate cost.
 
 ## License
 

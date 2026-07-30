@@ -86,6 +86,74 @@ def _retry_after_seconds(headers: dict | None) -> float:
         return 0.0
 
 
+def _post_with_retry(
+    url: str,
+    body: dict,
+    headers: dict,
+    *,
+    on_http_error: Callable[[int, str], Exception],
+    on_rate_limited: Callable[[int, str], Exception],
+    decode: Callable[[bytes], object],
+    timeout: float | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _rand: Callable[[], float] = random.random,
+) -> object:
+    """Shared retry/backoff loop for a POST whose success body `decode` turns into
+    the return value — `json.loads` for `post_json`, raw passthrough for
+    `post_bytes`. See `post_json` for the retry/backoff semantics; this is the
+    body both public helpers share so the retry logic lives in exactly one place.
+    """
+    data = json.dumps(body).encode()
+    retries = max_retries()
+    base = backoff_base()
+
+    def _backoff(attempt: int, floor: float = 0.0) -> None:
+        delay = base * (2 ** attempt)
+        delay += delay * 0.25 * _rand()  # jitter: up to +25%
+        _sleep(max(delay, floor))  # honor a server Retry-After as a lower bound
+
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted provider endpoint)
+                payload = resp.read()
+                # fal requeue signal rides on a successful (2xx) response.
+                if _needs_retry_header(dict(resp.headers or {})):
+                    if attempt < retries:
+                        base_delay = base * (2 ** attempt)
+                        logger.warning(
+                            f"Retry attempt {attempt + 1}/{retries + 1}: "
+                            f"x-fal-needs-retry. Backoff: {base_delay:.1f}s (+jitter)"
+                        )
+                        _backoff(attempt)
+                        continue
+                    raise on_rate_limited(
+                        getattr(resp, "status", 0), "server requested retry (x-fal-needs-retry)"
+                    )
+                return decode(payload)
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode(errors="replace")[:600]
+            err_headers = dict(e.headers or {})
+            retryable = _is_retryable(e.code, detail, err_headers)
+            if retryable and attempt < retries:
+                reason_parts = [f"HTTP {e.code}"]
+                if "RESOURCE_EXHAUSTED" in detail:
+                    reason_parts.append("RESOURCE_EXHAUSTED")
+                reason = ", ".join(reason_parts)
+                retry_after = _retry_after_seconds(err_headers)
+                base_delay = max(base * (2 ** attempt), retry_after)
+                logger.warning(
+                    f"Retry attempt {attempt + 1}/{retries + 1}: "
+                    f"{reason}. Backoff: {base_delay:.1f}s (+jitter)"
+                )
+                _backoff(attempt, retry_after)
+                continue
+            if retryable:
+                raise on_rate_limited(e.code, detail)
+            raise on_http_error(e.code, detail)
+    raise AssertionError("unreachable")  # loop always returns or raises
+
+
 def post_json(
     url: str,
     body: dict,
@@ -109,52 +177,45 @@ def post_json(
 
     `_sleep`/`_rand` are injectable for testing.
     """
-    data = json.dumps(body).encode()
-    retries = max_retries()
-    base = backoff_base()
+    return _post_with_retry(
+        url,
+        body,
+        headers,
+        on_http_error=on_http_error,
+        on_rate_limited=on_rate_limited,
+        decode=lambda payload: json.loads(payload.decode()),
+        timeout=timeout,
+        _sleep=_sleep,
+        _rand=_rand,
+    )
 
-    def _backoff(attempt: int, floor: float = 0.0) -> None:
-        delay = base * (2 ** attempt)
-        delay += delay * 0.25 * _rand()  # jitter: up to +25%
-        _sleep(max(delay, floor))  # honor a server Retry-After as a lower bound
 
-    for attempt in range(retries + 1):
-        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted provider endpoint)
-                payload = resp.read().decode()
-                # fal requeue signal rides on a successful (2xx) response.
-                if _needs_retry_header(dict(resp.headers or {})):
-                    if attempt < retries:
-                        base_delay = base * (2 ** attempt)
-                        logger.warning(
-                            f"Retry attempt {attempt + 1}/{retries + 1}: "
-                            f"x-fal-needs-retry. Backoff: {base_delay:.1f}s (+jitter)"
-                        )
-                        _backoff(attempt)
-                        continue
-                    raise on_rate_limited(
-                        getattr(resp, "status", 0), "server requested retry (x-fal-needs-retry)"
-                    )
-                return json.loads(payload)
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode(errors="replace")[:600]
-            err_headers = dict(e.headers or {})
-            retryable = _is_retryable(e.code, detail, err_headers)
-            if retryable and attempt < retries:
-                reason_parts = [f"HTTP {e.code}"]
-                if "RESOURCE_EXHAUSTED" in detail:
-                    reason_parts.append("RESOURCE_EXHAUSTED")
-                reason = ", ".join(reason_parts)
-                retry_after = _retry_after_seconds(err_headers)
-                base_delay = max(base * (2 ** attempt), retry_after)
-                logger.warning(
-                    f"Retry attempt {attempt + 1}/{retries + 1}: "
-                    f"{reason}. Backoff: {base_delay:.1f}s (+jitter)"
-                )
-                _backoff(attempt, retry_after)
-                continue
-            if retryable:
-                raise on_rate_limited(e.code, detail)
-            raise on_http_error(e.code, detail)
-    raise AssertionError("unreachable")  # loop always returns or raises
+def post_bytes(
+    url: str,
+    body: dict,
+    headers: dict,
+    *,
+    on_http_error: Callable[[int, str], Exception],
+    on_rate_limited: Callable[[int, str], Exception],
+    timeout: float | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _rand: Callable[[], float] = random.random,
+) -> bytes:
+    """POST a JSON body with the same bounded exponential backoff as `post_json`,
+    but return the raw response body as `bytes` instead of JSON-decoding it.
+
+    For providers (e.g. Fish Audio's `/v1/tts`) whose success response is a raw
+    audio stream, not a JSON envelope. Retry/backoff semantics are identical to
+    `post_json` — see its docstring.
+    """
+    return _post_with_retry(
+        url,
+        body,
+        headers,
+        on_http_error=on_http_error,
+        on_rate_limited=on_rate_limited,
+        decode=lambda payload: payload,
+        timeout=timeout,
+        _sleep=_sleep,
+        _rand=_rand,
+    )

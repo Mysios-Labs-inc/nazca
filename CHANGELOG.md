@@ -4,6 +4,27 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [0.14.0] — 2026-07-30
+
+### Added
+- **Fish Audio speech backend (`fish-tts` / `fish:<reference_id>`):** new opt-in TTS
+  provider (`FISH_API_KEY`) alongside Atlas and Worder as a third `nazca speak`
+  option — a platform of hosted + community voice models, each selected by a
+  `reference_id`. Synchronous `POST /v1/tts` whose success response is a raw
+  audio stream (chunked transfer encoding), not a JSON envelope, so it is POSTed
+  via a new `retry.post_bytes` helper (added alongside `retry.post_json`, sharing
+  the same retry/backoff loop) instead of `retry.post_json`. The TTS quality tier
+  is selected via a required `model` HTTP header (`s1` / `s2-pro` / `s2.1-pro` /
+  `s2.1-pro-free`), defaulted to `s2-pro`, separate from the `reference_id` voice.
+  No default voice exists — callers must pass `--voice <reference_id>` (from
+  `GET /model`) or use the `fish:<reference_id>` prefix. `--format mp3|wav` is
+  forwarded as the `format` body field, same as Atlas. Pricing is unverified
+  against a live key, so `fish-tts` has `price_usd=None` in `models.py`
+  (`--dry-run` shows the request plan, not a cost estimate). Wired into
+  `nazca login` / `nazca config`.
+  *Status: integrated per the published OpenAPI schema, unverified against a live
+  key.*
+
 ## [0.13.2] — 2026-07-30
 
 ### Added

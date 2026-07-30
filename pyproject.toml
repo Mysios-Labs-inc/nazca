@@ -1,7 +1,7 @@
 [project]
 name = "nazca-cli"
-version = "0.13.2"
-description = "Thin, Claude-driven, capability-aware CLI for AI image, video, audio, and 3D generation across Vertex (Gemini/Imagen/Veo), fal, ModelArk, OpenAI, Atlas Cloud, and Worder"
+version = "0.14.0"
+description = "Thin, Claude-driven, capability-aware CLI for AI image, video, audio, and 3D generation across Vertex (Gemini/Imagen/Veo), fal, ModelArk, OpenAI, Atlas Cloud, Worder, and Fish Audio"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 # PyPI project name is "nazca-cli" (the "nazca" name is already taken by an

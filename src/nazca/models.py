@@ -1374,6 +1374,21 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"tts"}),
     ),
+    # Fish Audio is a TTS platform of hosted + community voice models — like Worder,
+    # there is no single default voice, so provider_id is empty and the caller MUST
+    # pass --voice <reference_id> (look one up via GET https://api.fish.audio/model).
+    # Pricing is left unpriced here (cost.estimate_audio_cost returns None) since it
+    # is unverified against a live key.
+    "fish-tts": ModelSpec(
+        shorthand="fish-tts",
+        provider_id="",
+        backend="fish",
+        api="fish",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
 }
 
 

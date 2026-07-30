@@ -1,6 +1,6 @@
 """Provider-agnostic backend seam.
 
-Backends (vertex, fal, modelark, openai, atlas, worder) each know how to mint their own
+Backends (vertex, fal, modelark, openai, atlas, worder, fish) each know how to mint their own
 credential, build an endpoint URL, and POST a request. Auth is lazy: a backend
 only mints its credential when one of *its* models is actually dispatched — so a
 run using only one provider never reaches for any other provider's key (BYOK
@@ -22,6 +22,7 @@ from nazca.backends.base import (
     require_capability,
 )
 from nazca.backends.fal import FalBackend
+from nazca.backends.fish import FishBackend
 from nazca.backends.modelark import ModelArkBackend
 from nazca.backends.openai import OpenAIBackend
 from nazca.backends.vertex import VertexBackend
@@ -35,6 +36,7 @@ BACKENDS: dict[str, Backend] = {
     "openai": OpenAIBackend(),
     "atlas": AtlasBackend(),
     "worder": WorderBackend(),
+    "fish": FishBackend(),
 }
 
 
@@ -58,6 +60,7 @@ __all__ = [
     "OpenAIBackend",
     "VertexBackend",
     "WorderBackend",
+    "FishBackend",
     "BACKENDS",
     "get_backend",
 ]
