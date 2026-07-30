@@ -81,16 +81,16 @@ speech provider — a marketplace of real, ethically-sourced human voice actors 
 | **Claude Desktop app** | the MCP server | [Use with Claude Desktop](#use-with-claude-desktop-mcp) |
 | **Your own Python code** | `import nazca` | [Python library](#python-library) |
 
-> **How it's distributed:** nazca is **not on PyPI** — you install it straight from the GitHub repo
-> with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a released version with `@v0.13.1`
-> (check the [releases page](https://github.com/Mysios-Labs-inc/nazca/releases) for the latest tag);
-> drop the `@tag` entirely to track `main` instead.
+> **How it's distributed:** nazca is published to **PyPI** under the project name **`nazca-cli`**
+> (the plain `nazca` name was already taken by an unrelated package) — the `nazca` command and the
+> importable `nazca` module are unaffected, only the PyPI listing name differs.
 
 ### CLI (terminal)
 
 ```bash
-uv tool install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"   # recommended
-# or:  pipx install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"
+uv tool install nazca-cli      # recommended — installs `nazca` + `nazca-mcp`
+# or:  pipx install nazca-cli
+# or:  pip install nazca-cli
 ```
 
 Then authenticate the default (Google) path — no API key needed:
@@ -105,11 +105,13 @@ nazca --help    # image · video · login · config · models · setup
 
 - **Python ≥ 3.10** + the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) for the Vertex path.
 - **No `uv`?** `brew install uv` (macOS) — or use `pipx` (`brew install pipx`).
-- **SSH instead of HTTPS:** swap the URL for `git+ssh://git@github.com/Mysios-Labs-inc/nazca.git@v0.13.1`.
-- **Arrow-key login UI** (optional): add the `tui` extra → `"nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"`.
-- **Update later:** `uv tool upgrade nazca` re-resolves the *same* spec you installed — if you pinned
-  an `@tag`, that keeps you on that tag forever; re-run the install with a newer `@tag` (or drop the
-  pin to track `main`) to actually move forward.
+- **Zero-install, always-latest** (like `npx`): `uvx --from nazca-cli nazca --help` runs the newest
+  published version with nothing left behind — no upgrade step, ever.
+- **Arrow-key login UI** (optional): add the `tui` extra → `uv tool install "nazca-cli[tui]"`.
+- **Update later:** `uv tool upgrade nazca-cli` (or `pipx upgrade nazca-cli`) — unlike a git-tag pin,
+  this always moves you to the newest PyPI release.
+- **Track an unreleased commit instead of PyPI:** `uv tool install "git+https://github.com/Mysios-Labs-inc/nazca.git"`
+  (optionally `@<branch-or-tag>`) installs straight from the repo.
 
 </details>
 
@@ -671,16 +673,16 @@ It runs locally over stdio. Each user authenticates with their **own** Google cr
 Nothing is hosted or shared.
 
 > **Setting up a team?** Each person runs the one-shot installer, which does steps 1–2 below and
-> prints the config snippet for step 3:
+> prints the config snippet for step 3 — no repo clone needed:
 > ```bash
-> git clone https://github.com/Mysios-Labs-inc/nazca.git && cd nazca && ./scripts/install.sh
+> curl -fsSL https://raw.githubusercontent.com/Mysios-Labs-inc/nazca/main/scripts/install.sh | bash
 > ```
-> (`scripts/install.sh` needs only `uv` + GitHub access.) Updates later: `uv tool upgrade nazca`.
+> (needs only `uv`.) Updates later: `uv tool upgrade nazca-cli`.
 
 **1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
 
 ```bash
-uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"   # or, from a clone:  uv tool install ".[mcp]"
+uv tool install "nazca-cli[mcp]"   # or, from a clone:  uv tool install ".[mcp]"
 nazca setup                                           # installs gcloud if missing, then logs you in
 ```
 
