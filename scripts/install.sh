@@ -9,8 +9,7 @@
 
 set -euo pipefail
 
-REPO="git+https://github.com/Mysios-Labs-inc/nazca.git"
-SPEC="nazca[mcp] @ ${REPO}"
+SPEC="nazca-cli[mcp]"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 
@@ -20,7 +19,7 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-bold "1/3  Installing nazca[mcp] via uv…"
+bold "1/3  Installing nazca-cli[mcp] via uv…"
 uv tool install --force "${SPEC}"
 
 # Resolve the installed entry point for the config snippet.
@@ -47,5 +46,5 @@ Add this to your claude_desktop_config.json, then restart Claude Desktop:
   }
 
 Done. After restarting Desktop, ask it to "generate an image of …".
-Updates later:  uv tool upgrade nazca
+Updates later:  uv tool upgrade nazca-cli
 EOF

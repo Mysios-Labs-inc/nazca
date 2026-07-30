@@ -4,7 +4,7 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
-## [Unreleased]
+## [0.14.0] — 2026-07-30
 
 ### Added
 - **Fish Audio speech backend (`fish-tts` / `fish:<reference_id>`):** new opt-in TTS
@@ -24,6 +24,29 @@ All notable changes to nazca are documented here. Format follows
   `nazca login` / `nazca config`.
   *Status: integrated per the published OpenAPI schema, unverified against a live
   key.*
+
+## [0.13.2] — 2026-07-30
+
+### Added
+- **PyPI distribution (`nazca-cli`):** nazca is now published to PyPI under the
+  project name `nazca-cli` (the plain `nazca` name is already taken by an
+  unrelated library) — the `nazca` command, importable `nazca` module, and repo
+  name are unaffected, only the PyPI project name differs. A GitHub Actions
+  workflow (`.github/workflows/publish.yml`) builds and publishes on every
+  `v*.*.*` tag push via a `PYPI_API_TOKEN` repo secret (trusted publishing/OIDC
+  is the longer-term goal, blocked on a pending PyPI Organization approval).
+
+## [0.13.1] — 2026-07-30
+
+### Fixed
+- **`nazca --version` reported the wrong version:** the 0.13.0 bump only updated
+  `pyproject.toml`, not the hardcoded `__version__` in `src/nazca/__init__.py`
+  (which the CLI's `--version` actually reads) — so a real 0.13.0 install still
+  printed `0.12.0`. Both are now kept in sync.
+- **README install examples pinned a stale `@v0.1.0` tag** (the very first
+  release, missing every provider added since) instead of the current release;
+  updated to `@v0.13.1` and added a pointer to the releases page so this doesn't
+  silently go stale again.
 
 ## [0.13.0] — 2026-07-30
 
