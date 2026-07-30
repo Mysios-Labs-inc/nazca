@@ -311,10 +311,22 @@ All notable changes to nazca are documented here. Format follows
   spec, unverified against a live key.*
 
 ### Fixed
-- **README's price table was also missing an `elevenlabs-stt` row** — same
-  class of gap as the `elevenlabs-voice-clone` one fixed above, caught this
-  time while resolving this branch's rebase conflicts in the same table
-  before it could ship. Added.
+- **`ElevenLabsBackend.run_stt`'s dry-run branch reintroduced the exact
+  TOCTOU gap `speech_to_speech` had just been fixed for, two entries below.**
+  Only the real-run `read_bytes()` call was wrapped in the guard — the
+  dry-run branch's `stat()` call (needed for the plan's file-size field) sat
+  outside it. Three independent review passes on this PR caught the same
+  recurrence; fixed identically, by widening the `try` to cover both.
+- **`run_stt` never validated ElevenLabs' response shape before writing it
+  out.** A 2xx response missing `"text"` (schema change, unexpected/partial
+  envelope) would have been silently written to the output file and reported
+  as a successful transcript. Now raises `ElevenLabsError` if `"text"` is
+  absent from the decoded response.
+- **`transcribe()` never populated `TranscriptionRequest.est_cost_usd`**,
+  unlike every sibling orchestrator (`audio.speak`, `voice.speech_to_speech`)
+  — harmless today since ElevenLabs' STT is unpriced, but the field existed
+  and did nothing, contradicting its own docstring. Wired it the same way
+  the siblings do.
 - **`ElevenLabsBackend.speech_to_speech`'s dry-run branch could raise a raw
   `OSError`/traceback instead of a clean `ElevenLabsError`.** Only the
   real-run `read_bytes()` call was wrapped in the TOCTOU `try/except OSError`

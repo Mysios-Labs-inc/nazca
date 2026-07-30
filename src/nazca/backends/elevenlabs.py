@@ -715,29 +715,29 @@ class ElevenLabsBackend(Backend):
         if req.language:
             fields["language_code"] = req.language
 
-        if req.dry_run:
-            return {
-                "url": self.stt_endpoint(),
-                "backend": self.name,
-                "est_cost_usd": req.est_cost_usd,
-                "fields": dict(fields),
-                "file": {"field": "file", "filename": path.name, "size_bytes": path.stat().st_size},
-                "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
-            }
-
         try:
+            if req.dry_run:
+                return {
+                    "url": self.stt_endpoint(),
+                    "backend": self.name,
+                    "est_cost_usd": req.est_cost_usd,
+                    "fields": dict(fields),
+                    "file": {"field": "file", "filename": path.name, "size_bytes": path.stat().st_size},
+                    "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
+                }
+
             content = path.read_bytes()
         except OSError as e:
             # TOCTOU race (deleted/permission-changed between is_file() above and
-            # this read) — clean ElevenLabsError, not a raw traceback, same
-            # posture as FishBackend.voice_clone's read-time OSError guard.
+            # either stat() or read_bytes()) — clean ElevenLabsError, not a raw
+            # traceback, same posture as speech_to_speech's equivalent guard.
             raise ElevenLabsError(f"stt: couldn't read audio file: {e}") from e
 
         files: list[tuple[str, str, bytes, str]] = [
             ("file", path.name, content, mimetypes.guess_type(str(path))[0] or "application/octet-stream")
         ]
 
-        return retry.post_multipart(
+        result = retry.post_multipart(
             self.stt_endpoint(),
             fields,
             files,
@@ -750,3 +750,9 @@ class ElevenLabsBackend(Backend):
                 f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
             ),
         )
+        if not isinstance(result, dict) or "text" not in result:
+            # A 2xx response with an unexpected shape (schema change, partial/
+            # async envelope) would otherwise be written straight to the
+            # output file and reported as a successful transcript.
+            raise ElevenLabsError(f"stt: unexpected response shape (missing 'text'): {result!r}")
+        return result

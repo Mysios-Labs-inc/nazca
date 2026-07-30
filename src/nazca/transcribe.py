@@ -48,10 +48,10 @@ def transcribe(
     `<out>.request.json` sidecar convention, same as every other modality.
     """
     from nazca.capabilities import validate_op
+    from nazca.cost import estimate_audio_cost
     from nazca.resolve import resolve  # local import: avoids circular at module load
 
     out = Path(out)
-    source = Path(source)
     resolved = resolve(model or DEFAULT_STT_MODEL, "audio")
     validate_op(resolved.shorthand, "stt")
     backend = require_capability(get_backend(resolved.backend), "stt")
@@ -59,6 +59,9 @@ def transcribe(
     req = TranscriptionRequest(
         source_audio_path=str(source),
         language=language,
+        est_cost_usd=(
+            est.usd if (est := estimate_audio_cost(resolved.shorthand)) else None
+        ),
         dry_run=dry_run,
     )
 

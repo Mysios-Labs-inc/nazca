@@ -106,6 +106,53 @@ def test_run_stt_nonexistent_path_raises_elevenlabs_error_not_oserror(tmp_path):
         raise AssertionError("expected ElevenLabsError, not a raw OSError, for a missing path")
 
 
+def test_run_stt_dry_run_read_failure_after_is_file_check_raises_cleanly(tmp_path, monkeypatch):
+    # The TOCTOU race the module docstring implies: a file that passes
+    # is_file() but fails on stat() (permission change, deleted between check
+    # and read) must raise a clean ElevenLabsError even on a dry run — the
+    # exact bug class a sibling PR (speech_to_speech) shipped once already,
+    # where only the real-run read was guarded, not the dry-run stat().
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    req = TranscriptionRequest(source_audio_path=str(sample), dry_run=True)
+
+    import pathlib
+
+    real_stat = pathlib.Path.stat
+    calls = {"n": 0}
+
+    def flaky_stat(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] > 1:  # first call is is_file()'s own internal stat()
+            raise PermissionError("denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr("pathlib.Path.stat", flaky_stat)
+    try:
+        ElevenLabsBackend().run_stt(None, req)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a dry-run stat() failure after is_file() passed")
+
+
+def test_run_stt_real_run_read_failure_after_is_file_check_raises_cleanly(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    req = TranscriptionRequest(source_audio_path=str(sample), dry_run=False)
+
+    def raise_permission_error(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_bytes", raise_permission_error)
+    try:
+        ElevenLabsBackend().run_stt(None, req)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a read failure after is_file() passed")
+
+
 def test_run_stt_missing_api_key_raises_before_network(monkeypatch, tmp_path):
     _clear_real_config_attr("ELEVENLABS_API_KEY")
     monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
@@ -178,6 +225,22 @@ def test_cli_transcribe_missing_source_errors(tmp_path):
     assert r.exit_code != 0  # click.Path(exists=True) rejects it before dispatch
 
 
+def test_cli_transcribe_success_writes_json_and_prints_confirmation(tmp_path, monkeypatch):
+    sample = tmp_path / "interview.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    out = tmp_path / "out.json"
+    response = {"text": "hello world"}
+
+    def fake_run_stt(self, resolved, req):
+        return response
+
+    monkeypatch.setattr(ElevenLabsBackend, "run_stt", fake_run_stt)
+    r = CliRunner().invoke(cli, ["transcribe", str(sample), "-o", str(out)])
+    assert r.exit_code == 0
+    assert "✅" in r.output
+    assert json.loads(out.read_text()) == response
+
+
 def test_cli_transcribe_backend_error_is_clean_not_a_traceback(tmp_path, monkeypatch):
     # ElevenLabsError subclasses BackendError — the CLI's `transcribe` command
     # must catch it via the same `except BackendError` pattern as speak/sfx.
@@ -246,7 +309,37 @@ def test_transcribe_success_writes_full_json_response(monkeypatch, tmp_path):
     assert b'name="model_id"' in body
     assert b"scribe_v2" in body
     assert b'name="file"; filename="interview.mp3"' in body
-    assert b"fake-audio-bytes" in body
+
+
+def test_run_stt_response_missing_text_raises_instead_of_writing_garbage(monkeypatch, tmp_path):
+    # A 2xx response with an unexpected shape (schema change, partial/async
+    # envelope) must not be silently written out as if it were a valid
+    # transcript.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    sample = tmp_path / "interview.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    req = TranscriptionRequest(source_audio_path=str(sample), dry_run=False)
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"unexpected": "shape"}).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        try:
+            ElevenLabsBackend().run_stt(None, req)
+        except ElevenLabsError as e:
+            assert "text" in str(e)
+        else:
+            raise AssertionError("expected ElevenLabsError when 'text' is missing from the response")
 
 
 def test_transcribe_http_error_wraps_as_elevenlabs_error(monkeypatch, tmp_path):
