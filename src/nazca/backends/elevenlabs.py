@@ -5,15 +5,16 @@ Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
 fourth *direct* speech provider, parallel to Worder/Fish. TTS, sound effects
-(`sfx`), and voice cloning (`voice_clone`) are wired; voice design/speech-to-
-speech/dubbing/etc are still a later follow-up per `docs/media-modalities.md`'s
-"Audio roadmap" (A3 sub-phases). This also absorbs issue #121 (a full-
-integration proposal).
+(`sfx`), voice cloning (`voice_clone`), and voice design (`voice_design`) are
+wired; speech-to-speech/dubbing/etc are still a later follow-up per
+`docs/media-modalities.md`'s "Audio roadmap" (A3 sub-phases). This also
+absorbs issue #121 (a full-integration proposal).
 
     POST /v1/text-to-speech/{voice_id}?output_format=...  -> raw audio bytes
     POST /v1/sound-generation?output_format=...           -> raw audio bytes
     GET  /v2/voices                                       -> {"voices": [...], "next_page_token", ...}
     POST /v1/voices/add                                   -> {"voice_id", "requires_verification"} (voice_clone)
+    POST /v1/text-to-voice/design?output_format=...       -> {"previews": [...], "text": ...} (voice_design)
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -63,6 +64,53 @@ and `loop` (the latter model-id-gated) exist in ElevenLabs' schema but aren't
 exposed via CLI this pass, same "don't expose every knob" posture as TTS's
 `voice_settings`.
 
+`voice_design` (issue #122 phase A3, `POST /v1/text-to-voice/design`) generates
+preview candidates from a text description — the same job as Fish's
+`voice_design`, but ElevenLabs splits voice creation into two real HTTP calls:
+Step 1 `POST /v1/text-to-voice/design` returns *ephemeral* preview candidates
+(a `generated_voice_id` + inline `audio_base_64` per candidate, nothing saved
+to the account yet); Step 2 `POST /v1/text-to-voice` takes one chosen
+`generated_voice_id` and *permanently saves* it as an actual account voice
+(returning a durable `voice_id` usable with `nazca speak --voice`). This
+backend implements Step 1 only, deliberately NOT Step 2, for three reasons:
+(1) `nazca.voice.design_voice()`'s existing contract (established by Fish) is
+"return N *candidates* with inline preview audio for the caller to listen to
+and pick from" — it does not create/persist anything account-side, and Step 1
+alone already satisfies that contract exactly; (2) Step 2 needs a `voice_name`
+chosen *after* hearing the previews (an interactive step nazca's synchronous,
+single dry-run/live CLI invocation model has no way to insert output into a
+follow-up call) — plumbing it in would mean either an unwanted new required
+flag guessed up front, or a genuinely new two-call orchestration nazca.voice
+doesn't have for anything today; (3) it would silently make `voice-design`
+create a persistent, possibly billed, account resource where every other
+nazca command (Fish's especially) treats `voice-design` as a pure preview.
+Saving a chosen candidate permanently is intentionally left as a fast-follow
+(would need its own `nazca voice-save <generated_voice_id> --name ...`-shaped
+command, backed by Step 2, not a hidden side effect of `voice-design`). Since
+`generated_voice_id` previews expire, a human reading this: don't be
+surprised a preview candidate can't be reused hours later — that is
+ElevenLabs' design, not a nazca bug.
+
+Response reshaping: ElevenLabs' `{"previews": [{"generated_voice_id",
+"audio_base_64", "media_type", "duration_secs", "language"}, ...], "text":
+...}` is translated in `voice_design()` into Fish's exact candidate shape —
+`{"candidates": [{"id": ..., "audio_base64": ..., ...other preview fields}]}`
+— *before* returning, so `nazca.voice.design_voice()` (which expects
+Fish's `candidates[].audio_base64`/`.id` field names verbatim, per its own
+docstring) needs zero changes to support this backend. Note the base64 field
+name itself differs one-character-wise between providers: ElevenLabs'
+`audio_base_64` (underscore before 64) is renamed to Fish's `audio_base64` on
+the way through — an easy typo to miss since both spellings are "valid
+English" at a glance.
+
+Unlike Fish's `n` (1-4, an explicit request-body field), ElevenLabs' `/design`
+endpoint does not take a candidate count — it returns however many previews
+its own model produces for the given `voice_description`/`model_id`/
+`guidance_scale`, so this backend does not invent a fake `n` to plumb through
+the query-string or body; the caller finds out how many previews came back
+from `len(result["candidates"])`, exactly like a Fish response might return
+fewer than the requested `n`.
+
 Error responses (verified against ElevenLabs' published docs, 2026-07-30):
 401 covers both an invalid/missing key AND (confusingly) insufficient
 credits/quota — ElevenLabs returns HTTP 401 with a body `status` of
@@ -108,6 +156,10 @@ if TYPE_CHECKING:
 
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
 ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
+# ElevenLabs' own default `model_id` for /v1/text-to-voice/design, pinned explicitly
+# here (same "don't rely on the provider's implicit default" posture as
+# ELEVENLABS_DEFAULT_MODEL above for TTS) rather than omitted from the body.
+ELEVENLABS_VOICE_DESIGN_MODEL = "eleven_multilingual_ttv_v2"
 
 # nazca's `--format mp3|wav` -> ElevenLabs' `output_format` query-param enum.
 _OUTPUT_FORMAT_MAP = {
@@ -151,6 +203,18 @@ class ElevenLabsBackend(Backend):
         same convention as `tts_endpoint`.
         """
         url = f"{ELEVENLABS_BASE}/v1/sound-generation"
+        if output_format:
+            url += "?" + urlencode({"output_format": output_format})
+        return url
+
+    def voice_design_endpoint(self, output_format: str | None = None) -> str:
+        """`POST /v1/text-to-voice/design` — Step 1 of ElevenLabs' two-step voice
+        creation flow (preview generation only; see module docstring for why
+        Step 2, `POST /v1/text-to-voice`, is out of scope here). `output_format`
+        (when given) is a query-string param, same convention as `tts_endpoint`/
+        `sfx_endpoint`.
+        """
+        url = f"{ELEVENLABS_BASE}/v1/text-to-voice/design"
         if output_format:
             url += "?" + urlencode({"output_format": output_format})
         return url
@@ -360,3 +424,104 @@ class ElevenLabsBackend(Backend):
                 f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
             ),
         )
+
+    # ------------------------------------------------------------------ voice_design
+    def voice_design(
+        self,
+        instruction: str,
+        *,
+        reference_text: str | None = None,
+        language: str | None = None,
+        n: int = 2,
+        speed: float = 1.0,
+        dry_run: bool = False,
+    ) -> dict:
+        """Generate preview candidate voices from a text description (Step 1 of
+        `POST /v1/text-to-voice/design` — see the module docstring for why Step
+        2, `POST /v1/text-to-voice`, is deliberately out of scope).
+
+        `instruction` maps to ElevenLabs' required `voice_description` (20-1000
+        chars — validated here so a too-short instruction fails fast with a
+        clear `ElevenLabsError` instead of a round-trip 422). `reference_text`
+        maps to ElevenLabs' optional `text` (sample preview text); when omitted,
+        `auto_generate_text: true` is sent instead so ElevenLabs still produces
+        a spoken preview rather than erroring on a missing `text`.
+
+        `n`, `language`, and `speed` are accepted (same signature `nazca.voice
+        .design_voice()` calls on every backend) but have no ElevenLabs
+        equivalent for this endpoint: ElevenLabs' `/design` always returns
+        however many previews its model produces (typically a handful) rather
+        than taking a requested count, and has no request-level language or
+        speed knob here (`language` is Fish-specific TTS routing, `speed` is a
+        Fish-specific speech-rate control) — so all three are silently ignored
+        for parity with the shared call site rather than raising on ElevenLabs'
+        behalf. This mirrors how Fish's `voice_design` may itself return fewer
+        than the requested `n` candidates: callers must already read the
+        actual returned count off the response rather than assume it.
+
+        Returns `{"candidates": [...]}` reshaped from ElevenLabs' native
+        `{"previews": [...], "text": ...}` into Fish's exact candidate shape —
+        `generated_voice_id` -> `id`, `audio_base_64` -> `audio_base64` (note
+        the underscore-before-64 rename) — so `nazca.voice.design_voice()`
+        (which expects Fish's field names verbatim) needs no changes to
+        support this backend. Other preview fields (`media_type`,
+        `duration_secs`, `language`) pass through unchanged as extra keys.
+        """
+        if not instruction:
+            raise ElevenLabsError("voice_design requires a non-empty instruction")
+        if not 20 <= len(instruction) <= 1000:
+            raise ElevenLabsError(
+                "voice_design: instruction (ElevenLabs' voice_description) must be "
+                f"20-1000 characters, got {len(instruction)}"
+            )
+
+        body: dict = {
+            "voice_description": instruction,
+            "model_id": ELEVENLABS_VOICE_DESIGN_MODEL,
+        }
+        if reference_text:
+            body["text"] = reference_text
+        else:
+            body["auto_generate_text"] = True
+
+        url = self.voice_design_endpoint()
+
+        if dry_run:
+            return {
+                "url": url,
+                "backend": self.name,
+                "body": dict(body),
+                "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio's plan
+            }
+
+        raw = retry.post_json(
+            url,
+            body,
+            headers=self._headers(),
+            timeout=60,
+            on_http_error=lambda code, detail: ElevenLabsError(
+                f"ElevenLabs HTTP {code}: {detail}{hint('elevenlabs', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: ElevenLabsRateLimitError(
+                f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
+
+        previews = raw.get("previews")
+        if previews is None:
+            raise ElevenLabsError(
+                f"ElevenLabs voice-design response is missing 'previews': {raw!r}"
+            )
+
+        candidates = []
+        for preview in previews:
+            candidate = dict(preview)
+            generated_voice_id = candidate.pop("generated_voice_id", None)
+            if generated_voice_id is not None:
+                candidate["id"] = generated_voice_id
+            audio_b64 = candidate.pop("audio_base_64", None)
+            if audio_b64 is not None:
+                candidate["audio_base64"] = audio_b64
+            candidates.append(candidate)
+
+        return {"candidates": candidates}
