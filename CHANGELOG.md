@@ -4,7 +4,7 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
-## [Unreleased]
+## [0.13.0] — 2026-07-30
 
 ### Added
 - **Worder speech backend (`worder-tts` / `worder:<voice_id>`):** new opt-in TTS
