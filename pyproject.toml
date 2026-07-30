@@ -1,6 +1,6 @@
 [project]
 name = "nazca-cli"
-version = "0.15.0"
+version = "0.15.1"
 description = "Thin, Claude-driven, capability-aware CLI for AI image, video, audio, and 3D generation across Vertex (Gemini/Imagen/Veo), fal, ModelArk, OpenAI, Atlas Cloud, Worder, Fish Audio, and ElevenLabs"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

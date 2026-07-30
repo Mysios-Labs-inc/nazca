@@ -18,7 +18,7 @@ def test_speak_dry_run_plan_requires_voice(tmp_path):
     plan_path = speak(out, "Hello world", model="worder-tts", voice="voice_abc123", dry_run=True)
     plan = json.loads(plan_path.read_text())
     assert plan["backend"] == "worder"
-    assert plan["url"] == "https://worder.com/api/v1/generate"
+    assert plan["url"] == "https://www.worder.com/api/v1/generate"
     assert plan["body"] == {"voice_id": "voice_abc123", "text": "Hello world"}
 
 

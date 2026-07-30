@@ -1365,7 +1365,7 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
     ),
     # Worder is a TTS marketplace of real voice actors, not a house model — there is
     # no default voice, so provider_id is empty and the caller MUST pass --voice
-    # <voice_id> (look one up via GET https://worder.com/api/v1/voices). Pricing is
+    # <voice_id> (look one up via GET https://www.worder.com/api/v1/voices). Pricing is
     # per-second and set per voice actor (from $0.01/s), so it is left unpriced here
     # (cost.estimate_audio_cost returns None) rather than guessing a flat rate.
     "worder-tts": ModelSpec(

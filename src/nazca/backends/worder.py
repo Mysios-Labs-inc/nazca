@@ -1,6 +1,6 @@
 """Worder backend — text-to-speech using verified human voice actors.
 
-Worder (worder.com) is a TTS marketplace: every "voice" is a real actor's voice,
+Worder (www.worder.com) is a TTS marketplace: every "voice" is a real actor's voice,
 not a house model, so there is no single default voice id the way Atlas has
 `xai/tts-v1`. Callers must pick a `voice_id` (via `--voice`) discovered from
 `GET /voices`; the `worder-tts` registry entry is a routing placeholder only.
@@ -32,7 +32,7 @@ from nazca.errors import RateLimitError as _SharedRateLimitError
 if TYPE_CHECKING:
     from nazca.request import AudioRequest
 
-WORDER_BASE = "https://worder.com/api/v1"
+WORDER_BASE = "https://www.worder.com/api/v1"
 
 
 class WorderError(BackendError):
@@ -94,7 +94,7 @@ class WorderBackend(Backend):
         if not voice_id:
             raise WorderError(
                 "Worder requires a voice: pass --voice <voice_id> (look one up via "
-                "GET https://worder.com/api/v1/voices)."
+                "GET https://www.worder.com/api/v1/voices)."
             )
         body: dict = {"voice_id": voice_id, "text": req.text}
 

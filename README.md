@@ -308,7 +308,7 @@ nazca speak "Fresh off the grill, every night." -o vo.mp3 --model elevenlabs-tts
 
 **Flags:** `-o/--out` (`.mp3`/`.wav`) · `--model` (default `atlas-tts-grok`; also `atlas-tts-elevenlabs-v3`,
 `worder-tts`, `fish-tts`, `elevenlabs-tts`) · `--voice <name>` (model-specific; **required** for
-`worder-tts` — a `voice_id` from `GET https://worder.com/api/v1/voices` — `fish-tts` — a `reference_id`
+`worder-tts` — a `voice_id` from `GET https://www.worder.com/api/v1/voices` — `fish-tts` — a `reference_id`
 from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id` from
 `GET https://api.elevenlabs.io/v2/voices`) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
 
@@ -866,7 +866,7 @@ nazca login   # → Worder  (WORDER_API_KEY)
 # or: nazca config set worder_api_key wdr_...   # or export WORDER_API_KEY=wdr_...
 ```
 
-There's no default voice — list voices at `GET https://worder.com/api/v1/voices` (filter by `language`
+There's no default voice — list voices at `GET https://www.worder.com/api/v1/voices` (filter by `language`
 or `search`) and pass one via `--voice <voice_id>` or the `worder:<voice_id>` prefix. Text supports
 direction tags (`[happy]`), pause tags (`[pause N]`), emphasis tags, and pronunciation overrides
 (`{written|spoken}`). Pricing is per-second, set per voice actor (from $0.01/s) — `nazca` can't
