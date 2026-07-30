@@ -6,8 +6,10 @@ publishes), so — like Worder — there is no single default voice id. Callers
 must pick a `reference_id` (via `--voice`) discovered from `GET /model`; the
 `fish-tts` registry entry is a routing placeholder only.
 
-    GET  /model      -> {"total", "items": [ModelEntity], "has_more"}
-    POST /v1/tts     -> raw audio bytes (chunked transfer encoding, NOT JSON)
+    GET  /model              -> {"total", "items": [ModelEntity], "has_more"}
+    POST /v1/tts             -> raw audio bytes (chunked transfer encoding, NOT JSON)
+    POST /model              -> {"_id", "title", "state", "visibility", ...} (voice_clone)
+    POST /v1/voice-design    -> {"candidates": [{"id", "audio_base64", ...}]} (voice_design)
 
 Synchronous (no submit→poll): `/v1/tts` streams the synthesized audio directly
 in the response body. The TTS *model* to run (voice-quality tier, distinct
@@ -19,10 +21,21 @@ unless overridden.
 
 Because the success response is raw bytes rather than a JSON envelope,
 `retry.post_bytes` (not `retry.post_json`) is used to POST it.
+
+`voice_clone`/`voice_design` (issue #122 phase A2) are a different shape — one
+uploads files and returns model metadata, the other returns several audio
+candidates — so they don't go through `run_audio`/`AudioRequest`; see
+`FishBackend.voice_clone`/`.voice_design` and the `nazca.voice` orchestrator.
+`POST /model` is the first multipart/form-data call in nazca (every other
+backend POSTs JSON or receives raw bytes), so it goes through the new
+`retry.post_multipart`. `POST /v1/voice-design` reuses `retry.post_json` but
+with a *different* required `model` header value (`voice-design-1`, not one of
+the TTS quality tiers).
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nazca import config, retry
@@ -36,6 +49,7 @@ if TYPE_CHECKING:
 
 FISH_BASE = "https://api.fish.audio"
 FISH_DEFAULT_MODEL = "s2-pro"
+FISH_VOICE_DESIGN_MODEL = "voice-design-1"
 
 
 class FishError(BackendError):
@@ -58,6 +72,15 @@ class FishBackend(Backend):
         each returned model's id is a usable `reference_id`.
         """
         return f"{FISH_BASE}/model"
+
+    def voice_clone_endpoint(self) -> str:
+        """`POST /model` — the same collection endpoint `GET /model` reads from;
+        a POST here creates a new voice-clone model instead of listing existing ones.
+        """
+        return f"{FISH_BASE}/model"
+
+    def voice_design_endpoint(self) -> str:
+        return f"{FISH_BASE}/v1/voice-design"
 
     # ------------------------------------------------------------------ auth/http
     def auth_token(self) -> str:
@@ -122,3 +145,122 @@ class FishBackend(Backend):
             }
 
         return self._post(body, model)
+
+    # ------------------------------------------------------------------ voice_clone
+    def voice_clone(
+        self,
+        title: str,
+        audio_paths: list[str],
+        *,
+        description: str | None = None,
+        visibility: str = "private",
+        tags: list[str] | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """Create a reusable voice model from 1-20 audio samples (`POST /model`).
+
+        Fish's own API default for `visibility` is `"public"` — nazca defaults to
+        `"private"` instead (a CLI shouldn't silently publish someone's cloned
+        voice). `train_mode` is always `"fast"` (instant availability); the other
+        documented mode is not covered here. Returns the decoded JSON response
+        (key field `_id` — the `reference_id` to pass to `nazca speak --voice`).
+        """
+        if not audio_paths:
+            raise FishError("voice_clone requires at least one audio sample path")
+
+        fields: dict[str, str] = {
+            "type": "tts",
+            "title": title,
+            "train_mode": "fast",
+            "visibility": visibility,
+        }
+        if description:
+            fields["description"] = description
+        if tags:
+            # `post_multipart`'s `fields` is single-value-per-key (see its docstring);
+            # Fish's `tags` is documented as a string array but the exact multipart
+            # array encoding isn't specified in the OpenAPI schema, so this sends a
+            # single comma-joined `tags` field — UNVERIFIED against a live key.
+            fields["tags"] = ",".join(tags)
+
+        if dry_run:
+            return {
+                "url": self.voice_clone_endpoint(),
+                "backend": self.name,
+                "fields": dict(fields),
+                "files": [
+                    {"field": "voices", "filename": Path(p).name, "size_bytes": Path(p).stat().st_size}
+                    for p in audio_paths
+                ],
+            }
+
+        files: list[tuple[str, str, bytes, str]] = []
+        for p in audio_paths:
+            path = Path(p)
+            files.append(("voices", path.name, path.read_bytes(), "application/octet-stream"))
+
+        return retry.post_multipart(
+            self.voice_clone_endpoint(),
+            fields,
+            files,
+            headers={"Authorization": f"Bearer {self.auth_token()}"},
+            timeout=120,
+            on_http_error=lambda code, detail: FishError(
+                f"Fish Audio HTTP {code}: {detail}{hint('fish', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: FishRateLimitError(
+                f"Fish Audio rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
+
+    # ------------------------------------------------------------------ voice_design
+    def voice_design(
+        self,
+        instruction: str,
+        *,
+        reference_text: str | None = None,
+        language: str | None = None,
+        n: int = 2,
+        speed: float = 1.0,
+        dry_run: bool = False,
+    ) -> dict:
+        """Generate `n` candidate voices from a text description (`POST /v1/voice-design`).
+
+        Returns the decoded JSON response with `candidates`: each has `audio_base64`
+        (raw synthesized preview audio, base64-encoded — NOT a URL to fetch).
+        """
+        if not instruction:
+            raise FishError("voice_design requires a non-empty instruction")
+
+        body: dict = {"instruction": instruction, "n": n, "speed": speed}
+        if reference_text:
+            body["reference_text"] = reference_text
+        if language:
+            body["language"] = language
+
+        headers = {
+            "Authorization": f"Bearer {self.auth_token()}",
+            "Content-Type": "application/json",
+            "model": FISH_VOICE_DESIGN_MODEL,
+        }
+
+        if dry_run:
+            return {
+                "url": self.voice_design_endpoint(),
+                "backend": self.name,
+                "body": dict(body),
+                "headers": {"model": FISH_VOICE_DESIGN_MODEL},
+            }
+
+        return retry.post_json(
+            self.voice_design_endpoint(),
+            body,
+            headers=headers,
+            timeout=60,
+            on_http_error=lambda code, detail: FishError(
+                f"Fish Audio HTTP {code}: {detail}{hint('fish', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: FishRateLimitError(
+                f"Fish Audio rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )

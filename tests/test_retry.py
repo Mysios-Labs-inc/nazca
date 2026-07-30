@@ -296,3 +296,94 @@ def test_post_bytes_persistent_429_exhausts_to_rate_limit_error(fast_retry):
         _call_bytes(slept, always_429)
 
     assert calls["n"] == 6  # 1 initial + 5 retries
+
+
+# --------------------------------------------------------------------------- post_multipart
+
+
+def _call_multipart(slept, urlopen, fields=None, files=None, headers=None):
+    with mock.patch("urllib.request.urlopen", urlopen):
+        return retry.post_multipart(
+            "http://x",
+            fields if fields is not None else {"title": "My Voice", "type": "tts"},
+            files if files is not None else [("voices", "sample.mp3", b"fake-audio-bytes", "audio/mpeg")],
+            headers if headers is not None else {"Authorization": "Bearer test"},
+            on_http_error=lambda c, d: RuntimeError(f"http {c}"),
+            on_rate_limited=lambda c, d: vertex.RateLimitError(f"rl {c}"),
+            _sleep=slept.append,
+            _rand=lambda: 0.0,
+        )
+
+
+def test_post_multipart_success_decodes_json(fast_retry):
+    slept = fast_retry
+    captured = {}
+
+    def ok(req, timeout=None):
+        captured["req"] = req
+        return _Resp(b'{"_id": "abc123", "state": "trained"}')
+
+    out = _call_multipart(slept, ok)
+    assert out == {"_id": "abc123", "state": "trained"}
+
+
+def test_post_multipart_sets_content_type_with_boundary(fast_retry):
+    slept = fast_retry
+    captured = {}
+
+    def ok(req, timeout=None):
+        captured["req"] = req
+        return _Resp(b'{"_id": "abc123"}')
+
+    _call_multipart(slept, ok)
+    ctype = captured["req"].headers.get("Content-type") or captured["req"].headers.get("Content-Type")
+    assert ctype is not None
+    assert ctype.startswith("multipart/form-data; boundary=")
+
+
+def test_post_multipart_body_contains_fields_and_file_parts(fast_retry):
+    slept = fast_retry
+    captured = {}
+
+    def ok(req, timeout=None):
+        captured["req"] = req
+        return _Resp(b'{"_id": "abc123"}')
+
+    _call_multipart(
+        slept,
+        ok,
+        fields={"title": "My Voice", "train_mode": "fast"},
+        files=[
+            ("voices", "sample1.mp3", b"AUDIO-ONE", "audio/mpeg"),
+            ("voices", "sample2.mp3", b"AUDIO-TWO", "audio/mpeg"),
+        ],
+    )
+    body = captured["req"].data
+    assert b'name="title"' in body
+    assert b"My Voice" in body
+    assert b'name="train_mode"' in body
+    assert b"fast" in body
+    assert body.count(b'name="voices"') == 2
+    assert b"sample1.mp3" in body
+    assert b"AUDIO-ONE" in body
+    assert b"sample2.mp3" in body
+    assert b"AUDIO-TWO" in body
+    assert b"Content-Type: audio/mpeg" in body
+
+
+def test_post_multipart_retry_backoff_shared_with_post_json(fast_retry):
+    """post_multipart shares _post_with_retry's retry/backoff loop — verify
+    the sharing didn't drop rate-limit handling for the multipart path.
+    """
+    slept = fast_retry
+    calls = {"n": 0}
+
+    def always_429(req, timeout=None):
+        calls["n"] += 1
+        raise _http_error(429, "RESOURCE_EXHAUSTED quota")
+
+    with pytest.raises(vertex.RateLimitError):
+        _call_multipart(slept, always_429)
+
+    assert calls["n"] == 6  # 1 initial + 5 retries
+    assert slept == [20.0, 40.0, 80.0, 160.0, 320.0]

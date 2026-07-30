@@ -114,9 +114,11 @@ def test_audio_ops_names_full_vocabulary():
 
 def test_no_audio_model_supports_unwired_ops_yet():
     # Descriptive, not aspirational (same posture as image/video P1): every
-    # audio model's declared ops is still exactly {"tts"} until a later phase
-    # (#122 A2+) actually wires a backend for one of the other drawers.
-    unwired = cap.AUDIO_OPS - {"tts"}
+    # audio model's declared ops is still exactly {"tts"} except the two Fish
+    # Audio models wired in #122 phase A2 (voice_clone / voice_design) —
+    # everything else (speech_to_speech/stt/sfx/music/dub/separate/align)
+    # remains unwired until a later phase.
+    unwired = cap.AUDIO_OPS - {"tts", "voice_clone", "voice_design"}
     for sh, c in cap.CAPS.items():
         if c.produces == "audio":
             assert not (c.ops & unwired), f"{sh} unexpectedly declares {c.ops & unwired}"
@@ -124,7 +126,10 @@ def test_no_audio_model_supports_unwired_ops_yet():
 
 def test_models_supporting_tts_nonempty_others_empty():
     assert cap.models_supporting("tts")
-    assert cap.models_supporting("voice_clone") == []
+    # #122 phase A2: voice_clone/voice_design are now wired — only by the two
+    # dedicated Fish Audio placeholders, not by fish-tts or any other model.
+    assert cap.models_supporting("voice_clone") == ["fish-voice-clone"]
+    assert cap.models_supporting("voice_design") == ["fish-voice-design"]
     assert cap.models_supporting("sfx") == []
 
 

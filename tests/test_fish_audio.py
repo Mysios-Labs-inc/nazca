@@ -70,6 +70,27 @@ def test_cli_speak_fish_dry_run(tmp_path):
     assert "📝" in r.output
 
 
+def test_cli_speak_backend_error_is_clean_not_a_traceback(tmp_path, monkeypatch):
+    # FishError subclasses BackendError, not AudioError — the CLI's `speak` command
+    # used to catch only AudioError, letting a real Fish HTTP error propagate as an
+    # unhandled exception instead of a clean "❌ ..." + exit 1 (issue #122 A2 review).
+    def raise_fish_error(self, resolved, req):
+        raise FishError("Fish Audio HTTP 401: invalid key")
+
+    monkeypatch.setattr(FishBackend, "run_audio", raise_fish_error)
+    r = CliRunner().invoke(
+        cli,
+        [
+            "speak", "Hello", "-o", str(tmp_path / "o.mp3"),
+            "--model", "fish-tts", "--voice", "ref_abc123",
+        ],
+    )
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)
+    assert "❌" in r.output
+    assert "invalid key" in r.output
+
+
 def test_hint_fish_401():
     h = hint("fish", 401, "Unauthorized")
     assert "FISH_API_KEY" in h
@@ -180,3 +201,204 @@ def test_run_audio_persistent_429_raises_fish_rate_limit_error(monkeypatch):
             pass
         else:
             raise AssertionError("expected FishRateLimitError on persisted HTTP 429")
+
+
+# --------------------------------------------------------------------------- voice_clone
+
+
+def test_voice_clone_dry_run_plan(tmp_path):
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    plan = FishBackend().voice_clone("My Voice", [str(sample)], dry_run=True)
+    assert plan["backend"] == "fish"
+    assert plan["url"] == "https://api.fish.audio/model"
+    assert plan["fields"]["title"] == "My Voice"
+    assert plan["fields"]["type"] == "tts"
+    assert plan["fields"]["train_mode"] == "fast"
+    assert plan["fields"]["visibility"] == "private"  # nazca default, not Fish's "public"
+    assert plan["files"] == [{"field": "voices", "filename": "sample.mp3", "size_bytes": 16}]
+
+
+def test_voice_clone_dry_run_does_not_embed_audio_bytes(tmp_path):
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"\x00" * 5000)
+    plan = FishBackend().voice_clone("My Voice", [str(sample)], dry_run=True)
+    assert json.dumps(plan).count("\\x00") == 0
+    assert len(json.dumps(plan)) < 1000  # redacted, not the raw 5000-byte payload
+
+
+def test_voice_clone_custom_options_in_dry_run_plan(tmp_path):
+    s1 = tmp_path / "a.mp3"
+    s2 = tmp_path / "b.mp3"
+    s1.write_bytes(b"aaa")
+    s2.write_bytes(b"bb")
+    plan = FishBackend().voice_clone(
+        "Narrator", [str(s1), str(s2)],
+        description="A warm narrator voice", visibility="unlist", tags=["narration", "warm"],
+        dry_run=True,
+    )
+    assert plan["fields"]["description"] == "A warm narrator voice"
+    assert plan["fields"]["visibility"] == "unlist"
+    assert plan["fields"]["tags"] == "narration,warm"
+    assert len(plan["files"]) == 2
+
+
+def test_voice_clone_empty_audio_paths_raises():
+    try:
+        FishBackend().voice_clone("My Voice", [], dry_run=True)
+    except FishError as e:
+        assert "audio" in str(e).lower()
+    else:
+        raise AssertionError("expected FishError for empty audio_paths")
+
+
+def test_voice_clone_missing_api_key_raises_before_network(monkeypatch, tmp_path):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.delenv("FISH_API_KEY", raising=False)
+    monkeypatch.setattr("nazca.config.get_value", lambda key: None)
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    with mock.patch("urllib.request.urlopen") as urlopen:
+        try:
+            FishBackend().voice_clone("My Voice", [str(sample)], dry_run=False)
+        except FishError as e:
+            assert "FISH_API_KEY" in str(e)
+        else:
+            raise AssertionError("expected FishError when FISH_API_KEY is unset")
+        urlopen.assert_not_called()
+
+
+def test_voice_clone_success_returns_created_metadata(monkeypatch, tmp_path):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.setenv("FISH_API_KEY", "test-key")
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"_id": "ref_xyz", "title": "My Voice", "state": "trained"}).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        out = FishBackend().voice_clone("My Voice", [str(sample)], dry_run=False)
+    assert out == {"_id": "ref_xyz", "title": "My Voice", "state": "trained"}
+
+
+def test_voice_clone_http_error_wraps_as_fish_error(monkeypatch, tmp_path):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.setenv("FISH_API_KEY", "test-key")
+    monkeypatch.setenv("NAZCA_MAX_RETRIES", "0")
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+
+    def raise_422(req, timeout=None):
+        raise _http_error(422, '[{"loc": ["body", "title"], "type": "missing"}]')
+
+    with mock.patch("urllib.request.urlopen", raise_422):
+        try:
+            FishBackend().voice_clone("My Voice", [str(sample)], dry_run=False)
+        except FishError as e:
+            assert "422" in str(e)
+        else:
+            raise AssertionError("expected FishError on HTTP 422")
+
+
+# --------------------------------------------------------------------------- voice_design
+
+
+def test_voice_design_dry_run_plan():
+    plan = FishBackend().voice_design("Warm, confident studio narrator", dry_run=True)
+    assert plan["backend"] == "fish"
+    assert plan["url"] == "https://api.fish.audio/v1/voice-design"
+    assert plan["body"] == {
+        "instruction": "Warm, confident studio narrator",
+        "n": 2,
+        "speed": 1.0,
+    }
+    assert plan["headers"] == {"model": "voice-design-1"}
+
+
+def test_voice_design_dry_run_plan_with_options():
+    plan = FishBackend().voice_design(
+        "Bright upbeat podcast host",
+        reference_text="Hello and welcome to the show.",
+        language="en",
+        n=4,
+        speed=1.2,
+        dry_run=True,
+    )
+    assert plan["body"]["reference_text"] == "Hello and welcome to the show."
+    assert plan["body"]["language"] == "en"
+    assert plan["body"]["n"] == 4
+    assert plan["body"]["speed"] == 1.2
+
+
+def test_voice_design_empty_instruction_raises():
+    try:
+        FishBackend().voice_design("", dry_run=True)
+    except FishError as e:
+        assert "instruction" in str(e).lower()
+    else:
+        raise AssertionError("expected FishError for empty instruction")
+
+
+def test_voice_design_missing_api_key_raises_before_network(monkeypatch):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.delenv("FISH_API_KEY", raising=False)
+    monkeypatch.setattr("nazca.config.get_value", lambda key: None)
+    with mock.patch("urllib.request.urlopen") as urlopen:
+        try:
+            FishBackend().voice_design("A narrator voice", dry_run=False)
+        except FishError as e:
+            assert "FISH_API_KEY" in str(e)
+        else:
+            raise AssertionError("expected FishError when FISH_API_KEY is unset")
+        urlopen.assert_not_called()
+
+
+def test_voice_design_success_returns_candidates(monkeypatch):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.setenv("FISH_API_KEY", "test-key")
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(
+                {"candidates": [{"id": "c1", "index": 0, "audio_base64": "ZmFrZQ==", "sample_rate": 24000}]}
+            ).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        out = FishBackend().voice_design("A narrator voice", dry_run=False)
+    assert out["candidates"][0]["id"] == "c1"
+    assert out["candidates"][0]["audio_base64"] == "ZmFrZQ=="
+
+
+def test_voice_design_http_error_wraps_as_fish_error(monkeypatch):
+    _clear_real_config_attr("FISH_API_KEY")
+    monkeypatch.setenv("FISH_API_KEY", "test-key")
+    monkeypatch.setenv("NAZCA_MAX_RETRIES", "0")
+
+    def raise_422(req, timeout=None):
+        raise _http_error(422, '[{"loc": ["body", "instruction"], "type": "too_long"}]')
+
+    with mock.patch("urllib.request.urlopen", raise_422):
+        try:
+            FishBackend().voice_design("x" * 3000, dry_run=False)
+        except FishError as e:
+            assert "422" in str(e)
+        else:
+            raise AssertionError("expected FishError on HTTP 422")

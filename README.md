@@ -28,7 +28,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
@@ -314,6 +314,40 @@ from `GET https://worder.com/api/v1/voices` — and for `fish-tts` — a `refere
 > synthesis quality tier (`s1`, `s2-pro`, `s2.1-pro`, `s2.1-pro-free`) is a separate `model` HTTP
 > header nazca defaults to `s2-pro`; pricing is unverified against a live key, so `--dry-run` shows
 > the request plan, not a cost estimate.
+
+### `nazca voice-clone` and `nazca voice-design`
+
+Two Fish Audio voice-creation commands (needs `FISH_API_KEY`) — distinct from `nazca speak`
+because neither produces a single TTS output file: `voice-clone` derives a reusable voice
+from audio samples (returns a `reference_id`, no media file), and `voice-design` generates
+several candidate voices from a text description (returns N preview clips).
+
+```bash
+# Clone a reusable voice from one or more samples
+nazca voice-clone sample1.mp3 sample2.mp3 --title "My Voice"
+# ✅ Voice cloned: <reference_id>
+#    ↳ use it: nazca speak "..." -o out.mp3 --model fish-tts --voice <reference_id>
+
+# Generate candidate voices from a text description
+nazca voice-design "Warm, confident studio narrator" -o narrator
+# writes narrator_0.mp3, narrator_1.mp3 (default n=2)
+```
+
+**`nazca voice-clone` flags:** one or more positional audio sample paths (required) ·
+`--title` (required) · `--description` · `--visibility private\|unlist\|public` (default
+`private` — Fish's own API default is `public`; nazca defaults to the safer choice) ·
+`--tags a,b` · `--model` (default `fish-voice-clone`) · `--dry-run` (prints the request plan
+to stdout — file sizes/names only, never the raw audio bytes).
+
+**`nazca voice-design` flags:** positional text INSTRUCTION (required) · `-o/--out` — an
+**output filename prefix**, not a full path (default `voice_design`; writes
+`<prefix>_<index>.mp3` per candidate) · `--reference-text` (preview text, ≤150 chars) ·
+`--language` (BCP-47, e.g. `en`) · `-n` (candidate count, 1-4, default 2) · `--speed`
+(default 1.0) · `--model` (default `fish-voice-design`) · `--dry-run` (writes
+`<prefix>.request.json`, same sidecar convention as `speak`/`make3d`).
+
+> Both commands are unpriced (`--dry-run` shows the request plan, not a cost estimate) —
+> Fish Audio pricing is unverified against a live key, same posture as `fish-tts`.
 
 ### `nazca make3d`
 

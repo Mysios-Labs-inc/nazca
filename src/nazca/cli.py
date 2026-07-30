@@ -862,8 +862,9 @@ def speak(text, out, model, voice, output_format, tier, dry_run):
       nazca speak "Hello world" -o hi.mp3
       nazca speak "..." -o v.mp3 --model atlas-tts-elevenlabs-v3 --voice rachel
     """
-    from nazca.audio import AudioError, audio_cost_label, select_audio_model
+    from nazca.audio import audio_cost_label, select_audio_model
     from nazca.audio import speak as _speak
+    from nazca.errors import BackendError
 
     resolved_model = model or select_audio_model(tier)
     _validate_or_exit(resolved_model, "tts")
@@ -872,9 +873,8 @@ def speak(text, out, model, voice, output_format, tier, dry_run):
             out, text, model=resolved_model, voice=voice,
             output_format=output_format, dry_run=dry_run,
         )
-    except AudioError as e:
-        click.echo(f"❌ {e}", err=True)
-        raise SystemExit(2) from e
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
     if dry_run:
         click.echo(f"📝 {result}")
         cost = audio_cost_label(resolved_model or "atlas-tts-grok", chars=len(text))
@@ -918,6 +918,91 @@ def make3d(prompt, out, source, model, tier, dry_run):
             click.echo(f"💵 {cost}")
     else:
         click.echo(f"✅ {result}")
+
+
+@cli.command(name="voice-clone")
+@click.argument("audio", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--title", required=True, help="Name for the cloned voice model.")
+@click.option("--description", default=None, help="Optional description for the model.")
+@click.option(
+    "--visibility", default="private", type=click.Choice(["private", "unlist", "public"]),
+    help="Model visibility (default: private — Fish's own API default is public).",
+)
+@click.option("--tags", default=None, help="Comma-separated tags (e.g. narration,warm).")
+@click.option("--model", default=None, help="Voice-clone backend model (default: fish-voice-clone).")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def voice_clone(audio, title, description, visibility, tags, model, dry_run):
+    """Create a reusable voice from one or more AUDIO sample files (Fish Audio).
+
+    \b
+      nazca voice-clone sample1.mp3 sample2.mp3 --title "My Voice"
+      nazca voice-clone sample.wav --title "Narrator" --visibility unlist --dry-run
+    """
+    from nazca.errors import BackendError
+    from nazca.voice import clone_voice as _clone_voice
+
+    resolved_model = model or "fish-voice-clone"
+    _validate_or_exit(resolved_model, "voice_clone")
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    try:
+        result = _clone_voice(
+            title, list(audio), model=resolved_model, description=description,
+            visibility=visibility, tags=tag_list, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+
+    if dry_run:
+        click.echo("📝 " + json.dumps(result, indent=2))
+    else:
+        ref_id = result.get("_id", "?")
+        click.echo(f"✅ Voice cloned: {ref_id}")
+        click.echo(f"   ↳ use it: nazca speak \"...\" -o out.mp3 --model fish-tts --voice {ref_id}")
+
+
+@cli.command(name="voice-design")
+@click.argument("instruction", required=True)
+@click.option("-o", "--out", default="voice_design", help="Output filename prefix (default: voice_design).")
+@click.option("--reference-text", default=None, help="Preview text for candidates to speak (<=150 chars).")
+@click.option("--language", default=None, help="BCP-47 language code, e.g. en.")
+@click.option("-n", default=2, type=int, help="Number of candidate voices, 1-4 (default: 2).")
+@click.option("--speed", default=1.0, type=float, help="Speech speed, >0-3.0 (default: 1.0).")
+@click.option("--model", default=None, help="Voice-design backend model (default: fish-voice-design).")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def voice_design(instruction, out, reference_text, language, n, speed, model, dry_run):
+    """Generate N candidate voices from a text INSTRUCTION (Fish Audio voice design).
+
+    Writes each candidate's decoded preview audio to `<prefix>_<index>.mp3`.
+
+    \b
+      nazca voice-design "Warm, confident studio narrator" -o narrator
+      nazca voice-design "Bright upbeat podcast host" -n 4 --language en
+    """
+    from nazca.errors import BackendError
+    from nazca.media import write_result
+    from nazca.voice import design_voice as _design_voice
+
+    resolved_model = model or "fish-voice-design"
+    _validate_or_exit(resolved_model, "voice_design")
+    try:
+        result = _design_voice(
+            instruction, model=resolved_model, reference_text=reference_text,
+            language=language, n=n, speed=speed, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+
+    if dry_run:
+        plan_path = write_result(out, result, True)
+        click.echo(f"📝 {plan_path}")
+        return
+
+    for candidate in result["candidates"]:
+        idx = candidate.get("index", 0)
+        path = f"{out}_{idx}.mp3"
+        with open(path, "wb") as f:
+            f.write(candidate["audio_bytes"])
+        click.echo(f"✅ {path}  (id={candidate.get('id')})")
 
 
 @cli.command()

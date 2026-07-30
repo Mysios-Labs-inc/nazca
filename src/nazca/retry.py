@@ -27,6 +27,7 @@ import random
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Callable
 
 from nazca.log import get_logger
@@ -88,7 +89,7 @@ def _retry_after_seconds(headers: dict | None) -> float:
 
 def _post_with_retry(
     url: str,
-    body: dict,
+    data: bytes,
     headers: dict,
     *,
     on_http_error: Callable[[int, str], Exception],
@@ -102,8 +103,12 @@ def _post_with_retry(
     the return value — `json.loads` for `post_json`, raw passthrough for
     `post_bytes`. See `post_json` for the retry/backoff semantics; this is the
     body both public helpers share so the retry logic lives in exactly one place.
+
+    `data` is the already-encoded request body (JSON bytes for `post_json`/
+    `post_bytes`, a hand-built multipart/form-data body for `post_multipart`) —
+    encoding happens once in the caller, before the retry loop, so each retry
+    attempt reuses the identical bytes rather than re-encoding.
     """
-    data = json.dumps(body).encode()
     retries = max_retries()
     base = backoff_base()
 
@@ -179,7 +184,7 @@ def post_json(
     """
     return _post_with_retry(
         url,
-        body,
+        json.dumps(body).encode(),
         headers,
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
@@ -210,11 +215,76 @@ def post_bytes(
     """
     return _post_with_retry(
         url,
-        body,
+        json.dumps(body).encode(),
         headers,
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
         decode=lambda payload: payload,
+        timeout=timeout,
+        _sleep=_sleep,
+        _rand=_rand,
+    )
+
+
+def post_multipart(
+    url: str,
+    fields: dict[str, str],
+    files: list[tuple[str, str, bytes, str]],
+    headers: dict,
+    *,
+    on_http_error: Callable[[int, str], Exception],
+    on_rate_limited: Callable[[int, str], Exception],
+    timeout: float | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _rand: Callable[[], float] = random.random,
+) -> dict:
+    """POST a hand-built `multipart/form-data` body, return decoded JSON.
+
+    The stdlib has no multipart encoder and this project takes no `requests`/
+    `httpx` dependency (see pyproject.toml — only `click` + `Pillow` are core
+    deps), so the body is built by hand: a random boundary (`uuid.uuid4().hex`),
+    one part per `fields` entry (simple `name` form fields) followed by one part
+    per `files` entry (`field_name, filename, content_bytes, content_type` —
+    `field_name` may repeat across entries, e.g. several `"voices"` files for one
+    array field), each terminated with `\\r\\n`, and a final `--boundary--\\r\\n`
+    sentinel.
+
+    Unlike `post_json`/`post_bytes` (where the caller sets its own
+    `Content-Type`), the caller must NOT set `Content-Type` in `headers` here —
+    this function sets it to `multipart/form-data; boundary=<boundary>` itself,
+    since the boundary is generated inside this call.
+
+    Retry/backoff semantics are identical to `post_json` — see its docstring.
+    `_sleep`/`_rand` are injectable for testing.
+    """
+    boundary = uuid.uuid4().hex
+    parts: list[bytes] = []
+    for name, value in fields.items():
+        parts.append(
+            f'--{boundary}\r\n'
+            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+            f'{value}\r\n'.encode()
+        )
+    for field_name, filename, content_bytes, content_type in files:
+        part_header = (
+            f'--{boundary}\r\n'
+            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+            f'Content-Type: {content_type}\r\n\r\n'
+        ).encode()
+        parts.append(part_header + content_bytes + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    data = b"".join(parts)
+
+    post_headers = dict(headers)
+    post_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+
+    return _post_with_retry(
+        url,
+        data,
+        post_headers,
+        on_http_error=on_http_error,
+        on_rate_limited=on_rate_limited,
+        decode=lambda payload: json.loads(payload.decode()),
         timeout=timeout,
         _sleep=_sleep,
         _rand=_rand,
