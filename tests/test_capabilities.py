@@ -116,10 +116,11 @@ def test_no_audio_model_supports_unwired_ops_yet():
     # Descriptive, not aspirational (same posture as image/video P1): every
     # audio model's declared ops is exactly {"tts"} except the two Fish Audio
     # models wired in #122 phase A2 (voice_clone / voice_design), Atlas's
-    # music model wired in phase A4, and ElevenLabs' sfx model wired in phase
-    # A3 — everything else (speech_to_speech/stt/dub/separate/align) remains
-    # unwired until a later phase.
-    unwired = cap.AUDIO_OPS - {"tts", "voice_clone", "voice_design", "music", "sfx"}
+    # music model wired in phase A4, ElevenLabs' sfx model wired in phase A3,
+    # and ElevenLabs' speech-to-speech model also wired in phase A3 —
+    # everything else (stt/dub/separate/align) remains unwired until a later
+    # phase.
+    unwired = cap.AUDIO_OPS - {"tts", "voice_clone", "voice_design", "music", "sfx", "speech_to_speech"}
     for sh, c in cap.CAPS.items():
         if c.produces == "audio":
             assert not (c.ops & unwired), f"{sh} unexpectedly declares {c.ops & unwired}"
@@ -135,6 +136,9 @@ def test_models_supporting_tts_nonempty_others_empty():
     assert cap.models_supporting("voice_design") == ["elevenlabs-voice-design", "fish-voice-design"]
     # #122 phase A3: sfx is now wired — only by elevenlabs-sfx.
     assert cap.models_supporting("sfx") == ["elevenlabs-sfx"]
+    # #122 phase A3: speech_to_speech is now wired — only by
+    # elevenlabs-speech-to-speech.
+    assert cap.models_supporting("speech_to_speech") == ["elevenlabs-speech-to-speech"]
     assert cap.models_supporting("dub") == []
 
 

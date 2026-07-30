@@ -22,7 +22,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from nazca.errors import BackendError
 
 if TYPE_CHECKING:
-    from nazca.request import AudioRequest, ImageRequest, ThreeDRequest, VideoRequest
+    from nazca.request import (
+        AudioRequest,
+        ImageRequest,
+        SpeechToSpeechRequest,
+        ThreeDRequest,
+        VideoRequest,
+    )
     from nazca.resolve import ResolvedModel
 
 
@@ -98,6 +104,17 @@ class SupportsVoiceDesign(Protocol):
     def voice_design(self, instruction: str, **kwargs: object) -> dict: ...
 
 
+@runtime_checkable
+class SupportsSpeechToSpeech(Protocol):
+    """A backend that can convert a source audio file into a target voice's
+    speech (issue #122 phase A3 — the "voice changer" op).
+    """
+
+    def speech_to_speech(
+        self, resolved: ResolvedModel, req: SpeechToSpeechRequest
+    ) -> bytes | dict: ...
+
+
 # modality/op key -> (capability protocol, human label for the error message)
 _CAPABILITY: dict[str, tuple[type, str]] = {
     "image": (SupportsImage, "images"),
@@ -106,6 +123,7 @@ _CAPABILITY: dict[str, tuple[type, str]] = {
     "3d": (SupportsThreeD, "3D"),
     "voice_clone": (SupportsVoiceClone, "voice cloning"),
     "voice_design": (SupportsVoiceDesign, "voice design"),
+    "speech_to_speech": (SupportsSpeechToSpeech, "speech-to-speech voice conversion"),
 }
 
 

@@ -5,16 +5,18 @@ Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
 fourth *direct* speech provider, parallel to Worder/Fish. TTS, sound effects
-(`sfx`), voice cloning (`voice_clone`), and voice design (`voice_design`) are
-wired; speech-to-speech/dubbing/etc are still a later follow-up per
-`docs/media-modalities.md`'s "Audio roadmap" (A3 sub-phases). This also
-absorbs issue #121 (a full-integration proposal).
+(`sfx`), voice cloning (`voice_clone`), voice design (`voice_design`), and
+speech-to-speech voice conversion (`speech_to_speech`) are wired;
+dubbing/etc are still a later follow-up per `docs/media-modalities.md`'s
+"Audio roadmap" (A3 sub-phases). This also absorbs issue #121 (a full-
+integration proposal).
 
-    POST /v1/text-to-speech/{voice_id}?output_format=...  -> raw audio bytes
-    POST /v1/sound-generation?output_format=...           -> raw audio bytes
-    GET  /v2/voices                                       -> {"voices": [...], "next_page_token", ...}
-    POST /v1/voices/add                                   -> {"voice_id", "requires_verification"} (voice_clone)
-    POST /v1/text-to-voice/design                          -> {"previews": [...], "text": ...} (voice_design)
+    POST /v1/text-to-speech/{voice_id}?output_format=...    -> raw audio bytes
+    POST /v1/sound-generation?output_format=...              -> raw audio bytes
+    GET  /v2/voices                                          -> {"voices": [...], "next_page_token", ...}
+    POST /v1/voices/add                                       -> {"voice_id", "requires_verification"} (voice_clone)
+    POST /v1/text-to-voice/design                             -> {"previews": [...], "text": ...} (voice_design)
+    POST /v1/speech-to-speech/{voice_id}?output_format=...    -> raw audio bytes (multipart request)
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -136,6 +138,25 @@ which nazca cannot check client-side). `visibility`/`tags` are Fish-only
 concepts with no ElevenLabs equivalent — `voice_clone` below accepts them
 (so it satisfies the exact call shape `nazca.voice.clone_voice()` uses
 uniformly for every backend) but never forwards them to the API.
+
+`speech-to-speech` documents the same 422 shape (its own OpenAPI fragment
+names it `HTTPValidationError`) and no other status beyond 200/422 — so it
+inherits the same 401/429 posture as tts/sfx by convention, not by a
+separately-published doc page.
+
+`speech_to_speech` (`POST /v1/speech-to-speech/{voice_id}`, issue #122 phase
+A3) is the one ElevenLabs op wired so far whose *request* is
+`multipart/form-data`, not JSON — `req.source_audio_path` (a local file, read
+by the backend itself, mirroring `FishBackend.voice_clone`'s file-handling
+precedent) is the required `audio` field; `model_id` defaults to ElevenLabs'
+own `eleven_english_sts_v2`. `voice_settings` (cloning_strength)/`seed`/
+`remove_background_noise`/`file_format` are real optional fields in
+ElevenLabs' schema but are NOT exposed via CLI this pass — same "don't
+expose every knob" posture as tts's `voice_settings`/sfx's
+`prompt_influence`. The *response* is still raw audio bytes like tts/sfx, so
+this needs a request encoder that neither existing `retry` helper covers on
+its own (`post_multipart` JSON-decodes its response; `post_bytes` JSON-
+encodes its request) — `retry.post_multipart_bytes` fills that gap.
 """
 
 from __future__ import annotations
@@ -152,7 +173,7 @@ from nazca.errors import BackendError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 
 if TYPE_CHECKING:
-    from nazca.request import AudioRequest
+    from nazca.request import AudioRequest, SpeechToSpeechRequest
 
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
 ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
@@ -160,6 +181,7 @@ ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
 # here (same "don't rely on the provider's implicit default" posture as
 # ELEVENLABS_DEFAULT_MODEL above for TTS) rather than omitted from the body.
 ELEVENLABS_VOICE_DESIGN_MODEL = "eleven_multilingual_ttv_v2"
+ELEVENLABS_STS_DEFAULT_MODEL = "eleven_english_sts_v2"
 
 # nazca's `--format mp3|wav` -> ElevenLabs' `output_format` query-param enum.
 _OUTPUT_FORMAT_MAP = {
@@ -233,20 +255,35 @@ class ElevenLabsBackend(Backend):
         """
         return f"{ELEVENLABS_BASE}/v1/voices/add"
 
-    def _resolve_output_format(self, req: AudioRequest) -> str | None:
-        """Map `req.output_format` to ElevenLabs' query-param enum, or raise.
-
-        `AudioRequest.output_format` is an unvalidated `str` (the CLI restricts
-        it to `mp3`/`wav` via `click.Choice`, but a direct library caller could
-        pass anything) — a value outside `_OUTPUT_FORMAT_MAP` must raise here
-        rather than silently falling back to ElevenLabs' own default format.
+    def speech_to_speech_endpoint(self, voice_id: str, output_format: str | None = None) -> str:
+        """`POST /v1/speech-to-speech/{voice_id}` — voice_id is a URL path segment,
+        same convention as `tts_endpoint` (and same percent-encoding rationale:
+        `voice_id` is user-controlled via `--voice`); `output_format` (when
+        given) is a query-string parameter, same convention as tts/sfx.
         """
-        if not req.output_format:
+        url = f"{ELEVENLABS_BASE}/v1/speech-to-speech/{quote(voice_id, safe='')}"
+        if output_format:
+            url += "?" + urlencode({"output_format": output_format})
+        return url
+
+    def _resolve_output_format(self, output_format: str | None) -> str | None:
+        """Map an nazca `output_format` (`"mp3"`/`"wav"`) to ElevenLabs' query-param
+        enum, or raise.
+
+        Takes the raw string (not an `AudioRequest`) so `run_audio` and
+        `speech_to_speech` — whose request dataclasses don't share a common
+        base — can both call it. `output_format` is an unvalidated `str`
+        coming from either dataclass (the CLI restricts it to `mp3`/`wav` via
+        `click.Choice`, but a direct library caller could pass anything) — a
+        value outside `_OUTPUT_FORMAT_MAP` must raise here rather than
+        silently falling back to ElevenLabs' own default format.
+        """
+        if not output_format:
             return None
-        mapped = _OUTPUT_FORMAT_MAP.get(req.output_format)
+        mapped = _OUTPUT_FORMAT_MAP.get(output_format)
         if mapped is None:
             raise ElevenLabsError(
-                f"Unsupported output_format {req.output_format!r} for ElevenLabs; "
+                f"Unsupported output_format {output_format!r} for ElevenLabs; "
                 f"supported: {', '.join(sorted(_OUTPUT_FORMAT_MAP))}"
             )
         return mapped
@@ -304,7 +341,7 @@ class ElevenLabsBackend(Backend):
         raises for anything outside `mp3`/`wav` rather than silently falling
         back to ElevenLabs' own default format).
         """
-        output_format = self._resolve_output_format(req)
+        output_format = self._resolve_output_format(req.output_format)
 
         if req.op == "sfx":
             url = self.sfx_endpoint(output_format)
@@ -412,6 +449,93 @@ class ElevenLabsBackend(Backend):
 
         return retry.post_multipart(
             self.voice_clone_endpoint(),
+            fields,
+            files,
+            headers={"xi-api-key": self.auth_token()},
+            timeout=120,
+            on_http_error=lambda code, detail: ElevenLabsError(
+                f"ElevenLabs HTTP {code}: {detail}{hint('elevenlabs', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: ElevenLabsRateLimitError(
+                f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
+
+    # ------------------------------------------------------------------ speech_to_speech
+    def speech_to_speech(self, resolved, req: SpeechToSpeechRequest) -> bytes | dict:
+        """Voice conversion (`op="speech_to_speech"`, issue #122 phase A3): convert
+        `req.source_audio_path`'s speech into `req.voice`'s voice via
+        `POST /v1/speech-to-speech/{voice_id}`.
+
+        Unlike every other ElevenLabs op wired so far, the request is
+        `multipart/form-data` (the source audio file is the required `audio`
+        field), not JSON — mirroring `FishBackend.voice_clone`'s file-handling
+        precedent (validate the path, dry-run needs only its size, a real run
+        reads its bytes) rather than `run_audio`'s JSON-body precedent.
+        `model_id` defaults to ElevenLabs' own `eleven_english_sts_v2`;
+        `voice_settings`/`seed`/`remove_background_noise`/`file_format` are
+        real optional fields in ElevenLabs' schema but are NOT exposed via CLI
+        this pass — same "don't expose every knob" posture as tts's
+        `voice_settings`. `req.output_format` maps through the same
+        `_resolve_output_format` helper as tts/sfx.
+
+        The response is raw audio bytes, same as tts/sfx, but arrives over a
+        multipart POST — `retry.post_multipart` can't return it (it always
+        JSON-decodes), so this uses `retry.post_multipart_bytes` instead.
+
+        Critically, `dry_run` is checked BEFORE the source file is read AND
+        before `auth_token()`/headers are built — same invariant every other
+        method in this module enforces (see the module docstring's warning
+        about the A2 bug class where dry-run touched auth first).
+        """
+        voice_id = req.voice or (resolved.provider_id or None)
+        if not voice_id:
+            raise ElevenLabsError(
+                "ElevenLabs speech-to-speech requires a target voice: pass --voice "
+                "<voice_id> (look one up via GET https://api.elevenlabs.io/v2/voices)."
+            )
+        if not req.source_audio_path:
+            raise ElevenLabsError("speech_to_speech requires a source_audio_path")
+
+        source = Path(req.source_audio_path)
+        if not source.is_file():
+            raise ElevenLabsError(f"speech_to_speech: not a file: {source}")
+
+        output_format = self._resolve_output_format(req.output_format)
+        url = self.speech_to_speech_endpoint(voice_id, output_format)
+        fields = {"model_id": ELEVENLABS_STS_DEFAULT_MODEL}
+
+        if req.dry_run:
+            return {
+                "url": url,
+                "backend": self.name,
+                "est_cost_usd": req.est_cost_usd,
+                "fields": dict(fields),
+                "files": [
+                    {"field": "audio", "filename": source.name, "size_bytes": source.stat().st_size}
+                ],
+                "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
+            }
+
+        try:
+            audio_bytes = source.read_bytes()
+        except OSError as e:
+            # A TOCTOU race (deleted/permission-changed between the is_file()
+            # check above and the actual read) — clean ElevenLabsError, not a
+            # raw traceback, same posture as Fish's voice_clone.
+            raise ElevenLabsError(f"speech_to_speech: couldn't read source audio: {e}") from e
+
+        files: list[tuple[str, str, bytes, str]] = [
+            (
+                "audio",
+                source.name,
+                audio_bytes,
+                mimetypes.guess_type(str(source))[0] or "application/octet-stream",
+            )
+        ]
+
+        return retry.post_multipart_bytes(
+            url,
             fields,
             files,
             headers={"xi-api-key": self.auth_token()},

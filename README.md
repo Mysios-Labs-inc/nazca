@@ -28,7 +28,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`sfx`](#nazca-sfx) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`sfx`](#nazca-sfx) · [`speech-to-speech`](#nazca-speech-to-speech) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
@@ -433,6 +433,29 @@ omit to let ElevenLabs auto-guess) · `--format mp3|wav` · `--model` (default
 > Pricing is subscription-tier-based like `elevenlabs-tts`, unpriced here — untested
 > against a live generation, so `--dry-run` first.
 
+### `nazca speech-to-speech`
+
+Convert a local audio file's speech into a target voice (the "voice changer" op) via
+ElevenLabs (needs `ELEVENLABS_API_KEY`). Unlike every other audio command, the primary
+input is a local source audio FILE, not text.
+
+```bash
+nazca speech-to-speech recording.mp3 --voice 21m00Tcm4TlvDq8ikWAM -o converted.mp3
+nazca speech-to-speech recording.wav --voice <voice_id> --format wav -o converted.wav --dry-run
+```
+
+**Flags:** positional SOURCE audio file (required, must exist — **local file only**, no
+URL support today) · `--voice <voice_id>` (**required** — look one up via
+`GET https://api.elevenlabs.io/v2/voices`) · `-o/--out` (`.mp3`/`.wav`, required) ·
+`--format mp3|wav` · `--model` (default `elevenlabs-speech-to-speech`, the only
+speech-to-speech model wired today) · `--dry-run`.
+
+> **Status:** request/response schema confirmed against ElevenLabs' published API docs
+> (`POST /v1/speech-to-speech/{voice_id}`; multipart `audio` file + `model_id` defaulting
+> to `eleven_english_sts_v2`; `output_format` as a query param). Pricing is
+> subscription-tier-based like `elevenlabs-tts`/`elevenlabs-sfx`, unpriced here — untested
+> against a live conversion, so `--dry-run` first.
+
 ### `nazca make3d`
 
 Generate a 3D asset (GLB) from a text prompt or an `--image` (image-to-3D), via Atlas Cloud
@@ -607,7 +630,9 @@ Audio/ElevenLabs pricing changes often and is tier/resolution-dependent — trea
 | `elevenlabs-tts` | audio | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-music-minimax` | audio (music) | $0.15 / gen | premium | Atlas |
 | `elevenlabs-sfx` | audio (sfx) | subscription-tier-based, unpriced here | premium | ElevenLabs |
+| `elevenlabs-voice-clone` | audio (voice clone) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `elevenlabs-voice-design` | audio (voice design) | subscription-tier-based, unpriced here | premium | ElevenLabs |
+| `elevenlabs-speech-to-speech` | audio (speech_to_speech) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |
@@ -1043,12 +1068,16 @@ sequenceDiagram
   audio stream rather than a JSON envelope (handled by `retry.post_bytes`), and pricing is unverified, so
   `--dry-run` cannot estimate cost.
 - **ElevenLabs** (a fourth `speak` backend, `elevenlabs-tts` / `elevenlabs:<voice_id>`) is integrated
-  per ElevenLabs' published OpenAPI schema and public docs, **TTS only** — sound effects, voice design,
-  speech-to-speech, dubbing, etc. are a later follow-up (issue #122, phase A3; absorbs issue #121). It
+  per ElevenLabs' published OpenAPI schema and public docs. TTS, `sfx`, and `speech-to-speech` are
+  wired; voice design/dubbing/etc. are a later follow-up (issue #122, phase A3; absorbs issue #121). It
   requires an explicit `--voice <voice_id>` (no default voice exists), auth is `xi-api-key` rather than
   `Authorization: Bearer` (unlike every other backend here), `voice_id` is a URL path segment rather than
   a body field, `output_format` is a query-string parameter rather than a body field, and pricing is
-  subscription-tier-based so `--dry-run` cannot estimate cost.
+  subscription-tier-based so `--dry-run` cannot estimate cost. `speech-to-speech`'s request is
+  `multipart/form-data` (a local source audio FILE, not text) whose *response* is still raw audio bytes —
+  neither `retry.post_multipart` nor `retry.post_bytes` covers that combination alone, so it uses the new
+  `retry.post_multipart_bytes`; the SOURCE argument accepts a local file only (no URL support), since the
+  endpoint takes a file upload, not a URL.
 
 ## License
 

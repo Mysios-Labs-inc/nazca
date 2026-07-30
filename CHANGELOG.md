@@ -196,7 +196,67 @@ All notable changes to nazca are documented here. Format follows
   *Status: integrated per the published OpenAPI schema and public docs,
   unverified against a live key.*
 
+- **ElevenLabs speech-to-speech voice conversion (`elevenlabs-speech-to-speech` /
+  `nazca speech-to-speech`, issue #122 phase A3, third sub-phase): wires
+  `speech_to_speech`** — named in `AUDIO_OPS` since phase A1, unwired until now,
+  and the first audio op whose primary input is a local audio **FILE**, not
+  text. `POST /v1/speech-to-speech/{voice_id}` converts a source recording's
+  speech into a target `--voice`'s voice (the "voice changer" op).
+
+  Because the input is a file, not text, this does **not** fit the shared
+  `AudioRequest`/`audio.speak()` seam every prior audio op (tts/music/sfx)
+  reuses — `AudioRequest.text` has no meaning here. New pieces instead:
+  - `request.SpeechToSpeechRequest` (`source_audio_path`/`voice`/
+    `output_format`/`op`/`est_cost_usd`/`dry_run`) — a sibling of
+    `AudioRequest`, not a subclass or an overload of it.
+  - `backends.base.SupportsSpeechToSpeech` protocol + `_CAPABILITY["speech_to_speech"]`
+    registry entry, mirroring `SupportsVoiceClone`/`SupportsVoiceDesign` exactly.
+  - `nazca.voice.speech_to_speech()` orchestrator (alongside phase A2's
+    `clone_voice`/`design_voice` in the same module) — resolve → `validate_op`
+    → `require_capability` → dispatch → `media.write_result`, the same
+    resolve/dispatch shape as `audio.speak`, but writing a `Path` result (a
+    real audio file) rather than the metadata `dict`/candidate-list
+    `voice_clone`/`voice_design` return.
+  - New CLI command: `nazca speech-to-speech SOURCE --voice <voice_id>
+    [--format mp3|wav] -o out.mp3 [--dry-run]`. `SOURCE` is a **local file
+    only** (`click.Path(exists=True, dir_okay=False)`) — unlike `nazca
+    video`'s edit ops (`--reframe`/`--v2v`/`--extend`), which accept a URL for
+    fal/Atlas sources, ElevenLabs' endpoint takes a multipart file upload, not
+    a URL, so there's no "fetch this URL first" step to add; URL-source
+    convenience is left for a follow-up if a real need shows up.
+
+  `ElevenLabsBackend.speech_to_speech()` follows `FishBackend.voice_clone()`'s
+  file-handling precedent (validate the path exists; dry-run needs only its
+  size via `stat()`, a real run reads its bytes) rather than `run_audio`'s
+  JSON-body precedent — and, like every method in this module, checks
+  `req.dry_run` **before** the file is read or `auth_token()`/headers are
+  built (the exact bug class phase A2's `voice_design` shipped once already).
+  `model_id` defaults to ElevenLabs' own `eleven_english_sts_v2`;
+  `voice_settings` (`cloning_strength`)/`seed`/`remove_background_noise`/
+  `file_format` are real optional fields in ElevenLabs' schema but are **not**
+  exposed via CLI this pass, same "don't expose every knob" posture as
+  tts's `voice_settings`/sfx's `prompt_influence`.
+
+  The request is `multipart/form-data` (the first ElevenLabs op to be so),
+  but — unlike Fish's `voice_clone`/`voice_design` multipart calls, which
+  return JSON — the *response* is raw audio bytes, same as tts/sfx. Neither
+  existing `retry` helper covered that combination (`post_multipart`
+  JSON-decodes its response; `post_bytes` JSON-encodes its request), so a new
+  `retry.post_multipart_bytes` was added, reusing `post_multipart`'s
+  hand-built multipart encoder (factored out into `_build_multipart_body`)
+  with `post_bytes`'s Content-Type guard against a 2xx JSON/XML/HTML error
+  body being treated as audio. Pricing is subscription-tier-based, so
+  `elevenlabs-speech-to-speech` is likewise unpriced (`price_usd=None`).
+
+  *Status: integrated per ElevenLabs' published API docs (its OpenAPI
+  fragment for this endpoint was not independently re-verified live, unlike
+  `elevenlabs-sfx`'s), unverified against a live key.*
+
 ### Fixed
+- **README's Models & cost price table was missing an `elevenlabs-voice-clone`
+  row entirely** — a gap in phase A3's `voice_clone` sub-phase that survived
+  4 rounds of review, only caught while resolving this branch's rebase
+  conflicts in the same table. Added.
 - **`nazca voice-design`'s `n`/`language`/`speed` were silently no-ops for
   ElevenLabs** — a caller passing `-n 4`/`--language en`/`--speed 1.5` with
   `--model elevenlabs-voice-design` got no indication their flags did
