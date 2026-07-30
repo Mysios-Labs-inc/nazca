@@ -84,12 +84,28 @@ class SupportsThreeD(Protocol):
     def run_3d(self, resolved: ResolvedModel, req: ThreeDRequest) -> bytes | dict: ...
 
 
-# modality key -> (capability protocol, human label for the error message)
+@runtime_checkable
+class SupportsVoiceClone(Protocol):
+    """A backend that can derive a reusable voice from audio samples (issue #122 A2)."""
+
+    def voice_clone(self, title: str, audio_paths: list[str], **kwargs: object) -> dict: ...
+
+
+@runtime_checkable
+class SupportsVoiceDesign(Protocol):
+    """A backend that can generate voice candidates from a text description (issue #122 A2)."""
+
+    def voice_design(self, instruction: str, **kwargs: object) -> dict: ...
+
+
+# modality/op key -> (capability protocol, human label for the error message)
 _CAPABILITY: dict[str, tuple[type, str]] = {
     "image": (SupportsImage, "images"),
     "video": (SupportsVideo, "video"),
     "audio": (SupportsAudio, "audio"),
     "3d": (SupportsThreeD, "3D"),
+    "voice_clone": (SupportsVoiceClone, "voice cloning"),
+    "voice_design": (SupportsVoiceDesign, "voice design"),
 }
 
 

@@ -15,6 +15,7 @@ from click.testing import CliRunner
 
 from nazca.capabilities import CapabilityError, validate_op
 from nazca.cli import cli
+from nazca.errors import AudioError
 from nazca.voice import clone_voice, design_voice
 
 # --------------------------------------------------------------------------- validate_op gate
@@ -109,6 +110,57 @@ def test_design_voice_decodes_audio_base64_to_bytes(monkeypatch):
     assert result["candidates"][0]["audio_bytes"] == raw_audio
     assert "audio_base64" not in result["candidates"][0]
     assert result["candidates"][0]["id"] == "c1"
+
+
+def test_design_voice_raises_on_candidate_missing_audio_base64(monkeypatch):
+    # Fish's response shape is unverified against a live key — a candidate
+    # without audio_base64 must raise, not silently become b"" (a 0-byte
+    # "success" file with no indication anything went wrong).
+    from nazca.backends.fish import FishBackend
+
+    def fake_voice_design(self, instruction, **kw):
+        return {"candidates": [{"id": "c1", "index": 0}]}  # no audio_base64
+
+    monkeypatch.setattr(FishBackend, "voice_design", fake_voice_design)
+    try:
+        design_voice("A narrator voice", dry_run=False)
+    except AudioError as e:
+        assert "c1" in str(e)
+    else:
+        raise AssertionError("expected AudioError for a candidate with no audio_base64")
+
+
+def test_design_voice_raises_on_malformed_audio_base64(monkeypatch):
+    # base64.b64decode without validate=True silently discards invalid
+    # characters instead of raising — must not be allowed to write garbage
+    # bytes to disk as if they were valid audio.
+    from nazca.backends.fish import FishBackend
+
+    def fake_voice_design(self, instruction, **kw):
+        return {"candidates": [{"id": "c1", "index": 0, "audio_base64": "not-valid-base64!!!"}]}
+
+    monkeypatch.setattr(FishBackend, "voice_design", fake_voice_design)
+    try:
+        design_voice("A narrator voice", dry_run=False)
+    except AudioError as e:
+        assert "c1" in str(e)
+    else:
+        raise AssertionError("expected AudioError for malformed audio_base64")
+
+
+def test_design_voice_raises_on_missing_candidates_key(monkeypatch):
+    from nazca.backends.fish import FishBackend
+
+    def fake_voice_design(self, instruction, **kw):
+        return {"unexpected": "shape"}  # no "candidates" key at all
+
+    monkeypatch.setattr(FishBackend, "voice_design", fake_voice_design)
+    try:
+        design_voice("A narrator voice", dry_run=False)
+    except AudioError:
+        pass
+    else:
+        raise AssertionError("expected AudioError when response has no 'candidates' key")
 
 
 # --------------------------------------------------------------------------- CLI: voice-clone
@@ -231,3 +283,29 @@ def test_cli_voice_design_success_writes_numbered_files(tmp_path, monkeypatch):
     assert p1.read_bytes() == b"audio-two"
     assert "c0" in r.output
     assert "c1" in r.output
+
+
+def test_cli_voice_design_writes_distinct_files_when_response_omits_index(tmp_path, monkeypatch):
+    # Fish's response shape is unverified against a live key. If `index` is
+    # missing (or duplicated) on more than one candidate, the CLI must still
+    # write N distinct files by loop position — not silently overwrite earlier
+    # candidates while printing success for all of them.
+    from nazca.backends.fish import FishBackend
+
+    raw1 = base64.b64encode(b"audio-one").decode()
+    raw2 = base64.b64encode(b"audio-two").decode()
+
+    def fake_voice_design(self, instruction, **kw):
+        return {
+            "candidates": [
+                {"id": "c0", "audio_base64": raw1},  # no "index" key
+                {"id": "c1", "audio_base64": raw2},  # no "index" key
+            ]
+        }
+
+    monkeypatch.setattr(FishBackend, "voice_design", fake_voice_design)
+    prefix = str(tmp_path / "host")
+    r = CliRunner().invoke(cli, ["voice-design", "Bright podcast host", "-o", prefix, "-n", "2"])
+    assert r.exit_code == 0
+    assert (tmp_path / "host_0.mp3").read_bytes() == b"audio-one"
+    assert (tmp_path / "host_1.mp3").read_bytes() == b"audio-two"

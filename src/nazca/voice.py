@@ -11,9 +11,11 @@ onto `audio.speak()`/`AudioRequest`.
 from __future__ import annotations
 
 import base64
+import binascii
 
 from nazca.backends import get_backend
-from nazca.errors import AudioError  # noqa: F401  (re-export for back-compat)
+from nazca.backends.base import require_capability
+from nazca.errors import AudioError
 
 DEFAULT_VOICE_CLONE_MODEL = "fish-voice-clone"
 DEFAULT_VOICE_DESIGN_MODEL = "fish-voice-design"
@@ -39,9 +41,7 @@ def clone_voice(
 
     resolved = resolve(model or DEFAULT_VOICE_CLONE_MODEL, "audio")
     validate_op(resolved.shorthand, "voice_clone")
-    backend = get_backend(resolved.backend)
-    if not hasattr(backend, "voice_clone"):
-        raise AudioError(f"backend '{backend.name}' does not support voice_clone")
+    backend = require_capability(get_backend(resolved.backend), "voice_clone")
 
     return backend.voice_clone(
         title,
@@ -76,9 +76,7 @@ def design_voice(
 
     resolved = resolve(model or DEFAULT_VOICE_DESIGN_MODEL, "audio")
     validate_op(resolved.shorthand, "voice_design")
-    backend = get_backend(resolved.backend)
-    if not hasattr(backend, "voice_design"):
-        raise AudioError(f"backend '{backend.name}' does not support voice_design")
+    backend = require_capability(get_backend(resolved.backend), "voice_design")
 
     result = backend.voice_design(
         instruction,
@@ -91,10 +89,26 @@ def design_voice(
     if dry_run:
         return result
 
+    if "candidates" not in result:
+        raise AudioError(
+            f"Fish voice-design response is missing 'candidates': {result!r}"
+        )
+
     candidates = []
-    for c in result.get("candidates", []):
+    for c in result["candidates"]:
         candidate = dict(c)
         b64 = candidate.pop("audio_base64", None)
-        candidate["audio_bytes"] = base64.b64decode(b64) if b64 else b""
+        if not b64:
+            raise AudioError(
+                f"Fish voice-design candidate {candidate.get('id', '?')!r} has no "
+                "audio_base64 — refusing to write an empty/corrupt audio file"
+            )
+        try:
+            candidate["audio_bytes"] = base64.b64decode(b64, validate=True)
+        except binascii.Error as e:
+            raise AudioError(
+                f"Fish voice-design candidate {candidate.get('id', '?')!r} has "
+                f"malformed audio_base64: {e}"
+            ) from e
         candidates.append(candidate)
     return {"candidates": candidates}

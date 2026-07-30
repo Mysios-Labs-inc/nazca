@@ -11,6 +11,11 @@ must pick a `reference_id` (via `--voice`) discovered from `GET /model`; the
     POST /model              -> {"_id", "title", "state", "visibility", ...} (voice_clone)
     POST /v1/voice-design    -> {"candidates": [{"id", "audio_base64", ...}]} (voice_design)
 
+    The two response shapes above are per Fish's published OpenAPI schema, not
+    verified against a live key — same posture as the rest of this file's
+    "schema unverified" notes. `nazca.voice.design_voice` raises a clear error
+    rather than guessing if a candidate turns out to be missing `audio_base64`.
+
 Synchronous (no submit→poll): `/v1/tts` streams the synthesized audio directly
 in the response body. The TTS *model* to run (voice-quality tier, distinct
 from the `reference_id` voice) is selected via a required `model` HTTP header
@@ -35,6 +40,7 @@ the TTS quality tiers).
 
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -164,9 +170,21 @@ class FishBackend(Backend):
         voice). `train_mode` is always `"fast"` (instant availability); the other
         documented mode is not covered here. Returns the decoded JSON response
         (key field `_id` — the `reference_id` to pass to `nazca speak --voice`).
+
+        Validates each path itself rather than relying on the CLI's
+        `click.Path(exists=True)` — a direct library caller of this method (or a
+        TOCTOU race between the CLI's parse-time check and this call) would
+        otherwise hit a raw `OSError` instead of a clean `FishError`.
         """
         if not audio_paths:
             raise FishError("voice_clone requires at least one audio sample path")
+        if len(audio_paths) > 20:
+            raise FishError(
+                f"voice_clone accepts at most 20 audio samples, got {len(audio_paths)}"
+            )
+        for p in audio_paths:
+            if not Path(p).is_file():
+                raise FishError(f"voice_clone: not a file: {p}")
 
         fields: dict[str, str] = {
             "type": "tts",
@@ -183,21 +201,32 @@ class FishBackend(Backend):
             # single comma-joined `tags` field — UNVERIFIED against a live key.
             fields["tags"] = ",".join(tags)
 
-        if dry_run:
-            return {
-                "url": self.voice_clone_endpoint(),
-                "backend": self.name,
-                "fields": dict(fields),
-                "files": [
-                    {"field": "voices", "filename": Path(p).name, "size_bytes": Path(p).stat().st_size}
-                    for p in audio_paths
-                ],
-            }
+        try:
+            if dry_run:
+                return {
+                    "url": self.voice_clone_endpoint(),
+                    "backend": self.name,
+                    "fields": dict(fields),
+                    "files": [
+                        {"field": "voices", "filename": Path(p).name, "size_bytes": Path(p).stat().st_size}
+                        for p in audio_paths
+                    ],
+                }
 
-        files: list[tuple[str, str, bytes, str]] = []
-        for p in audio_paths:
-            path = Path(p)
-            files.append(("voices", path.name, path.read_bytes(), "application/octet-stream"))
+            files: list[tuple[str, str, bytes, str]] = [
+                (
+                    "voices",
+                    Path(p).name,
+                    Path(p).read_bytes(),
+                    mimetypes.guess_type(p)[0] or "application/octet-stream",
+                )
+                for p in audio_paths
+            ]
+        except OSError as e:
+            # A TOCTOU race (deleted/permission-changed between the is_file()
+            # check above and the actual read) — clean FishError, not a raw
+            # traceback, so a library caller doesn't need to catch OSError too.
+            raise FishError(f"voice_clone: couldn't read an audio sample: {e}") from e
 
         return retry.post_multipart(
             self.voice_clone_endpoint(),
@@ -231,6 +260,10 @@ class FishBackend(Backend):
         """
         if not instruction:
             raise FishError("voice_design requires a non-empty instruction")
+        if not 1 <= n <= 4:
+            raise FishError(f"voice_design: n must be 1-4, got {n}")
+        if not 0 < speed <= 3.0:
+            raise FishError(f"voice_design: speed must be >0-3.0, got {speed}")
 
         body: dict = {"instruction": instruction, "n": n, "speed": speed}
         if reference_text:

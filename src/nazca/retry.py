@@ -100,9 +100,10 @@ def _post_with_retry(
     _rand: Callable[[], float] = random.random,
 ) -> object:
     """Shared retry/backoff loop for a POST whose success body `decode` turns into
-    the return value — `json.loads` for `post_json`, raw passthrough for
-    `post_bytes`. See `post_json` for the retry/backoff semantics; this is the
-    body both public helpers share so the retry logic lives in exactly one place.
+    the return value — `json.loads` for `post_json`/`post_multipart`, raw
+    passthrough for `post_bytes`. See `post_json` for the retry/backoff
+    semantics; this is the body all three public helpers share so the retry
+    logic lives in exactly one place.
 
     `data` is the already-encoded request body (JSON bytes for `post_json`/
     `post_bytes`, a hand-built multipart/form-data body for `post_multipart`) —
@@ -226,6 +227,22 @@ def post_bytes(
     )
 
 
+def _strip_crlf(value: str) -> str:
+    """Drop CR/LF from a multipart header value — a value containing a newline
+    would otherwise let its caller inject an extra part/header into the body.
+    """
+    return value.replace("\r", "").replace("\n", "")
+
+
+def _escape_header_value(value: str) -> str:
+    """Escape a value placed inside a quoted `Content-Disposition` parameter
+    (`name="..."`/`filename="..."`): strip CR/LF (header/part injection) and
+    percent-encode `"` (a literal quote would otherwise terminate the
+    parameter early and produce a malformed header).
+    """
+    return _strip_crlf(value).replace('"', "%22")
+
+
 def post_multipart(
     url: str,
     fields: dict[str, str],
@@ -250,9 +267,17 @@ def post_multipart(
     sentinel.
 
     Unlike `post_json`/`post_bytes` (where the caller sets its own
-    `Content-Type`), the caller must NOT set `Content-Type` in `headers` here —
-    this function sets it to `multipart/form-data; boundary=<boundary>` itself,
-    since the boundary is generated inside this call.
+    `Content-Type`), if the caller sets `Content-Type` in `headers` here it is
+    silently overwritten — this function always sets it to
+    `multipart/form-data; boundary=<boundary>` itself, since the boundary is
+    generated inside this call.
+
+    Every `name`/`filename`/field value is escaped before being placed in a
+    header line: CR/LF are stripped (otherwise a value containing a newline
+    could inject an extra part into the body — header/part injection) and `"`
+    is percent-encoded (otherwise a quote in e.g. a filename produces a
+    malformed `Content-Disposition` header). Field *content* (`content_bytes`)
+    is untouched — only the surrounding header text is escaped.
 
     Retry/backoff semantics are identical to `post_json` — see its docstring.
     `_sleep`/`_rand` are injectable for testing.
@@ -262,14 +287,15 @@ def post_multipart(
     for name, value in fields.items():
         parts.append(
             f'--{boundary}\r\n'
-            f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
-            f'{value}\r\n'.encode()
+            f'Content-Disposition: form-data; name="{_escape_header_value(name)}"\r\n\r\n'
+            f'{_strip_crlf(value)}\r\n'.encode()
         )
     for field_name, filename, content_bytes, content_type in files:
         part_header = (
             f'--{boundary}\r\n'
-            f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
-            f'Content-Type: {content_type}\r\n\r\n'
+            f'Content-Disposition: form-data; name="{_escape_header_value(field_name)}"; '
+            f'filename="{_escape_header_value(filename)}"\r\n'
+            f'Content-Type: {_strip_crlf(content_type)}\r\n\r\n'
         ).encode()
         parts.append(part_header + content_bytes + b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode())

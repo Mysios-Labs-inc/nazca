@@ -997,9 +997,12 @@ def voice_design(instruction, out, reference_text, language, n, speed, model, dr
         click.echo(f"📝 {plan_path}")
         return
 
-    for candidate in result["candidates"]:
-        idx = candidate.get("index", 0)
-        path = f"{out}_{idx}.mp3"
+    # Use the loop position, not the API's own `index` field, as the filename
+    # index — Fish's response shape here is unverified against a live key, and a
+    # missing/duplicated `index` would otherwise make later candidates silently
+    # overwrite earlier ones on disk while the CLI still prints success for both.
+    for i, candidate in enumerate(result["candidates"]):
+        path = f"{out}_{i}.mp3"
         with open(path, "wb") as f:
             f.write(candidate["audio_bytes"])
         click.echo(f"✅ {path}  (id={candidate.get('id')})")

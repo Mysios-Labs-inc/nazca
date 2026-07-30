@@ -252,6 +252,29 @@ def test_voice_clone_empty_audio_paths_raises():
         raise AssertionError("expected FishError for empty audio_paths")
 
 
+def test_voice_clone_more_than_20_paths_raises():
+    try:
+        FishBackend().voice_clone("My Voice", [f"s{i}.mp3" for i in range(21)], dry_run=True)
+    except FishError as e:
+        assert "20" in str(e)
+    else:
+        raise AssertionError("expected FishError for >20 audio_paths")
+
+
+def test_voice_clone_nonexistent_path_raises_fish_error_not_oserror(tmp_path):
+    # A direct library caller of voice_clone() (bypassing the CLI's own
+    # click.Path(exists=True) check) must get a clean FishError, not a raw
+    # FileNotFoundError — this must fire even in dry_run, since dry_run still
+    # needs to stat() each file for its size.
+    missing = tmp_path / "does-not-exist.mp3"
+    try:
+        FishBackend().voice_clone("My Voice", [str(missing)], dry_run=True)
+    except FishError as e:
+        assert "does-not-exist.mp3" in str(e)
+    else:
+        raise AssertionError("expected FishError, not a raw OSError, for a missing path")
+
+
 def test_voice_clone_missing_api_key_raises_before_network(monkeypatch, tmp_path):
     _clear_real_config_attr("FISH_API_KEY")
     monkeypatch.delenv("FISH_API_KEY", raising=False)
@@ -347,6 +370,26 @@ def test_voice_design_empty_instruction_raises():
         assert "instruction" in str(e).lower()
     else:
         raise AssertionError("expected FishError for empty instruction")
+
+
+def test_voice_design_n_out_of_range_raises():
+    for bad_n in (0, 5):
+        try:
+            FishBackend().voice_design("A voice", n=bad_n, dry_run=True)
+        except FishError as e:
+            assert "n" in str(e).lower()
+        else:
+            raise AssertionError(f"expected FishError for n={bad_n}")
+
+
+def test_voice_design_speed_out_of_range_raises():
+    for bad_speed in (0, -1, 3.1):
+        try:
+            FishBackend().voice_design("A voice", speed=bad_speed, dry_run=True)
+        except FishError as e:
+            assert "speed" in str(e).lower()
+        else:
+            raise AssertionError(f"expected FishError for speed={bad_speed}")
 
 
 def test_voice_design_missing_api_key_raises_before_network(monkeypatch):

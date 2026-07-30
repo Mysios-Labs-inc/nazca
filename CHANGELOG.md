@@ -57,7 +57,12 @@ All notable changes to nazca are documented here. Format follows
   same class of failure. Found while wiring the new voice-clone/voice-design
   commands (issue #122 A2) on the same pattern — fixed at the source for all
   three commands by catching `BackendError` (which `AudioError` already
-  subclasses) via the existing `_emit_backend_error` helper.
+  subclasses) via the existing `_emit_backend_error` helper. **User-visible
+  side effect:** `nazca speak`'s exit code for a backend/HTTP failure moved
+  from `2` to `1`, aligning it with `nazca image`/`nazca video` (exit `2`
+  stays reserved for capability-validation failures, e.g. an unsupported
+  `--model`/op combination); anyone scripting against `speak`'s previous exit
+  code for that specific failure class should update to `1`.
 
 ### Changed (internal — no behavior change)
 - **Audio ops vocabulary spine (issue #122, phase A1):** `capabilities.AUDIO_OPS`
