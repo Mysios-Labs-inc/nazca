@@ -47,7 +47,7 @@ def speak(
     against the resolved model's `Caps` before dispatch — unlike `op` on image/
     video's modify calls, no backend reads `AudioRequest.op` for anything but
     `"tts"` today, so an unmapped op would otherwise silently fall back to plain
-    TTS (Atlas) or be ignored outright (Worder/Fish) instead of erroring.
+    TTS (Atlas) or be ignored outright (Worder/Fish/ElevenLabs) instead of erroring.
     """
     from nazca.capabilities import validate_op
     from nazca.resolve import resolve  # local import: avoids circular at module load

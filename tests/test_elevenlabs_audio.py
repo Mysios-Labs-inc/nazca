@@ -243,6 +243,83 @@ def test_run_audio_http_error_wraps_as_elevenlabs_error_with_hint(monkeypatch):
             raise AssertionError("expected ElevenLabsError on HTTP 401")
 
 
+def test_run_audio_401_quota_exceeded_wraps_with_credits_hint(monkeypatch):
+    # Distinct from the generic 401 test above: this is the body-shape-specific
+    # variant (`status: "quota_exceeded"`) that error_hints.hint() special-cases
+    # ahead of the generic 401 entry — verified end-to-end through run_audio's
+    # real on_http_error wiring, not just by calling hint() directly as a string
+    # function (which wouldn't catch a mistake in how _post stitches it in).
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setenv("NAZCA_MAX_RETRIES", "0")
+    resolved, req = _elevenlabs_request()
+
+    def raise_401_quota(req, timeout=None):
+        raise _http_error(401, '{"detail": {"status": "quota_exceeded", "message": "..."}}')
+
+    with mock.patch("urllib.request.urlopen", raise_401_quota):
+        try:
+            ElevenLabsBackend().run_audio(resolved, req)
+        except ElevenLabsError as e:
+            assert "credit" in str(e).lower() or "quota" in str(e).lower()
+        else:
+            raise AssertionError("expected ElevenLabsError on HTTP 401 quota_exceeded")
+
+
+def test_run_audio_422_wraps_with_validation_hint(monkeypatch):
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setenv("NAZCA_MAX_RETRIES", "0")
+    resolved, req = _elevenlabs_request()
+
+    def raise_422(req, timeout=None):
+        raise _http_error(422, '{"detail": [{"loc": ["body", "text"], "msg": "field required", "type": "missing"}]}')
+
+    with mock.patch("urllib.request.urlopen", raise_422):
+        try:
+            ElevenLabsBackend().run_audio(resolved, req)
+        except ElevenLabsError as e:
+            assert "validation" in str(e).lower()
+        else:
+            raise AssertionError("expected ElevenLabsError on HTTP 422")
+
+
+def test_tts_endpoint_percent_encodes_special_characters_in_voice_id():
+    # Unescaped, a voice_id containing `?`/`&` could hijack the query string
+    # (letting it override output_format) or, with a space, raise a raw
+    # http.client.InvalidURL that bypasses the CLI's `except BackendError`
+    # entirely instead of a clean ElevenLabsError.
+    url = ElevenLabsBackend().tts_endpoint("abc?output_format=pcm_44100&x=1", "mp3_44100_128")
+    assert url == (
+        "https://api.elevenlabs.io/v1/text-to-speech/"
+        "abc%3Foutput_format%3Dpcm_44100%26x%3D1?output_format=mp3_44100_128"
+    )
+    # Exactly one real query param — the caller's value is inert, not query syntax.
+    assert url.count("?") == 1
+
+
+def test_tts_endpoint_percent_encodes_space_in_voice_id():
+    url = ElevenLabsBackend().tts_endpoint("my voice")
+    assert " " not in url
+    assert "my%20voice" in url
+
+
+def test_run_audio_unsupported_output_format_raises_instead_of_silently_dropping(monkeypatch):
+    # AudioRequest.output_format is an unvalidated str — the CLI restricts it to
+    # mp3/wav via click.Choice, but a direct library caller passing e.g. "ogg"
+    # must get a clear error, not a silent fallback to ElevenLabs' own default.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    resolved, req = _elevenlabs_request()
+    req.output_format = "ogg"
+    try:
+        ElevenLabsBackend().run_audio(resolved, req)
+    except ElevenLabsError as e:
+        assert "ogg" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError for an unsupported output_format")
+
+
 def test_run_audio_persistent_429_raises_elevenlabs_rate_limit_error(monkeypatch):
     _clear_real_config_attr("ELEVENLABS_API_KEY")
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")

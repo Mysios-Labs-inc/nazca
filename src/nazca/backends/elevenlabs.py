@@ -67,6 +67,7 @@ object with a `detail` *list*, different from Fish's bare *list* body.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import quote, urlencode
 
 from nazca import config, retry
 from nazca.backends.base import Backend
@@ -102,10 +103,18 @@ class ElevenLabsBackend(Backend):
         """`POST /v1/text-to-speech/{voice_id}` — voice_id is a URL path segment
         (unlike Fish/Worder, where the voice is a body field), and
         `output_format` (when given) is appended as a query-string parameter.
+
+        `voice_id` is user-controlled (`--voice`, or an `elevenlabs:<id>`
+        passthrough prefix) and, unlike Fish/Worder's JSON body fields, lands
+        directly in a URL — so it's percent-encoded here. Unescaped, a `--voice`
+        containing `?`/`&` could hijack the query string (letting the voice
+        string override `output_format`), and a space/control character would
+        raise a raw `http.client.InvalidURL` that isn't a `BackendError`, so it
+        wouldn't be caught by the CLI's `except BackendError` at all.
         """
-        url = f"{ELEVENLABS_BASE}/v1/text-to-speech/{voice_id}"
+        url = f"{ELEVENLABS_BASE}/v1/text-to-speech/{quote(voice_id, safe='')}"
         if output_format:
-            url += f"?output_format={output_format}"
+            url += "?" + urlencode({"output_format": output_format})
         return url
 
     def voices_endpoint(self) -> str:
@@ -157,6 +166,11 @@ class ElevenLabsBackend(Backend):
         today beyond the routed `--model`). `req.output_format` (`--format
         mp3|wav`) is mapped to ElevenLabs' `output_format` query-string enum and
         omitted entirely when unset.
+
+        The CLI restricts `--format` to `mp3`/`wav` (`click.Choice`), but
+        `AudioRequest.output_format` itself is an unvalidated `str` — a direct
+        library caller passing anything else must get a clear error here rather
+        than the request silently falling back to ElevenLabs' own default format.
         """
         voice_id = req.voice or (resolved.provider_id or None)
         if not voice_id:
@@ -164,7 +178,14 @@ class ElevenLabsBackend(Backend):
                 "ElevenLabs requires a voice: pass --voice <voice_id> (look one up "
                 "via GET https://api.elevenlabs.io/v2/voices)."
             )
-        output_format = _OUTPUT_FORMAT_MAP.get(req.output_format) if req.output_format else None
+        output_format = None
+        if req.output_format:
+            output_format = _OUTPUT_FORMAT_MAP.get(req.output_format)
+            if output_format is None:
+                raise ElevenLabsError(
+                    f"Unsupported output_format {req.output_format!r} for ElevenLabs; "
+                    f"supported: {', '.join(sorted(_OUTPUT_FORMAT_MAP))}"
+                )
         url = self.tts_endpoint(voice_id, output_format)
         body: dict = {"text": req.text, "model_id": ELEVENLABS_DEFAULT_MODEL}
 

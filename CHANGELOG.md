@@ -53,6 +53,20 @@ All notable changes to nazca are documented here. Format follows
 
   *Status: integrated per the published OpenAPI schema and public docs,
   unverified against a live key.*
+
+### Fixed
+- **ElevenLabs' `voice_id` was interpolated unescaped into the request URL.**
+  Unlike Fish/Worder (voice is a JSON body field, so `json.dumps` handles
+  escaping automatically), ElevenLabs bakes `voice_id` into the URL path —
+  a `--voice` value containing `?`/`&` could hijack the query string (letting
+  it silently override `output_format`), and a space/control character raised
+  a raw `http.client.InvalidURL` that isn't a `BackendError`, so it slipped
+  past the CLI's `except BackendError` entirely instead of the intended clean
+  `❌ ...` message. Now percent-encoded via `urllib.parse.quote`/`urlencode`.
+- **An unsupported `output_format` was silently dropped** instead of raising —
+  unreachable via the CLI (`--format` is restricted to `mp3`/`wav`), but a
+  direct library caller passing e.g. `"ogg"` got a request silently sent with
+  ElevenLabs' *own* default format instead of an error saying so.
 - **Fish Audio `voice_clone` / `voice_design` (issue #122, phase A2):** two new
   Fish Audio endpoints are wired — `POST /model` (create a reusable voice from
   1-20 audio samples, `FishBackend.voice_clone`) and `POST /v1/voice-design`
