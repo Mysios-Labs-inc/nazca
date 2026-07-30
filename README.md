@@ -82,14 +82,15 @@ speech provider — a marketplace of real, ethically-sourced human voice actors 
 | **Your own Python code** | `import nazca` | [Python library](#python-library) |
 
 > **How it's distributed:** nazca is **not on PyPI** — you install it straight from the GitHub repo
-> with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a released version with `@v0.1.0`;
-> drop it to track the latest `main`.
+> with whatever tool you already use (`uv`, `pipx`, or `pip`). Pin a released version with `@v0.13.1`
+> (check the [releases page](https://github.com/Mysios-Labs-inc/nazca/releases) for the latest tag);
+> drop the `@tag` entirely to track `main` instead.
 
 ### CLI (terminal)
 
 ```bash
-uv tool install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"   # recommended
-# or:  pipx install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"
+uv tool install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"   # recommended
+# or:  pipx install  "git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"
 ```
 
 Then authenticate the default (Google) path — no API key needed:
@@ -104,9 +105,11 @@ nazca --help    # image · video · login · config · models · setup
 
 - **Python ≥ 3.10** + the [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) (`gcloud`) for the Vertex path.
 - **No `uv`?** `brew install uv` (macOS) — or use `pipx` (`brew install pipx`).
-- **SSH instead of HTTPS:** swap the URL for `git+ssh://git@github.com/Mysios-Labs-inc/nazca.git@v0.1.0`.
-- **Arrow-key login UI** (optional): add the `tui` extra → `"nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"`.
-- **Update later:** `uv tool upgrade nazca` (or re-run the install with a newer `@tag`).
+- **SSH instead of HTTPS:** swap the URL for `git+ssh://git@github.com/Mysios-Labs-inc/nazca.git@v0.13.1`.
+- **Arrow-key login UI** (optional): add the `tui` extra → `"nazca[tui] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"`.
+- **Update later:** `uv tool upgrade nazca` re-resolves the *same* spec you installed — if you pinned
+  an `@tag`, that keeps you on that tag forever; re-run the install with a newer `@tag` (or drop the
+  pin to track `main`) to actually move forward.
 
 </details>
 
@@ -677,7 +680,7 @@ Nothing is hosted or shared.
 **1. Install nazca with the `mcp` extra, then run setup** (one-time, per machine):
 
 ```bash
-uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.1.0"   # or, from a clone:  uv tool install ".[mcp]"
+uv tool install "nazca[mcp] @ git+https://github.com/Mysios-Labs-inc/nazca.git@v0.13.1"   # or, from a clone:  uv tool install ".[mcp]"
 nazca setup                                           # installs gcloud if missing, then logs you in
 ```
 
