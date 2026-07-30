@@ -73,7 +73,7 @@ AUDIO_OPS: frozenset[str] = frozenset(
         "tts",               # text                       → audio     (text-to-speech; the
                               #   only op any model declares today — see issue #122 phase A1)
         "voice_clone",       # audio sample(s)            → voice_id  (derive a reusable voice)
-        "voice_design",      # text description           → voice_id  (generate voice candidates)
+        "voice_design",      # text description           → 3x voice_id (generate voice candidates)
         "speech_to_speech",  # source audio + voice_id    → audio     (voice changer)
         "stt",               # audio                      → text      (transcription)
         "sfx",               # text                       → audio     (sound effect / Foley)

@@ -12,13 +12,18 @@ All notable changes to nazca are documented here. Format follows
   `speech_to_speech`, `stt`, `sfx`, `music`, `dub`, `separate`, `align`) documented
   in `docs/media-modalities.md`'s "Audio out" table, instead of just `tts`.
   `audio.speak()`'s `op` is now a real parameter (default `"tts"`, unchanged for
-  every existing caller) instead of being hardcoded, and `nazca speak` now runs
-  the same `validate_op` capability check `nazca image`/`nazca video` already
-  had. No audio model declares anything but `tts` yet — this is descriptive
-  plumbing (mirrors image/video's P1), not new capability. Sets up wiring real
-  ops per provider next: Fish Audio's unused `voice_clone`/`voice_design`
-  endpoints (A2), an ElevenLabs backend (A3, absorbs #121), an Atlas audio
-  catalog survey (A4).
+  every existing caller) instead of being hardcoded, and both `nazca speak` and
+  `audio.speak()` now run the same `validate_op` capability check `nazca
+  image`/`nazca video` already had — previously `speak()`'s `op` parameter was
+  unvalidated, so an unsupported op would have silently fallen back to plain
+  TTS (Atlas) or been ignored outright (Worder/Fish) instead of erroring. No
+  audio model declares anything but `tts` yet — this is descriptive plumbing
+  (mirrors image/video's P1), not new capability, for every op *other* than
+  `tts`; a raw non-audio `--model` (e.g. `nazca speak --model nano-banana`)
+  now gets a clearer error message from the capability check rather than the
+  resolver, same exit code. Sets up wiring real ops per provider next: Fish
+  Audio's unused `voice_clone`/`voice_design` endpoints (A2), an ElevenLabs
+  backend (A3, absorbs #121), an Atlas audio catalog survey (A4).
 
 ## [0.14.0] — 2026-07-30
 

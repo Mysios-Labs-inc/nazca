@@ -90,6 +90,13 @@ def test_op_families_are_disjoint():
     assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS | cap.AUDIO_OPS | cap.THREED_OPS
 
 
+def test_ops_order_is_a_complete_duplicate_free_cover_of_ops():
+    # An op missing from _OPS_ORDER silently vanishes from ops_str/`nazca models`
+    # output instead of erroring — this is the guard that keeps that impossible.
+    assert len(cap._OPS_ORDER) == len(set(cap._OPS_ORDER)), "duplicate entries"
+    assert set(cap._OPS_ORDER) == cap.OPS
+
+
 def test_every_model_supports_at_least_one_op():
     for sh, c in cap.CAPS.items():
         assert c.ops, f"{sh} declares no ops"
