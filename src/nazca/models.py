@@ -1487,6 +1487,24 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"voice_clone"}),
     ),
+    # ElevenLabs voice design (issue #122 phase A3, third sub-phase) — a routing
+    # placeholder like fish-voice-design/fish-voice-clone: provider_id empty, no
+    # tier-appropriate default, dispatches straight to ElevenLabsBackend's
+    # dedicated voice_design() method (POST /v1/text-to-voice/design, Step 1 of
+    # ElevenLabs' two-step voice-creation flow; see backends/elevenlabs.py's
+    # module docstring for why Step 2 — permanently saving a chosen preview as
+    # an account voice — is out of scope here). Pricing is subscription-tier-
+    # based, unpriced here, same posture as every other elevenlabs-* entry.
+    "elevenlabs-voice-design": ModelSpec(
+        shorthand="elevenlabs-voice-design",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"voice_design"}),
+    ),
 }
 
 

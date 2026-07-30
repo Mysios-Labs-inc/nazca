@@ -6,15 +6,18 @@ uploads audio samples and returns model metadata (no media file is produced),
 and `design_voice` returns several audio *candidates* in one response instead
 of one output file. So they live in their own module rather than being bolted
 onto `audio.speak()`/`AudioRequest`. Fish Audio (`fish-voice-clone`/
-`fish-voice-design`, phase A2) and ElevenLabs (`elevenlabs-voice-clone`,
-phase A3) both dispatch through these same two functions — the backend
-Protocol (`SupportsVoiceClone`/`SupportsVoiceDesign`) is the only contract, so
-adding a backend needs no changes here.
+`fish-voice-design`, phase A2) and ElevenLabs (`elevenlabs-voice-clone`/
+`elevenlabs-voice-design`, phase A3) all dispatch through these same two
+functions — the backend Protocol (`SupportsVoiceClone`/`SupportsVoiceDesign`)
+is the only contract, so adding a backend needs no changes here.
 
-`visibility`/`tags` are Fish-specific concepts (accepted by every
-voice_clone-capable backend's call signature, per the shared Protocol, but
-silently ignored by backends that don't support them, e.g. ElevenLabs) — see
-each backend's own docstring for exactly which fields it honors.
+`visibility`/`tags` (`clone_voice`) and `n`/`language`/`speed`
+(`design_voice`) are Fish-specific knobs accepted by every backend's call
+signature (per the shared Protocol) but not honored by backends that lack an
+equivalent (currently ElevenLabs for all five) — passing a non-default value
+to a backend that can't honor it raises an `AudioError` rather than silently
+discarding it; see each backend's own docstring for exactly which fields it
+honors.
 """
 
 from __future__ import annotations
@@ -110,6 +113,12 @@ def design_voice(
     plus `id`/`index`/`text`/etc, so callers don't need to handle base64
     themselves. On `dry_run=True`, no network call is made and the raw plan
     dict from the backend is returned unchanged (no `candidates` key).
+
+    `n`/`language`/`speed` are real Fish body fields but have no ElevenLabs
+    equivalent — if any is non-default and the resolved backend isn't Fish,
+    this raises an `AudioError` rather than silently returning however many
+    previews ElevenLabs' model happens to produce while the caller believes
+    their requested count/language/speed took effect.
     """
     from nazca.capabilities import validate_op
     from nazca.resolve import resolve  # local import: avoids circular at module load
@@ -117,6 +126,12 @@ def design_voice(
     resolved = resolve(model or DEFAULT_VOICE_DESIGN_MODEL, "audio")
     validate_op(resolved.shorthand, "voice_design")
     backend = require_capability(get_backend(resolved.backend), "voice_design")
+
+    if resolved.backend != "fish" and (n != 2 or language is not None or speed != 1.0):
+        raise AudioError(
+            f"--language/-n/--speed aren't supported by {resolved.shorthand!r} "
+            "(Fish-only) — omit them for this backend."
+        )
 
     result = backend.voice_design(
         instruction,
@@ -131,7 +146,7 @@ def design_voice(
 
     if "candidates" not in result:
         raise AudioError(
-            f"Fish voice-design response is missing 'candidates': {result!r}"
+            f"{resolved.shorthand} voice-design response is missing 'candidates': {result!r}"
         )
 
     candidates = []
@@ -140,15 +155,15 @@ def design_voice(
         b64 = candidate.pop("audio_base64", None)
         if not b64:
             raise AudioError(
-                f"Fish voice-design candidate {candidate.get('id', '?')!r} has no "
-                "audio_base64 — refusing to write an empty/corrupt audio file"
+                f"{resolved.shorthand} voice-design candidate {candidate.get('id', '?')!r} "
+                "has no audio_base64 — refusing to write an empty/corrupt audio file"
             )
         try:
             candidate["audio_bytes"] = base64.b64decode(b64, validate=True)
         except binascii.Error as e:
             raise AudioError(
-                f"Fish voice-design candidate {candidate.get('id', '?')!r} has "
-                f"malformed audio_base64: {e}"
+                f"{resolved.shorthand} voice-design candidate {candidate.get('id', '?')!r} "
+                f"has malformed audio_base64: {e}"
             ) from e
         candidates.append(candidate)
     return {"candidates": candidates}

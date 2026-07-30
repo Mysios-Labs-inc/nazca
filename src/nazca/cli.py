@@ -1049,20 +1049,31 @@ def voice_clone(audio, title, description, visibility, tags, model, dry_run):
 @cli.command(name="voice-design")
 @click.argument("instruction", required=True)
 @click.option("-o", "--out", default="voice_design", help="Output filename prefix (default: voice_design).")
-@click.option("--reference-text", default=None, help="Preview text for candidates to speak (<=150 chars).")
-@click.option("--language", default=None, help="BCP-47 language code, e.g. en.")
-@click.option("-n", default=2, type=int, help="Number of candidate voices, 1-4 (default: 2).")
-@click.option("--speed", default=1.0, type=float, help="Speech speed, >0-3.0 (default: 1.0).")
-@click.option("--model", default=None, help="Voice-design backend model (default: fish-voice-design).")
+@click.option(
+    "--reference-text", default=None,
+    help="Preview text for candidates to speak (<=150 chars for Fish; honored by ElevenLabs too — omit "
+    "to let it auto-generate preview text).",
+)
+@click.option("--language", default=None, help="BCP-47 language code, e.g. en (Fish only).")
+@click.option("-n", default=2, type=int, help="Number of candidate voices, 1-4 (default: 2; Fish only).")
+@click.option("--speed", default=1.0, type=float, help="Speech speed, >0-3.0 (default: 1.0; Fish only).")
+@click.option(
+    "--model", default=None,
+    help="Voice-design backend model (default: fish-voice-design). Also: elevenlabs-voice-design.",
+)
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
 def voice_design(instruction, out, reference_text, language, n, speed, model, dry_run):
-    """Generate N candidate voices from a text INSTRUCTION (Fish Audio voice design).
+    """Generate N candidate voices from a text INSTRUCTION (Fish Audio or ElevenLabs).
 
     Writes each candidate's decoded preview audio to `<prefix>_<index>.mp3`.
+    ElevenLabs' INSTRUCTION must be 20-1000 characters; `-n`/`--language`/
+    `--speed` are Fish-only (passing a non-default value with `--model
+    elevenlabs-voice-design` raises an error rather than being ignored).
 
     \b
       nazca voice-design "Warm, confident studio narrator" -o narrator
       nazca voice-design "Bright upbeat podcast host" -n 4 --language en
+      nazca voice-design "A calm meditation guide" --model elevenlabs-voice-design
     """
     from nazca.errors import BackendError
     from nazca.media import write_result
