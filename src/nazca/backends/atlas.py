@@ -66,6 +66,11 @@ _OP_SUFFIX: dict[str, str] = {
     "avatar": "avatar",  # Kling avatar; standalone avatar models declare standalone_slug
     # audio
     "tts": "text-to-speech",
+    # `music` is unused today — atlas-music-minimax declares standalone_slug=True,
+    # so `_model_slug` never consults this entry for it — but the row exists so a
+    # future non-standalone music model (e.g. a Suno chirp-* fast-follow) doesn't
+    # silently fall back to the "text-to-speech" default suffix in `_model_slug`.
+    "music": "text-to-music",
     # 3d
     "t23d": "text-to-3d",
     "i23d": "image-to-3d",
@@ -182,9 +187,27 @@ class AtlasBackend(Backend):
                 outputs = data.get("outputs") or []
                 if not outputs:
                     raise AtlasError(f"Atlas prediction {pred_id} completed with no outputs: {data}")
+                if len(outputs) > 1:
+                    logger.info(f"{len(outputs)} outputs returned for {pred_id}; using the first")
                 out = outputs[0]
+                if not isinstance(out, str):
+                    raise AtlasError(f"Atlas prediction {pred_id} output isn't a URL string: {out!r}")
                 with urllib.request.urlopen(out, timeout=download_timeout) as r:  # noqa: S310
-                    return r.read()
+                    payload = r.read()
+                    ctype = (r.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+                    # An expired signed URL or a partial-failure response can return an
+                    # error body at HTTP 200 (e.g. S3 "AccessDenied" XML) — writing that
+                    # straight to an output .mp3/.mp4/.glb as if it were real media would
+                    # be a silent, wrong-but-plausible-looking failure. This is a narrow,
+                    # negative check (reject known non-media types) rather than a
+                    # positive whitelist, since the real media Content-Types across
+                    # Atlas's ~400 models aren't all enumerable.
+                    if ctype in ("application/json", "application/xml", "text/xml", "text/html"):
+                        raise AtlasError(
+                            f"Atlas prediction {pred_id} output doesn't look like media "
+                            f"(Content-Type: {ctype!r}): {payload[:400]!r}"
+                        )
+                    return payload
             if status == "failed":
                 raise AtlasError(f"Atlas prediction {pred_id} failed: {data.get('error', data)}")
             # else: "processing" / unknown -> keep polling
@@ -285,10 +308,19 @@ class AtlasBackend(Backend):
 
     def run_audio(self, resolved, req: AudioRequest):
         """Async text-to-speech, or (op="music", issue #122 phase A4) text-to-music.
-        Endpoint + schema UNVERIFIED → dry-run safe.
+        TTS endpoint + schema UNVERIFIED → dry-run safe. Music's schema (unlike
+        TTS's) IS confirmed: `minimax/music-2.6`'s own OpenAPI fragment is public
+        and no-auth — every model in `GET /api/v1/models` carries a `schema` URL
+        to it (`static.atlascloud.ai/model/schema/minimax-music-2.6.json`,
+        fetched and diffed against this body 2026-07-30). Confirmed fields:
+        `model` + `prompt` (required), `lyrics`/`is_instrumental`/`format`
+        (mp3|wav|pcm)/`sample_rate`/`bitrate` (all optional). nazca exposes
+        `prompt`→`text`/`lyrics`/`format`→`output_format` today; `is_instrumental`,
+        `sample_rate`, `bitrate` are real, confirmed, but not wired to a CLI flag
+        yet (a feature gap, not a schema gap — fast-follow).
 
         Music uses a different body shape than TTS — a style `prompt` (+
-        optional `lyrics`), not `text`/`voice`/`format` — since it's a distinct
+        optional `lyrics`/`format`), not `text`/`voice` — since it's a distinct
         Atlas model family (`minimax/music-2.6`, `standalone_slug=True`, so
         `_model_slug` returns it unchanged regardless of `op`), not a variant of
         the TTS models. Both share the same submit→poll dispatch below.
@@ -298,7 +330,9 @@ class AtlasBackend(Backend):
         if req.op == "music":
             body: dict = {"model": slug, "prompt": req.text}
             if req.lyrics:
-                body["lyrics"] = req.lyrics  # verify field name
+                body["lyrics"] = req.lyrics
+            if req.output_format:
+                body["format"] = req.output_format  # confirmed enum: mp3|wav|pcm
         else:
             body = {"model": slug, "text": req.text}
             if req.voice:

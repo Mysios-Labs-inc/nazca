@@ -889,14 +889,16 @@ def speak(text, out, model, voice, output_format, tier, dry_run):
 @click.argument("prompt", required=True)
 @click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
 @click.option("--lyrics", default=None, help="Optional [Verse]/[Chorus]-structured lyrics text.")
+@click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
 @click.option("--model", default=None, help="Music model (default: atlas-music-minimax).")
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
-def music(prompt, out, lyrics, model, dry_run):
+def music(prompt, out, lyrics, output_format, model, dry_run):
     """Generate a song from a style PROMPT (text-to-music).
 
     \b
       nazca music "warm acoustic folk, gentle guitar" -o track.mp3
-      nazca music "upbeat synth-pop" --lyrics "[Verse]\\nWalking through the city lights" -o track.mp3
+      nazca music "upbeat synth-pop" --lyrics "[Verse]
+    Walking through the city lights" -o track.mp3
     """
     from nazca.audio import audio_cost_label
     from nazca.audio import generate_music as _generate_music
@@ -905,7 +907,10 @@ def music(prompt, out, lyrics, model, dry_run):
     resolved_model = model or "atlas-music-minimax"
     _validate_or_exit(resolved_model, "music")
     try:
-        result = _generate_music(out, prompt, model=resolved_model, lyrics=lyrics, dry_run=dry_run)
+        result = _generate_music(
+            out, prompt, model=resolved_model, lyrics=lyrics,
+            output_format=output_format, dry_run=dry_run,
+        )
     except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
         _emit_backend_error(e)
     if dry_run:

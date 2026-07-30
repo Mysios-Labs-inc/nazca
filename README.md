@@ -380,14 +380,16 @@ Walking through the city lights" -o track.mp3
 ```
 
 **Flags:** positional style PROMPT (required) · `-o/--out` (`.mp3`/`.wav`, required) ·
-`--lyrics` (optional `[Verse]`/`[Chorus]`-structured text) · `--model` (default
-`atlas-music-minimax`, the only music model wired today — `minimax/music-2.6`, $0.15/gen)
-· `--dry-run`.
+`--lyrics` (optional `[Verse]`/`[Chorus]`-structured text) · `--format mp3|wav` ·
+`--model` (default `atlas-music-minimax`, the only music model wired today —
+`minimax/music-2.6`, $0.15/gen) · `--dry-run`.
 
-> **Status:** request/response schema unverified against a live key (Atlas's docs for this
-> specific model weren't published at time of writing) — `--dry-run` first. The $0.15/gen
-> price itself *is* confirmed (pulled from Atlas's live, public model-list API), unlike most
-> other Atlas entries in this README, which are priced from marketing copy.
+> **Status:** request/response schema is confirmed — Atlas's live model-list API links
+> each model to its own public OpenAPI fragment (`prompt`/`lyrics`/`format`/
+> `is_instrumental`/`sample_rate`/`bitrate`; nazca wires the first three). The $0.15/gen
+> price is likewise confirmed from that same API, unlike most other Atlas entries in this
+> README, which are priced from marketing copy — but it's still untested against a live
+> generation, so `--dry-run` first.
 
 ### `nazca make3d`
 

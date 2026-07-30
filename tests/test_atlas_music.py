@@ -25,9 +25,19 @@ def test_generate_music_dry_run_plan(tmp_path):
     plan = json.loads(plan_path.read_text())
     assert plan["model"] == "minimax/music-2.6"  # standalone slug, no op suffix
     assert plan["backend"] == "atlas"
-    assert plan["body"] == {"model": "minimax/music-2.6", "prompt": "warm acoustic folk, gentle guitar"}
+    assert plan["body"] == {
+        "model": "minimax/music-2.6", "prompt": "warm acoustic folk, gentle guitar", "format": "mp3",
+    }
     assert "text" not in plan["body"] and "voice" not in plan["body"]  # not TTS shape
     assert plan["est_cost_usd"] == 0.15
+
+
+def test_generate_music_forwards_wav_format(tmp_path):
+    plan_path = generate_music(
+        tmp_path / "track.wav", "ambient drone", output_format="wav", dry_run=True,
+    )
+    plan = json.loads(plan_path.read_text())
+    assert plan["body"]["format"] == "wav"
 
 
 def test_generate_music_dry_run_includes_lyrics_when_given(tmp_path):
@@ -101,6 +111,18 @@ def test_audio_cost_music_is_flat_per_generation():
     assert estimate_audio_cost("atlas-music-minimax", chars=99999).usd == 0.15
 
 
+def test_flat_rate_audio_pricing_does_not_shadow_any_existing_tts_model():
+    # cost.py now checks _AUDIO_FLAT_PER_RUN before the per-char _TTS_PER_1K_CHARS
+    # table — explicitly pin that no existing TTS model's price estimate silently
+    # changed as a side effect, rather than relying on sibling test files
+    # incidentally still passing to prove it.
+    from nazca.cost import _AUDIO_FLAT_PER_RUN, _TTS_PER_1K_CHARS
+
+    assert _TTS_PER_1K_CHARS.keys().isdisjoint(_AUDIO_FLAT_PER_RUN.keys())
+    assert estimate_audio_cost("atlas-tts-grok", chars=1000).usd == 0.015
+    assert estimate_audio_cost("atlas-tts-elevenlabs-v3", chars=1000).usd == 0.10
+
+
 def test_cli_music_dry_run(tmp_path):
     r = CliRunner().invoke(
         cli, ["music", "warm acoustic folk", "-o", str(tmp_path / "track.mp3"), "--dry-run"],
@@ -139,3 +161,97 @@ def test_cli_music_backend_error_is_clean_not_a_traceback(tmp_path, monkeypatch)
     assert isinstance(r.exception, SystemExit)
     assert "❌" in r.output
     assert "invalid key" in r.output
+
+
+# --------------------------------------------------------------------------- end-to-end (real submit->poll->download dispatch)
+
+
+class _Resp:
+    """Minimal context-manager stand-in for a urllib response."""
+
+    def __init__(self, payload: bytes, headers: dict | None = None):
+        self._payload = payload
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self._payload
+
+
+def test_run_audio_music_success_through_real_submit_poll_download(monkeypatch, tmp_path):
+    # No existing Atlas test (any modality) exercised the real submit->poll->
+    # download dispatch with a mocked urlopen — every prior test either drove
+    # the dry-run branch or monkeypatched run_audio itself away. This is the
+    # first, and it doubles as coverage for the new Content-Type guard in
+    # _poll (a legit "audio/mpeg" response must pass through untouched).
+    import json as jsonlib
+
+    from nazca.backends.atlas import AtlasBackend
+    from nazca.request import AudioRequest
+    from nazca.resolve import resolve
+
+    monkeypatch.setattr("nazca.config.get_value", lambda key: "test-key" if key == "atlas_api_key" else None)
+    monkeypatch.delenv("ATLAS_API_KEY", raising=False)
+    monkeypatch.setattr("nazca.config.ATLAS_API_KEY", "test-key")
+    monkeypatch.setattr("nazca.backends.atlas.time.sleep", lambda *a, **kw: None)
+
+    raw_audio = b"totally-not-real-mp3-but-stands-in"
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:  # POST /model/generateAudio
+            return _Resp(jsonlib.dumps({"data": {"id": "pred_123"}}).encode())
+        if calls["n"] == 2:  # GET /model/prediction/pred_123
+            return _Resp(jsonlib.dumps(
+                {"data": {"status": "completed", "outputs": ["https://cdn.example/track.mp3"]}}
+            ).encode())
+        # GET the output URL itself
+        return _Resp(raw_audio, headers={"Content-Type": "audio/mpeg"})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    resolved = resolve("atlas-music-minimax", "audio")
+    req = AudioRequest(text="warm acoustic folk", op="music", dry_run=False)
+    result = AtlasBackend().run_audio(resolved, req)
+    assert result == raw_audio
+    assert calls["n"] == 3
+
+
+def test_run_audio_rejects_error_body_disguised_as_completed_output(monkeypatch):
+    # The Content-Type guard added alongside this PR: an expired signed URL or
+    # a partial-failure response can return an error body (e.g. S3 XML) at
+    # HTTP 200 — must raise AtlasError, not silently write it to the output file.
+    import json as jsonlib
+
+    from nazca.backends.atlas import AtlasBackend
+    from nazca.request import AudioRequest
+    from nazca.resolve import resolve
+
+    monkeypatch.setattr("nazca.config.ATLAS_API_KEY", "test-key")
+    monkeypatch.setattr("nazca.backends.atlas.time.sleep", lambda *a, **kw: None)
+    calls = {"n": 0}
+
+    def fake_urlopen(req, timeout=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _Resp(jsonlib.dumps({"data": {"id": "pred_123"}}).encode())
+        if calls["n"] == 2:
+            return _Resp(jsonlib.dumps(
+                {"data": {"status": "completed", "outputs": ["https://cdn.example/expired"]}}
+            ).encode())
+        return _Resp(b"<Error><Code>AccessDenied</Code></Error>", headers={"Content-Type": "application/xml"})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    resolved = resolve("atlas-music-minimax", "audio")
+    req = AudioRequest(text="a prompt", op="music", dry_run=False)
+    try:
+        AtlasBackend().run_audio(resolved, req)
+    except AtlasError as e:
+        assert "doesn't look like media" in str(e)
+    else:
+        raise AssertionError("expected AtlasError for a non-media Content-Type")

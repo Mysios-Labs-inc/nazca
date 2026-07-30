@@ -14,15 +14,19 @@ All notable changes to nazca are documented here. Format follows
   run_audio`, same seam as TTS — music is text/style-prompt → one audio file,
   just like TTS, unlike phase A2's `voice_clone`/`voice_design`, which needed a
   new module because their output shape genuinely differs). New CLI command:
-  `nazca music "style prompt" [--lyrics "[Verse]\n..."] -o track.mp3`. A new
-  `AudioRequest.lyrics` field and `audio.generate_music()` (a thin wrapper over
-  `speak(..., op="music")`) carry the music-specific state. `$0.15/gen` is a
-  **confirmed** price (unlike most Atlas entries, which are priced from
-  marketing copy) — pulled directly from Atlas's live, public, no-auth
-  `GET https://api.atlascloud.ai/api/v1/models` endpoint; the request/response
-  *schema* is still unverified (`prompt`/`lyrics` field names are a best-effort
-  guess following this file's established convention, same posture as every
-  other Atlas model here).
+  `nazca music "style prompt" [--lyrics "[Verse]\n..."] [--format mp3|wav] -o
+  track.mp3`. A new `AudioRequest.lyrics` field and `audio.generate_music()` (a
+  thin wrapper over `speak(..., op="music")`) carry the music-specific state.
+  `$0.15/gen` is a **confirmed** price (unlike most Atlas entries, which are
+  priced from marketing copy) — pulled directly from Atlas's live, public,
+  no-auth `GET https://api.atlascloud.ai/api/v1/models` endpoint. The
+  request/response *schema* is confirmed too, not a guess: every model in that
+  same API response links its own public, no-auth OpenAPI fragment
+  (`static.atlascloud.ai/model/schema/minimax-music-2.6.json`), which documents
+  `model`/`prompt` (required) and `lyrics`/`is_instrumental`/`format`
+  (`mp3`/`wav`/`pcm`)/`sample_rate`/`bitrate` (optional) — nazca wires
+  `prompt`/`lyrics`/`format` today; the rest are real, confirmed fields with no
+  CLI flag yet (a feature gap, not a schema gap).
 
   **A4 survey findings** (same live API call, 446 models total): Atlas's own
   catalog tags 17 models `TEXT-TO-SPEECH` — but that category conflates real

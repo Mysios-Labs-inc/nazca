@@ -1,8 +1,10 @@
-"""Audio generation (text-to-speech) — the audio modality entry point.
+"""Audio generation (text-to-speech, and — issue #122 phase A4 — music) — the
+audio modality entry point.
 
 Mirrors the image/video modules: resolve an audio model shorthand to its backend
 + provider id, hand a single `AudioRequest` to the backend's `run_audio` seam, and
-write the result (or the dry-run plan). TTS is billed per 1,000 input characters
+write the result (or the dry-run plan). TTS is billed per 1,000 input characters;
+music (and any other flat-per-generation audio op) is billed per generation
 (see cost.estimate_audio_cost).
 """
 
@@ -83,6 +85,7 @@ def generate_music(
     *,
     model: str | None = None,
     lyrics: str | None = None,
+    output_format: str = "mp3",
     dry_run: bool = False,
 ) -> Path:
     """Generate a song from a style `prompt` (optionally with `lyrics`) to `out`.
@@ -91,7 +94,10 @@ def generate_music(
     dispatch/write_result seam, just a clearer public name than calling
     `speak()` with an `op` kwarg for something that isn't speech.
     """
-    return speak(out, prompt, model=model or DEFAULT_MUSIC_MODEL, lyrics=lyrics, op="music", dry_run=dry_run)
+    return speak(
+        out, prompt, model=model or DEFAULT_MUSIC_MODEL, lyrics=lyrics,
+        output_format=output_format, op="music", dry_run=dry_run,
+    )
 
 
 def audio_cost_label(model: str | None, *, chars: int = 0) -> str | None:
