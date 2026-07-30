@@ -271,12 +271,6 @@ class FishBackend(Backend):
         if language:
             body["language"] = language
 
-        headers = {
-            "Authorization": f"Bearer {self.auth_token()}",
-            "Content-Type": "application/json",
-            "model": FISH_VOICE_DESIGN_MODEL,
-        }
-
         if dry_run:
             return {
                 "url": self.voice_design_endpoint(),
@@ -284,6 +278,12 @@ class FishBackend(Backend):
                 "body": dict(body),
                 "headers": {"model": FISH_VOICE_DESIGN_MODEL},
             }
+
+        headers = {
+            "Authorization": f"Bearer {self.auth_token()}",
+            "Content-Type": "application/json",
+            "model": FISH_VOICE_DESIGN_MODEL,
+        }
 
         return retry.post_json(
             self.voice_design_endpoint(),
