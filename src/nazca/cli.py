@@ -958,6 +958,40 @@ def sfx(prompt, out, duration_seconds, output_format, model, dry_run):
         click.echo(f"✅ {result}")
 
 
+@cli.command()
+@click.argument("source", type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", required=True, help="Output transcript path (.json — full text/words/timestamps/language response, not plain text).")
+@click.option("--language", default=None, help="ISO-639-1/3 language hint (e.g. en); omit to let ElevenLabs auto-detect.")
+@click.option("--model", default=None, help="STT model (default: elevenlabs-stt).")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def transcribe(source, out, language, model, dry_run):
+    """Transcribe a local audio SOURCE file to text (speech-to-text).
+
+    Writes the full decoded transcript response (text, word-level timestamps,
+    detected language) as JSON to OUT — pull `.text` back out with `jq -r
+    .text` if you only want the plain transcript.
+
+    \b
+      nazca transcribe interview.mp3 -o interview.json
+      nazca transcribe clip.wav -o clip.json --language en --dry-run
+    """
+    from nazca.errors import BackendError
+    from nazca.transcribe import transcribe as _transcribe
+
+    resolved_model = model or "elevenlabs-stt"
+    _validate_or_exit(resolved_model, "stt")
+    try:
+        result = _transcribe(
+            out, source, model=resolved_model, language=language, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+    if dry_run:
+        click.echo(f"📝 {result}")
+    else:
+        click.echo(f"✅ {result}")
+
+
 @cli.command(name="make3d")
 @click.argument("prompt", required=False)
 @click.option("-o", "--out", required=True, help="Output 3D asset path (.glb).")

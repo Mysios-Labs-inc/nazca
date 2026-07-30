@@ -6,11 +6,11 @@ Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
 fourth *direct* speech provider, parallel to Worder/Fish. TTS, sound effects
-(`sfx`), voice cloning (`voice_clone`), voice design (`voice_design`), and
-speech-to-speech voice conversion (`speech_to_speech`) are wired;
-dubbing/etc are still a later follow-up per `docs/media-modalities.md`'s
-"Audio roadmap" (A3 sub-phases). This also absorbs issue #121 (a full-
-integration proposal).
+(`sfx`), voice cloning (`voice_clone`), voice design (`voice_design`),
+speech-to-speech voice conversion (`speech_to_speech`), and speech-to-text
+(`stt`) are wired; dubbing/`align` are still a later follow-up per
+`docs/media-modalities.md`'s "Audio roadmap" (A3 sub-phases). This also
+absorbs issue #121 (a full-integration proposal).
 
     POST /v1/text-to-speech/{voice_id}?output_format=...    -> raw audio bytes
     POST /v1/sound-generation?output_format=...              -> raw audio bytes
@@ -18,6 +18,7 @@ integration proposal).
     POST /v1/voices/add                                       -> {"voice_id", "requires_verification"} (voice_clone)
     POST /v1/text-to-voice/design                             -> {"previews": [...], "text": ...} (voice_design)
     POST /v1/speech-to-speech/{voice_id}?output_format=...    -> raw audio bytes (multipart request)
+    POST /v1/speech-to-text                                    -> JSON transcript ({"text", "words": [...], "language_code", ...})
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -115,6 +116,16 @@ the query-string or body; the caller finds out how many previews came back
 from `len(result["candidates"])`, exactly like a Fish response might return
 fewer than the requested `n`.
 
+`stt` (`POST /v1/speech-to-text`, issue #122 phase A3) is a structurally
+different op from `tts`/`sfx`: audio *in*, JSON *out* — the first ElevenLabs
+op here where the response isn't raw audio bytes, and the first `elevenlabs`
+op whose *request* is `multipart/form-data` (`file` field: the audio bytes;
+`model_id` field: required, `"scribe_v2"`/`"scribe_v1"`; `language_code`
+field: optional). It therefore doesn't go through `run_audio`/`AudioRequest`
+at all — see `ElevenLabsBackend.run_stt`, `request.TranscriptionRequest`, and
+the new `nazca.transcribe` orchestrator, mirroring the precedent Fish's
+`voice_clone` (also multipart, via `retry.post_multipart`) set in phase A2.
+
 Error responses (verified against ElevenLabs' published docs, 2026-07-30):
 401 covers both an invalid/missing key AND (confusingly) insufficient
 credits/quota — ElevenLabs returns HTTP 401 with a body `status` of
@@ -175,7 +186,7 @@ from nazca.errors import BackendError
 from nazca.errors import RateLimitError as _SharedRateLimitError
 
 if TYPE_CHECKING:
-    from nazca.request import AudioRequest, SpeechToSpeechRequest
+    from nazca.request import AudioRequest, SpeechToSpeechRequest, TranscriptionRequest
 
 ELEVENLABS_BASE = "https://api.elevenlabs.io"
 ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
@@ -184,6 +195,12 @@ ELEVENLABS_DEFAULT_MODEL = "eleven_multilingual_v2"
 # ELEVENLABS_DEFAULT_MODEL above for TTS) rather than omitted from the body.
 ELEVENLABS_VOICE_DESIGN_MODEL = "eleven_multilingual_ttv_v2"
 ELEVENLABS_STS_DEFAULT_MODEL = "eleven_english_sts_v2"
+# ElevenLabs' required `model_id` for `POST /v1/speech-to-text` — an enum of
+# exactly "scribe_v2" | "scribe_v1" (NOT one of the TTS model ids above; a
+# completely separate id namespace). `scribe_v2` is ElevenLabs' newer/current
+# generation; nazca hardcodes it, same "don't expose every knob" posture as
+# `ELEVENLABS_DEFAULT_MODEL` (no `--model-id` CLI flag this pass).
+ELEVENLABS_STT_MODEL = "scribe_v2"
 
 # nazca's `--format mp3|wav` -> ElevenLabs' `output_format` query-param enum.
 _OUTPUT_FORMAT_MAP = {
@@ -241,6 +258,14 @@ class ElevenLabsBackend(Backend):
         rather than being accepted-but-always-`None`.
         """
         return f"{ELEVENLABS_BASE}/v1/text-to-voice/design"
+
+    def stt_endpoint(self) -> str:
+        """`POST /v1/speech-to-text` — speech-to-text transcription (issue #122
+        phase A3). Unlike `tts_endpoint`/`sfx_endpoint`, no query-string params
+        (`model_id`/`language_code`/etc are all multipart *fields*, not query
+        params — ElevenLabs is inconsistent about this across its own endpoints).
+        """
+        return f"{ELEVENLABS_BASE}/v1/speech-to-text"
 
     def voices_endpoint(self) -> str:
         """`GET /v2/voices` — the modern, paginated voice listing. `GET /v1/voices`
@@ -658,3 +683,76 @@ class ElevenLabsBackend(Backend):
             candidates.append(candidate)
 
         return {"candidates": candidates}
+
+    # ------------------------------------------------------------------ run seam (stt)
+    def run_stt(self, resolved, req: TranscriptionRequest) -> dict:
+        """Transcribe an audio file (`POST /v1/speech-to-text`, issue #122 phase
+        A3) — the first ElevenLabs op whose *response* is JSON (a transcript),
+        not raw audio bytes, so it goes through `retry.post_multipart` (which
+        already decodes JSON) rather than `_post`/`retry.post_bytes`.
+
+        `req.source_audio_path` is validated to exist *before* the dry-run
+        check (same order as `FishBackend.voice_clone`) so a bad path is a
+        clean `ElevenLabsError` even on a dry run, not a confusing `.request.json`
+        that would 404/400 for a reason unrelated to the actual request shape.
+        The file is only read into memory on a real run — dry-run reports
+        `filename`/`size_bytes` from `stat()`, never the audio bytes themselves,
+        mirroring `voice_clone`'s dry-run plan shape.
+
+        `model_id` (required by ElevenLabs; NOT the same namespace as nazca's
+        own `--model`) is hardcoded to `ELEVENLABS_STT_MODEL`; `language_code`
+        is forwarded only when `req.language` is set (omitted lets ElevenLabs
+        auto-detect, matching ElevenLabs' own default). Diarization, timestamps
+        granularity, entity redaction, etc. are real ElevenLabs fields not
+        exposed here — same "don't expose every knob" posture as TTS's
+        `voice_settings` and sfx's `prompt_influence`/`loop`.
+        """
+        path = Path(req.source_audio_path)
+        if not path.is_file():
+            raise ElevenLabsError(f"stt: not a file: {req.source_audio_path}")
+
+        fields: dict[str, str] = {"model_id": ELEVENLABS_STT_MODEL}
+        if req.language:
+            fields["language_code"] = req.language
+
+        try:
+            if req.dry_run:
+                return {
+                    "url": self.stt_endpoint(),
+                    "backend": self.name,
+                    "est_cost_usd": req.est_cost_usd,
+                    "fields": dict(fields),
+                    "file": {"field": "file", "filename": path.name, "size_bytes": path.stat().st_size},
+                    "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
+                }
+
+            content = path.read_bytes()
+        except OSError as e:
+            # TOCTOU race (deleted/permission-changed between is_file() above and
+            # either stat() or read_bytes()) — clean ElevenLabsError, not a raw
+            # traceback, same posture as speech_to_speech's equivalent guard.
+            raise ElevenLabsError(f"stt: couldn't read audio file: {e}") from e
+
+        files: list[tuple[str, str, bytes, str]] = [
+            ("file", path.name, content, mimetypes.guess_type(str(path))[0] or "application/octet-stream")
+        ]
+
+        result = retry.post_multipart(
+            self.stt_endpoint(),
+            fields,
+            files,
+            headers={"xi-api-key": self.auth_token()},
+            timeout=120,
+            on_http_error=lambda code, detail: ElevenLabsError(
+                f"ElevenLabs HTTP {code}: {detail}{hint('elevenlabs', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: ElevenLabsRateLimitError(
+                f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
+        if not isinstance(result, dict) or "text" not in result:
+            # A 2xx response with an unexpected shape (schema change, partial/
+            # async envelope) would otherwise be written straight to the
+            # output file and reported as a successful transcript.
+            raise ElevenLabsError(f"stt: unexpected response shape (missing 'text'): {result!r}")
+        return result

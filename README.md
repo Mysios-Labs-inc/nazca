@@ -28,7 +28,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`sfx`](#nazca-sfx) · [`speech-to-speech`](#nazca-speech-to-speech) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`sfx`](#nazca-sfx) · [`speech-to-speech`](#nazca-speech-to-speech) · [`transcribe`](#nazca-transcribe) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
@@ -330,9 +330,10 @@ from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id
 > **not** `Authorization: Bearer` like every other backend here. The TTS model defaults to
 > `eleven_multilingual_v2` (ElevenLabs' own default) — not user-configurable today. `voice_settings`
 > (stability/similarity/style/speed) is also not exposed via CLI yet — ElevenLabs' own defaults apply.
-> TTS, sound effects, voice cloning, voice design, and speech-to-speech are wired; dubbing, etc.
-> are a later follow-up (see `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is
-> subscription-tier-based, so `--dry-run` shows the request plan, not a cost estimate.
+> TTS, sound effects, voice cloning, voice design, speech-to-speech, and speech-to-text
+> (`nazca transcribe`) are wired; only dubbing/align remain a later follow-up (see
+> `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is subscription-tier-based, so
+> `--dry-run` shows the request plan, not a cost estimate.
 
 ### `nazca voice-clone` and `nazca voice-design`
 
@@ -455,6 +456,34 @@ speech-to-speech model wired today) · `--dry-run`.
 > to `eleven_english_sts_v2`; `output_format` as a query param). Pricing is
 > subscription-tier-based like `elevenlabs-tts`/`elevenlabs-sfx`, unpriced here — untested
 > against a live conversion, so `--dry-run` first.
+
+### `nazca transcribe`
+
+Speech-to-text, via **ElevenLabs** (needs `ELEVENLABS_API_KEY`) — nazca's first op whose
+output is text/JSON, not audio. Takes a local audio/video file (a positional SOURCE, not
+a URL — unlike `--ref`/`--start` conventions elsewhere), writes the full decoded transcript
+response as JSON.
+
+```bash
+nazca transcribe interview.mp3 -o interview.json
+nazca transcribe clip.wav -o clip.json --language en --dry-run
+```
+
+**Flags:** positional SOURCE (required, local audio/video file, `click.Path(exists=True)`) ·
+`-o/--out` (required — a `.json` path; nazca writes the **full** response, not just the
+plain-text transcript, so word-level timestamps/detected language survive: pull `.text`
+back out with `jq -r .text out.json` if that's all you want) · `--language` (ISO-639-1/3
+hint, e.g. `en`; omit to let ElevenLabs auto-detect) · `--model` (default `elevenlabs-stt`,
+the only stt model wired today) · `--dry-run`.
+
+> **Status:** `POST /v1/speech-to-text`, `multipart/form-data` (the audio file + a required
+> `model_id` field, hardcoded to ElevenLabs' `scribe_v2`) — nazca's second multipart upload
+> after Fish's `voice_clone` (phase A2), reusing the same `retry.post_multipart` helper.
+> Diarization, word/character timestamp granularity, entity redaction, and the async
+> webhook mode are real ElevenLabs fields/features not exposed via CLI this pass (same
+> "don't expose every knob" posture as `speak`'s `voice_settings`). Pricing is
+> subscription-tier-based like the rest of ElevenLabs' catalog here, unpriced — `--dry-run`
+> shows the request plan, not a cost estimate.
 
 ### `nazca make3d`
 
@@ -633,6 +662,7 @@ Audio/ElevenLabs pricing changes often and is tier/resolution-dependent — trea
 | `elevenlabs-voice-clone` | audio (voice clone) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `elevenlabs-voice-design` | audio (voice design) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `elevenlabs-speech-to-speech` | audio (speech_to_speech) | subscription-tier-based, unpriced here | premium | ElevenLabs |
+| `elevenlabs-stt` | audio (stt) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |
@@ -1005,7 +1035,7 @@ src/nazca/
 │   ├── atlas.py      Atlas Cloud — ATLAS_API_KEY + async submit→poll (image · video · audio · 3D)
 │   ├── worder.py     Worder — WORDER_API_KEY + sync REST (audio / human voice actor TTS)
 │   ├── fish.py       Fish Audio — FISH_API_KEY + sync REST (audio / hosted + community voice models)
-│   └── elevenlabs.py ElevenLabs — ELEVENLABS_API_KEY (xi-api-key header) + sync REST (tts/sfx/voice_clone/voice_design/speech_to_speech)
+│   └── elevenlabs.py ElevenLabs — ELEVENLABS_API_KEY (xi-api-key header) + sync REST (tts/sfx/voice_clone/voice_design/speech_to_speech/stt)
 ├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
 ├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
 ├── audio.py          thin orchestrator: text-to-speech → backend.run_audio()
@@ -1069,17 +1099,19 @@ sequenceDiagram
   audio stream rather than a JSON envelope (handled by `retry.post_bytes`), and pricing is unverified, so
   `--dry-run` cannot estimate cost.
 - **ElevenLabs** (a fourth `speak` backend, `elevenlabs-tts` / `elevenlabs:<voice_id>`) is integrated
-  per ElevenLabs' published OpenAPI schema and public docs. TTS, `sfx`, voice cloning, voice design, and
-  `speech-to-speech` are wired; dubbing/etc. are a later follow-up (issue #122, phase A3; absorbs issue
-  #121). It
-  requires an explicit `--voice <voice_id>` (no default voice exists), auth is `xi-api-key` rather than
-  `Authorization: Bearer` (unlike every other backend here), `voice_id` is a URL path segment rather than
-  a body field, `output_format` is a query-string parameter rather than a body field, and pricing is
-  subscription-tier-based so `--dry-run` cannot estimate cost. `speech-to-speech`'s request is
-  `multipart/form-data` (a local source audio FILE, not text) whose *response* is still raw audio bytes —
-  neither `retry.post_multipart` nor `retry.post_bytes` covers that combination alone, so it uses the new
-  `retry.post_multipart_bytes`; the SOURCE argument accepts a local file only (no URL support), since the
-  endpoint takes a file upload, not a URL.
+  per ElevenLabs' published OpenAPI schema and public docs. TTS, `sfx`, voice cloning, voice design,
+  `speech-to-speech`, and `stt` (`nazca transcribe`) are wired; dubbing/`align` are a later follow-up
+  (issue #122, phase A3; absorbs issue #121). It
+  requires an explicit `--voice <voice_id>` for TTS/speech-to-speech (no default voice exists), auth is
+  `xi-api-key` rather than `Authorization: Bearer` (unlike every other backend here), `voice_id` is a URL
+  path segment rather than a body field, `output_format` is a query-string parameter rather than a body
+  field, and pricing is subscription-tier-based so `--dry-run` cannot estimate cost. `speech-to-speech`'s
+  request is `multipart/form-data` (a local source audio FILE, not text) whose *response* is still raw
+  audio bytes — neither `retry.post_multipart` nor `retry.post_bytes` covers that combination alone, so
+  it uses the new `retry.post_multipart_bytes`; the SOURCE argument accepts a local file only (no URL
+  support), since the endpoint takes a file upload, not a URL. `stt` is likewise `multipart/form-data`
+  (nazca's second multipart upload overall, after Fish's `voice_clone`) with its own required `model_id`
+  field distinct from any TTS model id.
 
 ## License
 

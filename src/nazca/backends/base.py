@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         ImageRequest,
         SpeechToSpeechRequest,
         ThreeDRequest,
+        TranscriptionRequest,
         VideoRequest,
     )
     from nazca.resolve import ResolvedModel
@@ -115,6 +116,19 @@ class SupportsSpeechToSpeech(Protocol):
     ) -> bytes | dict: ...
 
 
+@runtime_checkable
+class SupportsStt(Protocol):
+    """A backend that can transcribe an audio file to text (issue #122 A3).
+
+    Unlike `SupportsAudio.run_audio` (text in, audio bytes out), `run_stt`
+    takes a `TranscriptionRequest` (audio file in) and returns decoded JSON
+    (text in, structured out) — never raw bytes, so it isn't folded into
+    `SupportsAudio`.
+    """
+
+    def run_stt(self, resolved: ResolvedModel, req: TranscriptionRequest) -> dict: ...
+
+
 # modality/op key -> (capability protocol, human label for the error message)
 _CAPABILITY: dict[str, tuple[type, str]] = {
     "image": (SupportsImage, "images"),
@@ -124,6 +138,7 @@ _CAPABILITY: dict[str, tuple[type, str]] = {
     "voice_clone": (SupportsVoiceClone, "voice cloning"),
     "voice_design": (SupportsVoiceDesign, "voice design"),
     "speech_to_speech": (SupportsSpeechToSpeech, "speech-to-speech voice conversion"),
+    "stt": (SupportsStt, "speech-to-text"),
 }
 
 

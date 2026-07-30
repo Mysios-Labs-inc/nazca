@@ -252,7 +252,81 @@ All notable changes to nazca are documented here. Format follows
   fragment for this endpoint was not independently re-verified live, unlike
   `elevenlabs-sfx`'s), unverified against a live key.*
 
+- **ElevenLabs speech-to-text (`elevenlabs-stt` / `nazca transcribe`, issue #122
+  phase A3, third sub-phase after `tts`/`sfx`):** wires `stt` — the first op
+  anywhere in the audio modality whose *real-run* output is text/JSON, not
+  audio bytes. `POST /v1/speech-to-text` takes a local audio file (`file`
+  multipart field) + a required `model_id` field (nazca hardcodes ElevenLabs'
+  newer `scribe_v2`; `scribe_v1` also exists but isn't exposed via a CLI flag
+  this pass) + optional `language_code`, and returns decoded JSON: `text`,
+  `words` (per-word `start`/`end`/`type`/`speaker_id`), `language_code`,
+  `language_probability`. Genuinely doesn't fit `AudioRequest` (text in, audio
+  out — the opposite direction) or `voice.py`'s `clone_voice`/`design_voice`
+  shape (audio/text in, but voice metadata/candidate audio out, not a
+  transcript) — three new pieces of plumbing follow the precedent phase A2's
+  `voice_clone`/`voice_design` set for "genuinely different shape -> own
+  seam":
+  - **`request.TranscriptionRequest`** — a new dataclass (`source_audio_path`,
+    `language`, `est_cost_usd`, `dry_run`), not another `AudioRequest` field.
+  - **`backends.base.SupportsStt`** — a new `@runtime_checkable` Protocol
+    (`run_stt(resolved, req) -> dict`) and `_CAPABILITY["stt"]` registry
+    entry, mirroring `SupportsVoiceClone`/`SupportsVoiceDesign`.
+  - **`nazca.transcribe`** — a new orchestrator module (`transcribe()`),
+    following the same resolve → `validate_op` → `require_capability` →
+    dispatch → `write_result` seam as `audio.py`/`voice.py`, and the new
+    `nazca transcribe SOURCE -o out.json [--language en] [--dry-run]` CLI
+    command. `-o` is documented as a `.json` path deliberately — the **full**
+    response is written, not just the plain-text transcript, so word-level
+    timestamps/detected language survive (`jq -r .text out.json` recovers the
+    plain transcript for a caller who only wants that).
+
+  `ElevenLabsBackend.run_stt` follows the exact same dry-run-before-auth
+  ordering this file's module docstring calls out as the single most
+  important invariant here: the source file's existence is checked (and, for
+  a real run, read) before `auth_token()` is ever called, and the dry-run
+  branch returns before headers are built — so `nazca transcribe ... --dry-run`
+  with `ELEVENLABS_API_KEY` unset makes zero network calls, verified directly
+  (`env -u ELEVENLABS_API_KEY nazca transcribe ... --dry-run`) as well as via
+  a dedicated regression test mirroring `elevenlabs-sfx`'s. Multipart request
+  building reuses `retry.post_multipart` (nazca's second multipart caller,
+  after Fish's `voice_clone` in A2) — no new retry machinery needed.
+
+  **`media.write_result` generalized (minimal, backward-compatible):**
+  previously assumed a real (non-dry) `result` was always `bytes` (every
+  prior image/video/audio/3D caller). `stt` is the first caller whose real
+  result is a `dict` — `write_result` now writes that dict as JSON straight to
+  `out` when it isn't `bytes`, and is otherwise byte-for-byte unchanged (the
+  dry-run branch, and the bytes branch every existing caller hits, are
+  untouched) — so this is a widening, not a behavior change, for every
+  existing image/video/audio/3D caller.
+
+  New registry entry: `elevenlabs-stt` (`ops={"stt"}`, `provider_id=""` like
+  `elevenlabs-sfx` — no voice concept), pricing subscription-tier-based like
+  the rest of ElevenLabs' catalog here, so likewise unpriced (`price_usd=
+  None`). Diarization, timestamp granularity, entity redaction, and the async
+  webhook mode are real ElevenLabs fields not exposed via CLI this pass, same
+  "don't expose every knob" posture as `tts`'s `voice_settings`.
+
+  *Status: integrated per ElevenLabs' published `openapi.json` speech-to-text
+  spec, unverified against a live key.*
+
 ### Fixed
+- **`ElevenLabsBackend.run_stt`'s dry-run branch reintroduced the exact
+  TOCTOU gap `speech_to_speech` had just been fixed for, two entries below.**
+  Only the real-run `read_bytes()` call was wrapped in the guard — the
+  dry-run branch's `stat()` call (needed for the plan's file-size field) sat
+  outside it. Three independent review passes on this PR caught the same
+  recurrence; fixed identically, by widening the `try` to cover both.
+- **`run_stt` never validated ElevenLabs' response shape before writing it
+  out.** A 2xx response missing `"text"` (schema change, unexpected/partial
+  envelope) would have been silently written to the output file and reported
+  as a successful transcript. Now raises `ElevenLabsError` if `"text"` is
+  absent from the decoded response.
+- **`transcribe()` never populated `TranscriptionRequest.est_cost_usd`**,
+  unlike every sibling orchestrator (`audio.speak`, `voice.speech_to_speech`)
+  — harmless today since ElevenLabs' STT is unpriced, but the field existed
+  and did nothing, contradicting its own docstring. Wired it the same way
+  the siblings do.
 - **`ElevenLabsBackend.speech_to_speech`'s dry-run branch could raise a raw
   `OSError`/traceback instead of a clean `ElevenLabsError`.** Only the
   real-run `read_bytes()` call was wrapped in the TOCTOU `try/except OSError`
