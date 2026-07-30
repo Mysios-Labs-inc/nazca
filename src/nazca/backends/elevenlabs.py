@@ -4,8 +4,8 @@ API (issue #122 phase A3).
 Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
-fourth *direct* speech provider, parallel to Worder/Fish. TTS landed first;
-sound effects (`sfx`) is next — voice design/speech-to-speech/dubbing/etc are
+fourth *direct* speech provider, parallel to Worder/Fish. TTS and sound
+effects (`sfx`) are wired; voice design/speech-to-speech/dubbing/etc are
 still a later follow-up per `docs/media-modalities.md`'s "Audio roadmap" (A3
 sub-phases). This also absorbs issue #121 (a full-integration proposal).
 
@@ -20,9 +20,10 @@ backend follows the same shape as Fish/Worder/Atlas/OpenAI (it doesn't):
 1. **Auth header is `xi-api-key: <key>`, NOT `Authorization: Bearer <key>`.**
    Every other backend here (Fish, Worder, Atlas, OpenAI) uses Bearer auth;
    ElevenLabs does not. Get this wrong and every request 401s.
-2. **The voice is a URL *path* parameter**, not a body field — unlike Fish's
-   `reference_id` body field or Worder's `voice_id` body field. `tts_endpoint`
-   therefore takes `voice_id` and bakes it into the URL.
+2. **(TTS only) the voice is a URL *path* parameter**, not a body field —
+   unlike Fish's `reference_id` body field or Worder's `voice_id` body field.
+   `tts_endpoint` therefore takes `voice_id` and bakes it into the URL. `sfx`
+   has no voice concept at all — `sfx_endpoint` takes no id.
 3. **`output_format` is a query-string parameter**, not a body field — unlike
    Fish/Atlas where format is inside the JSON body. nazca's `--format mp3|wav`
    maps to ElevenLabs' enum: `"mp3"` -> `"mp3_44100_128"` (ElevenLabs' own

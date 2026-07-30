@@ -925,7 +925,7 @@ def music(prompt, out, lyrics, output_format, model, dry_run):
 @cli.command()
 @click.argument("prompt", required=True)
 @click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
-@click.option("--duration", "duration_seconds", default=None, type=float, help="Target length in seconds (0.5-30; omit to let ElevenLabs auto-guess).")
+@click.option("--duration", "duration_seconds", default=None, type=click.FloatRange(0.5, 30), help="Target length in seconds (0.5-30; omit to let ElevenLabs auto-guess).")
 @click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
 @click.option("--model", default=None, help="Sound-effect model (default: elevenlabs-sfx).")
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")

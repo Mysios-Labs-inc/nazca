@@ -47,7 +47,8 @@ def test_generate_sfx_omits_duration_when_not_given(tmp_path):
 def test_generate_sfx_default_model_is_elevenlabs_sfx(tmp_path):
     plan_path = generate_sfx(tmp_path / "effect.mp3", "a prompt", dry_run=True)
     plan = json.loads(plan_path.read_text())
-    assert plan["backend"] == "elevenlabs"
+    # distinguishes elevenlabs-sfx from elevenlabs-tts, which shares the same backend
+    assert plan["url"] == "https://api.elevenlabs.io/v1/sound-generation?output_format=mp3_44100_128"
 
 
 def test_generate_sfx_forwards_wav_format(tmp_path):
@@ -159,7 +160,7 @@ def test_run_audio_sfx_success_returns_raw_audio_bytes(monkeypatch):
     from nazca.resolve import resolve
 
     resolved = resolve("elevenlabs-sfx", "audio")
-    req = _sfx_request()
+    req = _sfx_request(duration_seconds=8)
     audio_bytes = b"\xff\xfb not real mp3 but stands in for one"
 
     class _Resp:
@@ -188,7 +189,61 @@ def test_run_audio_sfx_success_returns_raw_audio_bytes(monkeypatch):
     assert "/v1/sound-generation" in sent.full_url
     assert "/v1/text-to-speech" not in sent.full_url  # not the TTS endpoint
     sent_body = json.loads(sent.data.decode())
+    assert sent_body == {"text": "glass breaking on concrete", "duration_seconds": 8}
+
+
+def test_run_audio_sfx_success_omits_duration_when_not_given(monkeypatch):
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    from nazca.resolve import resolve
+
+    resolved = resolve("elevenlabs-sfx", "audio")
+    req = _sfx_request()
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"audio bytes"
+
+    captured_requests = []
+
+    def fake_urlopen(request, timeout=None):
+        captured_requests.append(request)
+        return _Resp()
+
+    with mock.patch("urllib.request.urlopen", fake_urlopen):
+        ElevenLabsBackend().run_audio(resolved, req)
+    sent_body = json.loads(captured_requests[0].data.decode())
     assert sent_body == {"text": "glass breaking on concrete"}
+
+
+def test_run_audio_sfx_missing_api_key_raises_before_network(monkeypatch):
+    # Non-dry-run counterpart to the dry-run regression test above — pins that
+    # the sfx branch's url/body construction still can't accidentally reach
+    # `_post`/`auth_token()` without a key, the same bug class A2's
+    # voice_design shipped once for a different ElevenLabs/Fish op.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    monkeypatch.setattr("nazca.config.get_value", lambda key: None)
+    from nazca.resolve import resolve
+
+    resolved = resolve("elevenlabs-sfx", "audio")
+    req = _sfx_request()
+    with mock.patch("urllib.request.urlopen") as urlopen:
+        try:
+            ElevenLabsBackend().run_audio(resolved, req)
+        except ElevenLabsError as e:
+            assert "ELEVENLABS_API_KEY" in str(e)
+        else:
+            raise AssertionError("expected ElevenLabsError when ELEVENLABS_API_KEY is unset")
+        urlopen.assert_not_called()
 
 
 def test_run_audio_sfx_http_error_wraps_as_elevenlabs_error(monkeypatch):

@@ -109,6 +109,16 @@ All notable changes to nazca are documented here. Format follows
   live key.*
 
 ### Fixed
+- **`retry.post_bytes` never validated the Content-Type of a 2xx response**
+  (found during `elevenlabs-sfx`'s PR review, but pre-existing — shared by
+  every raw-bytes backend: Fish's `/v1/tts`, ElevenLabs' `/v1/text-to-speech`
+  and `/v1/sound-generation`). An expired signed URL or partial-failure
+  response can return an error body (JSON/XML/HTML) at HTTP 200, which was
+  silently written straight to the output file as if it were real audio.
+  Atlas's async `_poll()` already had this exact guard (phase A4) but the
+  synchronous `post_bytes` path didn't; now it rejects the same known
+  non-media Content-Types (`application/json`/`xml`, `text/xml`/`html`) via
+  `on_http_error`, same negative-whitelist approach as Atlas.
 - **ElevenLabs' `voice_id` was interpolated unescaped into the request URL.**
   Unlike Fish/Worder (voice is a JSON body field, so `json.dumps` handles
   escaping automatically), ElevenLabs bakes `voice_id` into the URL path —

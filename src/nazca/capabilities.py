@@ -70,8 +70,7 @@ VIDEO_OPS: frozenset[str] = frozenset(
 )
 AUDIO_OPS: frozenset[str] = frozenset(
     {
-        "tts",               # text                       → audio     (text-to-speech; the
-                              #   only op any model declares today — see issue #122 phase A1)
+        "tts",               # text                       → audio     (text-to-speech)
         "voice_clone",       # audio sample(s)            → voice_id  (derive a reusable voice)
         "voice_design",      # text description           → 3x voice_id (generate voice candidates)
         "speech_to_speech",  # source audio + voice_id    → audio     (voice changer)
