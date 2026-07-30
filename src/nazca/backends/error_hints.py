@@ -165,6 +165,25 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
             " — Worder's underlying TTS service errored; retry shortly",
         ),
     ],
+    "fish": [
+        (
+            401,
+            None,
+            " — invalid or missing FISH_API_KEY; get one at fish.audio",
+        ),
+        (
+            402,
+            None,
+            " — insufficient credits; top up billing at fish.audio",
+        ),
+        (
+            422,
+            None,
+            " — validation error (body is a list of {loc, type, msg}); check that"
+            " `text` is non-empty and `reference_id` names a real model from"
+            " GET /model",
+        ),
+    ],
 }
 
 

@@ -29,6 +29,7 @@ __all__ = [  # noqa: F822
     "OPENAI_API_KEY",
     "ATLAS_API_KEY",
     "WORDER_API_KEY",
+    "FISH_API_KEY",
 ]
 
 
@@ -82,5 +83,10 @@ def __getattr__(name: str):  # noqa: ANN001, ANN201
     # Precedence: WORDER_API_KEY env var > ~/.config/nazca/config.ini > None
     if name == "WORDER_API_KEY":
         return os.getenv("WORDER_API_KEY") or get_value("worder_api_key")
+
+    # --- Fish Audio (optional — only required when a fish model is selected) ---
+    # Precedence: FISH_API_KEY env var > ~/.config/nazca/config.ini > None
+    if name == "FISH_API_KEY":
+        return os.getenv("FISH_API_KEY") or get_value("fish_api_key")
 
     raise AttributeError(name)

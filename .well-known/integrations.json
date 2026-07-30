@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "summary": "Thin, agent-driven CLI for AI image, video, speech, and 3D generation. Routes a prompt to the cheapest capable backend: Vertex AI (Gemini/Imagen/Veo, default, gcloud auth, no API key) plus opt-in fal.ai, ByteDance ModelArk, OpenAI Images, Atlas Cloud, and Worder.",
+  "summary": "Thin, agent-driven CLI for AI image, video, speech, and 3D generation. Routes a prompt to the cheapest capable backend: Vertex AI (Gemini/Imagen/Veo, default, gcloud auth, no API key) plus opt-in fal.ai, ByteDance ModelArk, OpenAI Images, Atlas Cloud, Worder, and Fish Audio.",
   "credentials": {
     "vertex_adc": {
       "type": "custom",
@@ -37,6 +37,12 @@
       "label": "Worder API key (WORDER_API_KEY)",
       "generateUrl": "https://www.worder.com/developers",
       "setup": "Get a key at worder.com/developers, then `nazca login` (select Worder) or `nazca config set worder_api_key <key>`, or export WORDER_API_KEY."
+    },
+    "fish_api_key": {
+      "type": "bearer",
+      "label": "Fish Audio API key (FISH_API_KEY)",
+      "generateUrl": "https://fish.audio/",
+      "setup": "Get a key at fish.audio (account → API keys), then `nazca login` (select Fish Audio) or `nazca config set fish_api_key <key>`, or export FISH_API_KEY."
     }
   },
   "surfaces": [
@@ -101,6 +107,15 @@
           {
             "use": [
               { "id": "worder_api_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["WORDER_API_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "fish_api_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["FISH_API_KEY"] } }
             ],
             "basis": {
               "via": "declared",

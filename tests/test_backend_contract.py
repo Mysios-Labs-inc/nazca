@@ -22,7 +22,7 @@ def _png(path):
 
 # Resolved (model_id, api, region) routing per backend for the image dry-run probe.
 # Only image-capable backends are keyed here (mirrors _VIDEO_PROBE below) — an
-# audio-only backend like worder has no run_image to probe.
+# audio-only backend like worder/fish has no run_image to probe.
 _IMAGE_PROBE = {
     "vertex": ("gemini-2.5-flash-image", "gemini", "us-central1"),
     "fal": ("fal-ai/flux/schnell", "fal", ""),
@@ -61,6 +61,7 @@ def test_backends_satisfy_their_capability_protocols():
         "openai": (True, False, False, False),
         "atlas": (True, True, True, True),
         "worder": (False, False, True, False),
+        "fish": (False, False, True, False),
     }
     for name, backend in BACKENDS.items():
         img, vid, aud, td = expected[name]

@@ -40,6 +40,8 @@ _AUDIO_LITERALS = {
     "atlas:xai/tts-raw": ("atlas", "xai/tts-raw"),
     "worder-tts": ("worder", ""),
     "worder:voice_raw": ("worder", "voice_raw"),
+    "fish-tts": ("fish", ""),
+    "fish:voice_raw": ("fish", "voice_raw"),
     None: ("atlas", "xai/tts-v1"),  # DEFAULT_AUDIO_MODEL
 }
 
@@ -95,6 +97,7 @@ _BUILTINS = [
     ("audio", "atlas-tts-grok"),
     ("audio", "atlas-tts-elevenlabs-v3"),
     ("audio", "worder-tts"),
+    ("audio", "fish-tts"),
     ("3d", "atlas-hunyuan3d-rapid"),
     ("3d", "atlas-hunyuan3d-pro"),
     ("3d", "atlas-seed3d-2"),
@@ -127,6 +130,7 @@ _PREFIXES = [
     ("video", "atlas:google/veo-raw"),
     ("audio", "atlas:xai/tts-raw"),
     ("audio", "worder:voice_raw"),
+    ("audio", "fish:voice_raw"),
     ("3d", "atlas:tencent/hunyuan-raw"),
 ]
 
