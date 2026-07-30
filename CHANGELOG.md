@@ -253,6 +253,23 @@ All notable changes to nazca are documented here. Format follows
   `elevenlabs-sfx`'s), unverified against a live key.*
 
 ### Fixed
+- **`ElevenLabsBackend.speech_to_speech`'s dry-run branch could raise a raw
+  `OSError`/traceback instead of a clean `ElevenLabsError`.** Only the
+  real-run `read_bytes()` call was wrapped in the TOCTOU `try/except OSError`
+  guard — the dry-run branch's `source.stat()` call (needed for the plan's
+  file-size field) sat outside it, unlike `voice_clone`'s equivalent method,
+  which wraps both. Widened the `try` block to cover both.
+- **`SpeechToSpeechRequest.op` was a dead field** — copied from `AudioRequest`
+  but nothing ever set or read it (`speech_to_speech`'s single ElevenLabs
+  implementation has no second mode to dispatch on, unlike `run_audio`'s
+  real `req.op == "sfx"` branch). Removed.
+- **Three README passages, left over from earlier phases' rebases, still
+  claimed `speech-to-speech` (and, in two of the three, `voice_clone`) were
+  unwired** even after those ops shipped — a class of miss this same
+  changelog already called out once for the price table above. Fixed all
+  three; also fixed a stale `elevenlabs.py` module-docstring opening line and
+  a "(TTS only)" claim about `voice_id` being a URL path param that's also
+  true for `speech_to_speech` now.
 - **README's Models & cost price table was missing an `elevenlabs-voice-clone`
   row entirely** — a gap in phase A3's `voice_clone` sub-phase that survived
   4 rounds of review, only caught while resolving this branch's rebase

@@ -89,6 +89,30 @@ def test_speech_to_speech_missing_source_file_raises_before_network(tmp_path):
         urlopen.assert_not_called()
 
 
+def test_speech_to_speech_read_failure_after_is_file_check_raises_cleanly(tmp_path, monkeypatch):
+    # The TOCTOU race the module docstring explicitly calls out: a source
+    # file that passes is_file() but fails on read_bytes() (permission
+    # change, deleted between check and read) must raise a clean
+    # ElevenLabsError, not a raw OSError/traceback.
+    from nazca.request import SpeechToSpeechRequest
+    from nazca.resolve import resolve
+
+    resolved = resolve("elevenlabs-speech-to-speech", "audio")
+    src = _sample(tmp_path)
+    req = SpeechToSpeechRequest(source_audio_path=str(src), voice="v1", dry_run=False)
+
+    def raise_permission_error(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_bytes", raise_permission_error)
+    try:
+        ElevenLabsBackend().speech_to_speech(resolved, req)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a read failure after is_file() passed")
+
+
 def test_speech_to_speech_never_touches_network_auth_or_disk_read_on_dry_run(tmp_path, monkeypatch):
     # Direct regression test for the exact bug class phase A2's voice_design
     # shipped (auth touched before the dry_run check) — here also pins that
@@ -157,6 +181,24 @@ def test_cli_speech_to_speech_requires_existing_source(tmp_path):
         ],
     )
     assert r.exit_code != 0
+
+
+def test_cli_speech_to_speech_success_writes_output_and_prints_confirmation(tmp_path):
+    src = _sample(tmp_path)
+    out = tmp_path / "out.mp3"
+    audio_bytes = b"\xff\xfb converted audio bytes"
+
+    def fake_speech_to_speech(self, resolved, req):
+        return audio_bytes
+
+    with mock.patch.object(ElevenLabsBackend, "speech_to_speech", fake_speech_to_speech):
+        r = CliRunner().invoke(
+            cli,
+            ["speech-to-speech", str(src), "--voice", "v1", "-o", str(out)],
+        )
+    assert r.exit_code == 0
+    assert "✅" in r.output
+    assert out.read_bytes() == audio_bytes
 
 
 def test_cli_speech_to_speech_backend_error_is_clean_not_a_traceback(tmp_path):

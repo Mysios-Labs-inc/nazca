@@ -1,5 +1,6 @@
-"""ElevenLabs backend — text-to-speech and sound effects via ElevenLabs' own
-API (issue #122 phase A3).
+"""ElevenLabs backend — text-to-speech, sound effects, voice cloning/design,
+and speech-to-speech voice conversion via ElevenLabs' own API (issue #122
+phase A3).
 
 Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
@@ -25,10 +26,11 @@ backend follows the same shape as Fish/Worder/Atlas/OpenAI (it doesn't):
 1. **Auth header is `xi-api-key: <key>`, NOT `Authorization: Bearer <key>`.**
    Every other backend here (Fish, Worder, Atlas, OpenAI) uses Bearer auth;
    ElevenLabs does not. Get this wrong and every request 401s.
-2. **(TTS only) the voice is a URL *path* parameter**, not a body field —
-   unlike Fish's `reference_id` body field or Worder's `voice_id` body field.
-   `tts_endpoint` therefore takes `voice_id` and bakes it into the URL. `sfx`
-   has no voice concept at all — `sfx_endpoint` takes no id.
+2. **(TTS and speech_to_speech) the voice is a URL *path* parameter**, not a
+   body field — unlike Fish's `reference_id` body field or Worder's
+   `voice_id` body field. `tts_endpoint`/`speech_to_speech_endpoint`
+   therefore take `voice_id` and bake it into the URL. `sfx`/`voice_clone`/
+   `voice_design` have no voice concept at all — their endpoints take no id.
 3. **`output_format` is a query-string parameter**, not a body field — unlike
    Fish/Atlas where format is inside the JSON body. nazca's `--format mp3|wav`
    maps to ElevenLabs' enum: `"mp3"` -> `"mp3_44100_128"` (ElevenLabs' own
@@ -505,24 +507,25 @@ class ElevenLabsBackend(Backend):
         url = self.speech_to_speech_endpoint(voice_id, output_format)
         fields = {"model_id": ELEVENLABS_STS_DEFAULT_MODEL}
 
-        if req.dry_run:
-            return {
-                "url": url,
-                "backend": self.name,
-                "est_cost_usd": req.est_cost_usd,
-                "fields": dict(fields),
-                "files": [
-                    {"field": "audio", "filename": source.name, "size_bytes": source.stat().st_size}
-                ],
-                "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
-            }
-
         try:
+            if req.dry_run:
+                return {
+                    "url": url,
+                    "backend": self.name,
+                    "est_cost_usd": req.est_cost_usd,
+                    "fields": dict(fields),
+                    "files": [
+                        {"field": "audio", "filename": source.name, "size_bytes": source.stat().st_size}
+                    ],
+                    "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio/voice_clone
+                }
+
             audio_bytes = source.read_bytes()
         except OSError as e:
             # A TOCTOU race (deleted/permission-changed between the is_file()
-            # check above and the actual read) — clean ElevenLabsError, not a
-            # raw traceback, same posture as Fish's voice_clone.
+            # check above and either stat() or read_bytes()) — clean
+            # ElevenLabsError, not a raw traceback, same posture as Fish's
+            # voice_clone.
             raise ElevenLabsError(f"speech_to_speech: couldn't read source audio: {e}") from e
 
         files: list[tuple[str, str, bytes, str]] = [

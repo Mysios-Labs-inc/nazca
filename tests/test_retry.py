@@ -514,3 +514,105 @@ def test_post_multipart_retry_backoff_shared_with_post_json(fast_retry):
 
     assert calls["n"] == 6  # 1 initial + 5 retries
     assert slept == [20.0, 40.0, 80.0, 160.0, 320.0]
+
+
+# --------------------------------------------------------------------------- post_multipart_bytes
+
+
+def _call_multipart_bytes(slept, urlopen, fields=None, files=None, headers=None):
+    with mock.patch("urllib.request.urlopen", urlopen):
+        return retry.post_multipart_bytes(
+            "http://x",
+            fields if fields is not None else {"model_id": "eleven_english_sts_v2"},
+            files if files is not None else [("audio", "sample.wav", b"fake-audio-bytes", "audio/wav")],
+            headers if headers is not None else {"xi-api-key": "test"},
+            on_http_error=lambda c, d: RuntimeError(f"http {c}"),
+            on_rate_limited=lambda c, d: vertex.RateLimitError(f"rl {c}"),
+            _sleep=slept.append,
+            _rand=lambda: 0.0,
+        )
+
+
+def test_post_multipart_bytes_returns_raw_body_unparsed(fast_retry):
+    """post_multipart_bytes must hand back the raw bytes, never json.loads
+    them — same posture as post_bytes, for a request encoded as multipart.
+    """
+    slept = fast_retry
+    not_json = b"\xff\xfb not json audio bytes"
+    out = _call_multipart_bytes(slept, lambda req, timeout=None: _Resp(not_json))
+    assert out == not_json
+    assert isinstance(out, bytes)
+
+
+def test_post_multipart_bytes_sets_content_type_with_boundary(fast_retry):
+    """Shares _build_multipart_body with post_multipart — same request
+    encoding, just a different response decode.
+    """
+    slept = fast_retry
+    captured = {}
+
+    def ok(req, timeout=None):
+        captured["req"] = req
+        return _Resp(b"raw audio bytes")
+
+    _call_multipart_bytes(slept, ok)
+    ctype = captured["req"].headers.get("Content-type") or captured["req"].headers.get("Content-Type")
+    assert ctype is not None
+    assert ctype.startswith("multipart/form-data; boundary=")
+
+
+def test_post_multipart_bytes_body_contains_fields_and_file_parts(fast_retry):
+    slept = fast_retry
+    captured = {}
+
+    def ok(req, timeout=None):
+        captured["req"] = req
+        return _Resp(b"raw audio bytes")
+
+    _call_multipart_bytes(
+        slept,
+        ok,
+        fields={"model_id": "eleven_english_sts_v2"},
+        files=[("audio", "voice.wav", b"\x00\x01audio-bytes", "audio/wav")],
+    )
+    body = captured["req"].data
+    assert b'name="model_id"' in body
+    assert b"eleven_english_sts_v2" in body
+    assert b'name="audio"; filename="voice.wav"' in body
+    assert b"\x00\x01audio-bytes" in body
+
+
+def test_post_multipart_bytes_rejects_json_content_type_on_200(fast_retry):
+    """Carries over post_bytes's Content-Type guard: a 2xx error body
+    (JSON/XML/HTML) must not be silently returned as if it were audio.
+    """
+    slept = fast_retry
+    error_body = b'{"detail": "something went wrong"}'
+    resp = _Resp(error_body, headers={"Content-Type": "application/json"})
+    with pytest.raises(RuntimeError, match="http 200"):
+        _call_multipart_bytes(slept, lambda req, timeout=None: resp)
+
+
+def test_post_multipart_bytes_accepts_unknown_content_type_as_media(fast_retry):
+    slept = fast_retry
+    audio = b"\xff\xfb audio bytes"
+    resp = _Resp(audio, headers={"Content-Type": "audio/mpeg"})
+    out = _call_multipart_bytes(slept, lambda req, timeout=None: resp)
+    assert out == audio
+
+
+def test_post_multipart_bytes_retry_backoff_shared_with_post_json(fast_retry):
+    """post_multipart_bytes shares _post_with_retry's retry/backoff loop —
+    verify the sharing didn't drop rate-limit handling for this path too.
+    """
+    slept = fast_retry
+    calls = {"n": 0}
+
+    def always_429(req, timeout=None):
+        calls["n"] += 1
+        raise _http_error(429, "RESOURCE_EXHAUSTED quota")
+
+    with pytest.raises(vertex.RateLimitError):
+        _call_multipart_bytes(slept, always_429)
+
+    assert calls["n"] == 6  # 1 initial + 5 retries

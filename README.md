@@ -330,7 +330,7 @@ from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id
 > **not** `Authorization: Bearer` like every other backend here. The TTS model defaults to
 > `eleven_multilingual_v2` (ElevenLabs' own default) — not user-configurable today. `voice_settings`
 > (stability/similarity/style/speed) is also not exposed via CLI yet — ElevenLabs' own defaults apply.
-> TTS, sound effects, voice cloning, and voice design are wired; speech-to-speech, dubbing, etc.
+> TTS, sound effects, voice cloning, voice design, and speech-to-speech are wired; dubbing, etc.
 > are a later follow-up (see `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is
 > subscription-tier-based, so `--dry-run` shows the request plan, not a cost estimate.
 
@@ -852,9 +852,10 @@ backend here: auth is sent as an **`xi-api-key` header, not `Authorization: Bear
 ElevenLabs' `output_format` **query-string parameter** (`mp3_44100_128` / `wav_44100`), also unlike the
 body-field convention Fish/Atlas use. The TTS model defaults to `eleven_multilingual_v2` (ElevenLabs' own
 default) and `voice_settings` is not exposed via CLI — neither is user-configurable today. TTS
-(`nazca speak`), sound effects (`nazca sfx`), and voice design (`nazca voice-design --model
-elevenlabs-voice-design`, Step 1 of ElevenLabs' two-step flow only — see that command's docs above) are
-wired; speech-to-speech, dubbing, etc. are a later follow-up. Pricing is subscription-tier-based, so
+(`nazca speak`), sound effects (`nazca sfx`), voice cloning (`nazca voice-clone --model
+elevenlabs-voice-clone`), voice design (`nazca voice-design --model elevenlabs-voice-design`, Step 1 of
+ElevenLabs' two-step flow only — see that command's docs above), and speech-to-speech (`nazca
+speech-to-speech`) are wired; dubbing, etc. are a later follow-up. Pricing is subscription-tier-based, so
 `--dry-run` shows the request plan, not a cost estimate.
 
 ---
@@ -1004,7 +1005,7 @@ src/nazca/
 │   ├── atlas.py      Atlas Cloud — ATLAS_API_KEY + async submit→poll (image · video · audio · 3D)
 │   ├── worder.py     Worder — WORDER_API_KEY + sync REST (audio / human voice actor TTS)
 │   ├── fish.py       Fish Audio — FISH_API_KEY + sync REST (audio / hosted + community voice models)
-│   └── elevenlabs.py ElevenLabs — ELEVENLABS_API_KEY (xi-api-key header) + sync REST (audio / TTS only)
+│   └── elevenlabs.py ElevenLabs — ELEVENLABS_API_KEY (xi-api-key header) + sync REST (tts/sfx/voice_clone/voice_design/speech_to_speech)
 ├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
 ├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
 ├── audio.py          thin orchestrator: text-to-speech → backend.run_audio()
@@ -1068,8 +1069,9 @@ sequenceDiagram
   audio stream rather than a JSON envelope (handled by `retry.post_bytes`), and pricing is unverified, so
   `--dry-run` cannot estimate cost.
 - **ElevenLabs** (a fourth `speak` backend, `elevenlabs-tts` / `elevenlabs:<voice_id>`) is integrated
-  per ElevenLabs' published OpenAPI schema and public docs. TTS, `sfx`, and `speech-to-speech` are
-  wired; voice design/dubbing/etc. are a later follow-up (issue #122, phase A3; absorbs issue #121). It
+  per ElevenLabs' published OpenAPI schema and public docs. TTS, `sfx`, voice cloning, voice design, and
+  `speech-to-speech` are wired; dubbing/etc. are a later follow-up (issue #122, phase A3; absorbs issue
+  #121). It
   requires an explicit `--voice <voice_id>` (no default voice exists), auth is `xi-api-key` rather than
   `Authorization: Bearer` (unlike every other backend here), `voice_id` is a URL path segment rather than
   a body field, `output_format` is a query-string parameter rather than a body field, and pricing is

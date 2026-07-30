@@ -182,7 +182,7 @@ def speech_to_speech(
     model: str | None = None,
     output_format: str = "mp3",
     dry_run: bool = False,
-) -> object:
+) -> Path:
     """Convert `source_audio_path`'s speech into `voice`'s voice (the "voice
     changer" op, issue #122 phase A3) and write the result to `out` (or the
     dry-run plan sidecar via `media.write_result`, same convention as

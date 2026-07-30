@@ -118,7 +118,6 @@ class SpeechToSpeechRequest:
     source_audio_path: str = ""
     voice: str | None = None
     output_format: str = "mp3"
-    op: str = "speech_to_speech"
     est_cost_usd: float | None = None
     dry_run: bool = False
 
