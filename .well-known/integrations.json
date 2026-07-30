@@ -1,0 +1,114 @@
+{
+  "version": 3,
+  "summary": "Thin, agent-driven CLI for AI image, video, speech, and 3D generation. Routes a prompt to the cheapest capable backend: Vertex AI (Gemini/Imagen/Veo, default, gcloud auth, no API key) plus opt-in fal.ai, ByteDance ModelArk, OpenAI Images, Atlas Cloud, and Worder.",
+  "credentials": {
+    "vertex_adc": {
+      "type": "custom",
+      "label": "Google Cloud Application Default Credentials",
+      "generateUrl": "https://cloud.google.com/sdk/docs/install",
+      "setup": "Run `nazca setup` — installs the Google Cloud SDK if missing, runs `gcloud auth application-default login`, verifies a token mints, and saves your VERTEX_PROJECT. This is the default, no-API-key path and covers every Vertex-backed model (Gemini/Imagen/Veo)."
+    },
+    "fal_key": {
+      "type": "api_key",
+      "label": "fal.ai API key (FAL_KEY)",
+      "generateUrl": "https://fal.ai/dashboard/keys",
+      "setup": "Get a key at the fal.ai dashboard, then `nazca login` (select fal.ai) or `nazca config set fal_key <key>`, or export FAL_KEY."
+    },
+    "ark_api_key": {
+      "type": "api_key",
+      "label": "ByteDance ModelArk API key (ARK_API_KEY)",
+      "generateUrl": "https://ark.bytepluses.com",
+      "setup": "Get a key at ark.bytepluses.com (activate the specific Seedream/Seedance model in the console first), then `nazca login` (select ByteDance ModelArk) or `nazca config set ark_api_key <key>`, or export ARK_API_KEY."
+    },
+    "openai_api_key": {
+      "type": "bearer",
+      "label": "OpenAI API key (OPENAI_API_KEY)",
+      "generateUrl": "https://platform.openai.com/api-keys",
+      "setup": "Get a key at platform.openai.com/api-keys, then `nazca login` (select OpenAI) or `nazca config set openai_api_key <key>`, or export OPENAI_API_KEY."
+    },
+    "atlas_api_key": {
+      "type": "bearer",
+      "label": "Atlas Cloud API key (ATLAS_API_KEY)",
+      "generateUrl": "https://www.atlascloud.ai/console/api-keys",
+      "setup": "Get a key at atlascloud.ai/console/api-keys, then `nazca config set atlas_api_key <key>`, or export ATLAS_API_KEY."
+    },
+    "worder_api_key": {
+      "type": "bearer",
+      "label": "Worder API key (WORDER_API_KEY)",
+      "generateUrl": "https://www.worder.com/developers",
+      "setup": "Get a key at worder.com/developers, then `nazca login` (select Worder) or `nazca config set worder_api_key <key>`, or export WORDER_API_KEY."
+    }
+  },
+  "surfaces": [
+    {
+      "slug": "nazca",
+      "name": "nazca",
+      "docs": "https://github.com/Mysios-Labs-inc/nazca#readme",
+      "type": "cli",
+      "command": "nazca",
+      "basis": {
+        "via": "declared",
+        "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+      },
+      "auth": {
+        "status": "required",
+        "entries": [
+          {
+            "use": [
+              { "id": "vertex_adc", "mechanics": { "source": "cli", "command": "nazca setup" } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "fal_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["FAL_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "ark_api_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["ARK_API_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "openai_api_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["OPENAI_API_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "atlas_api_key", "mechanics": { "source": "cli", "command": "nazca config set atlas_api_key", "env": ["ATLAS_API_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          },
+          {
+            "use": [
+              { "id": "worder_api_key", "mechanics": { "source": "cli", "command": "nazca login", "env": ["WORDER_API_KEY"] } }
+            ],
+            "basis": {
+              "via": "declared",
+              "source": "https://mysios-labs-inc.github.io/nazca/.well-known/integrations.json"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
