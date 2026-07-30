@@ -76,6 +76,7 @@ _ENV_MAP: dict[str, str] = {
     "atlas_api_key": "ATLAS_API_KEY",
     "worder_api_key": "WORDER_API_KEY",
     "fish_api_key": "FISH_API_KEY",
+    "elevenlabs_api_key": "ELEVENLABS_API_KEY",
     "vertex_project": "VERTEX_PROJECT",
     "vertex_location": "VERTEX_LOCATION",
 }
@@ -83,6 +84,7 @@ _ENV_MAP: dict[str, str] = {
 #: Keys that hold secrets (masked in `config get`/`list`). Project/region are not.
 SECRET_KEYS: tuple[str, ...] = (
     "fal_key", "ark_api_key", "openai_api_key", "atlas_api_key", "worder_api_key", "fish_api_key",
+    "elevenlabs_api_key",
 )
 
 
@@ -112,6 +114,7 @@ KNOWN_KEYS: tuple[str, ...] = (
     "atlas_api_key",
     "worder_api_key",
     "fish_api_key",
+    "elevenlabs_api_key",
     "vertex_project",
     "vertex_location",
 )

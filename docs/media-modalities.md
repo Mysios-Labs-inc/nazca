@@ -126,6 +126,7 @@ the API level — that's a later, per-provider step where native role fields exi
 | `fish-tts` | fish | tts | `reference_id`-selected voice, `model` header picks quality tier (`s1`/`s2-pro`/`s2.1-pro`/`s2.1-pro-free`); `--voice` required; pricing unverified |
 | `fish-voice-clone` | fish | voice_clone | `POST /model` (multipart); `--title` + 1-20 audio samples → `reference_id`; visibility defaults to **private** (Fish's own API default is public); pricing unverified |
 | `fish-voice-design` | fish | voice_design | `POST /v1/voice-design`; text instruction → `n` (default 2) candidate voices with base64-encoded preview audio; pricing unverified |
+| `elevenlabs-tts` | elevenlabs | tts | `POST /v1/text-to-speech/{voice_id}`; voice_id is a URL path param (not a body field); `eleven_multilingual_v2` by default; `xi-api-key` auth (not Bearer); `output_format` is a query param, not a body field; `--voice` required; pricing subscription-tier-based, unpriced here |
 
 Every wired audio model does `tts` only, except the two Fish Audio entries above
 (issue #122 phase A2). No `speech_to_speech`, `stt`, `sfx`, `music`, `separate`,
@@ -144,7 +145,7 @@ led to the modify-op backends.
 | **Atlas Cloud** | ✅ (2 wired; fronts 17 "text-to-audio" models total per atlascloud.ai/models, rest unexplored) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed ("audio-to-video", 4 models — may be avatar/lip-sync, not voice-change) | ✅ 2 "audio-to-text" models (unwired) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed |
 | **Worder** | ✅ (rich prosody control; no other audio capability offered — a TTS-only marketplace by design) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Fish Audio** | ✅ REST + WebSocket streaming | ✅ `POST /model` (instant clone or persistent trained model) | ✅ `POST /v1/voice-design` | ⚠️ marketing-only — "voice transformation" is a web-app feature, not in the public API/OpenAPI index | ✅ `POST /v1/speech-to-text`, per-segment timestamps | ⚠️ marketing-only — not in the public API index | ⚠️ marketing-only — not in the public API index | ❌ | ⚠️ marketing-only ("audio separation") — not in the public API index | ❌ |
-| **ElevenLabs** *(not integrated — issue [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121))* | ✅ 3 model tiers (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) | ✅ instant + professional cloning | ✅ `/v1/text-to-voice/design` | ✅ `/v1/speech-to-speech/{voice_id}` | ✅ Scribe v2 (batch + realtime) | ✅ `/v1/text-to-sound-effects/convert` | ✅ Eleven Music | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ `/forced-alignment/create` |
+| **ElevenLabs** *(`tts` integrated — issue [#122 A3](https://github.com/Mysios-Labs-inc/nazca/issues/122), absorbs [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121); rest still unwired)* | ✅ **wired** (`elevenlabs-tts`); 3 model tiers exist (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) but only the default (`eleven_multilingual_v2`) is used — no `--model-id` flag yet | ✅ instant + professional cloning (not wired) | ✅ `/v1/text-to-voice/design` (not wired) | ✅ `/v1/speech-to-speech/{voice_id}` (not wired) | ✅ Scribe v2 (batch + realtime) (not wired) | ✅ `/v1/text-to-sound-effects/convert` (not wired) | ✅ Eleven Music (not wired) | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ `/forced-alignment/create` (not wired) |
 
 **Reading this table:** ⚠️ rows are claims from marketing copy that don't appear in
 the provider's own API reference/OpenAPI index — treat as "web-app only, unverified
@@ -156,7 +157,8 @@ nazca has wired, given it aggregates ~91 models total across all modalities.
 
 **Where this points:** ElevenLabs is the only provider with a fully public,
 documented API across nearly the whole audio ops vocabulary (missing only `dub`,
-not live yet anywhere, and `separate`). Fish Audio is second — genuinely has
+not live yet anywhere, and `separate`) — `tts` is now wired (A3, this pass);
+the rest of its vocabulary is future A3 sub-phase work. Fish Audio is second — genuinely has
 `voice_clone`/`voice_design`/`stt` as real endpoints, which nazca doesn't use at all
 today (Fish is wired for `tts` only). Worder is intentionally narrow. Atlas is the
 biggest unknown — likely has unwired audio models worth a `nazca models`-style
@@ -235,9 +237,11 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   `nazca.voice` orchestrator (`clone_voice`/`design_voice`) and the `nazca
   voice-clone`/`nazca voice-design` CLI commands — not through `audio.speak()`/
   `AudioRequest`, since neither fits that text→single-audio-file shape.
-- ⬜ **A3** — ElevenLabs backend (absorbs issue #121): `tts` first, then the
-  new-noun ops (`sfx`/`music`/`voice_design`, no existing `speak`-shaped input to
-  reuse), then `speech_to_speech`/`voice_clone`/`stt`/`align`.
+- 🔶 **A3** — ElevenLabs backend (absorbs issue #121): ✅ `tts` wired
+  (`elevenlabs-tts` / `elevenlabs:<voice_id>` — `xi-api-key` auth,
+  voice_id-in-URL, output_format-as-query-param); ⬜ still to come — the
+  new-noun ops (`sfx`/`music`/`voice_design`, no existing `speak`-shaped input
+  to reuse), then `speech_to_speech`/`voice_clone`/`stt`/`align`.
 - ⬜ **A4** — survey Atlas Cloud's full audio catalog (17 text-to-audio / 2
   audio-to-text / 4 audio-to-video models, only 2 wired today) before assuming
   it's TTS-only.

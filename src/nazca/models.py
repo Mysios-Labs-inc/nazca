@@ -1413,6 +1413,23 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"voice_design"}),
     ),
+    # ElevenLabs (issue #122 phase A3, TTS only — absorbs issue #121). Like Worder/
+    # Fish there is no single default voice, so provider_id is empty and the caller
+    # MUST pass --voice <voice_id> (look one up via GET https://api.elevenlabs.io/v2/voices).
+    # Pricing is subscription-tier-based, not a simple per-request rate, so it is left
+    # unpriced here (cost.estimate_audio_cost returns None) rather than guessing a flat
+    # rate — same posture as fish-tts. It's the most expensive of the four TTS options,
+    # so tier="premium".
+    "elevenlabs-tts": ModelSpec(
+        shorthand="elevenlabs-tts",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"tts"}),
+    ),
 }
 
 

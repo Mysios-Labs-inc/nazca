@@ -32,6 +32,7 @@ _PROVIDERS: list[tuple[str, str | None]] = [
     ("OpenAI  (OPENAI_API_KEY)", "openai_api_key"),
     ("Worder  (WORDER_API_KEY)", "worder_api_key"),
     ("Fish Audio  (FISH_API_KEY)", "fish_api_key"),
+    ("ElevenLabs  (ELEVENLABS_API_KEY)", "elevenlabs_api_key"),
     ("Vertex AI  (gcloud — no key needed)", None),
     ("Done", "done"),
 ]
@@ -850,8 +851,8 @@ def video(source, out, start, prompt, end, do_reframe, do_v2v, do_extend, do_mot
 @cli.command()
 @click.argument("text", required=True)
 @click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
-@click.option("--model", default=None, help="TTS model (default: atlas-tts-grok). Also: atlas-tts-elevenlabs-v3, worder-tts, fish-tts.")
-@click.option("--voice", default=None, help="Named voice (model-specific; required for worder-tts — a voice_id from GET /api/v1/voices — and fish-tts — a reference_id from GET /model).")
+@click.option("--model", default=None, help="TTS model (default: atlas-tts-grok). Also: atlas-tts-elevenlabs-v3, worder-tts, fish-tts, elevenlabs-tts.")
+@click.option("--voice", default=None, help="Named voice (model-specific; required for worder-tts — a voice_id from GET /api/v1/voices — fish-tts — a reference_id from GET /model — and elevenlabs-tts — a voice_id from GET /v2/voices).")
 @click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
 @click.option("--tier", default=None, type=click.Choice(["cheap", "premium"]), help="Cost tier when --model is absent.")
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
@@ -1044,6 +1045,7 @@ def login() -> None:
             "ark_api_key": "ModelArk API key (ARK_API_KEY)",
             "worder_api_key": "Worder API key (WORDER_API_KEY)",
             "fish_api_key": "Fish Audio API key (FISH_API_KEY)",
+            "elevenlabs_api_key": "ElevenLabs API key (ELEVENLABS_API_KEY)",
         }
         label = _labels.get(key_id, key_id)
         val = _prompt_secret(label)

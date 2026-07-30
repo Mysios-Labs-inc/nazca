@@ -111,6 +111,7 @@ _PREFIX_BACKEND: dict[str, str] = {
     "atlas": "atlas",
     "worder": "worder",
     "fish": "fish",
+    "elevenlabs": "elevenlabs",
 }
 
 # Image-only (region, api) per resolved backend — from image._resolve's prefix arm.
@@ -122,11 +123,12 @@ _IMAGE_PREFIX_RA: dict[str, tuple[str, str]] = {
     "atlas": ("", "atlas"),
     "worder": ("", "worder"),  # image-incapable; require_capability raises a clear error on dispatch
     "fish": ("", "fish"),      # image-incapable; require_capability raises a clear error on dispatch
+    "elevenlabs": ("", "elevenlabs"),  # image-incapable; require_capability raises a clear error on dispatch
 }
 
 _IMAGE_PREFIXES = frozenset(_PREFIX_BACKEND)  # all prefixes
 _VIDEO_PREFIXES = frozenset({"vertex", "veo", "fal", "ark", "modelark", "atlas"})
-_AUDIO_PREFIXES = frozenset({"atlas", "worder", "fish"})
+_AUDIO_PREFIXES = frozenset({"atlas", "worder", "fish", "elevenlabs"})
 _3D_PREFIXES = frozenset({"atlas"})
 
 

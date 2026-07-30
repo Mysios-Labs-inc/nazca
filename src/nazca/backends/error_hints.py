@@ -191,6 +191,39 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
             " — Fish Audio's TTS service is temporarily unavailable; retry shortly",
         ),
     ],
+    "elevenlabs": [
+        (
+            401,
+            "quota_exceeded",
+            " — insufficient credits/quota (ElevenLabs returns this as HTTP 401, not 402"
+            " — verified against their own error-messages docs); enable usage-based"
+            " billing or top up at elevenlabs.io, or purchase Pay As You Go credits",
+        ),
+        (
+            401,
+            None,
+            " — invalid or missing ELEVENLABS_API_KEY; get one at elevenlabs.io",
+        ),
+        (
+            422,
+            None,
+            " — validation error (body is {\"detail\": [{loc, msg, type}]}, an object"
+            " wrapping a list — different shape from Fish's bare list); check `text`"
+            " is non-empty and `voice_id` (the URL path segment) is a real voice from"
+            " GET /v2/voices",
+        ),
+        (
+            429,
+            "too_many_concurrent_requests",
+            " — exceeded your plan's concurrency limit; retry with backoff or check"
+            " concurrency limits at elevenlabs.io/app/settings/api-keys",
+        ),
+        (
+            429,
+            None,
+            " — rate-limited (system busy or too many requests); retry shortly",
+        ),
+    ],
 }
 
 
