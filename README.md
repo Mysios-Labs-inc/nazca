@@ -28,7 +28,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`sfx`](#nazca-sfx) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
@@ -391,6 +391,23 @@ Walking through the city lights" -o track.mp3
 > README, which are priced from marketing copy — but it's still untested against a live
 > generation, so `--dry-run` first.
 
+### `nazca sfx`
+
+```bash
+nazca sfx "glass breaking on concrete" -o effect.mp3
+nazca sfx "heavy rainfall with distant thunder" --duration 8 -o rain.mp3
+```
+
+**Flags:** positional style PROMPT (required, a sound description — not speech) ·
+`-o/--out` (`.mp3`/`.wav`, required) · `--duration` (target length in seconds, 0.5-30;
+omit to let ElevenLabs auto-guess) · `--format mp3|wav` · `--model` (default
+`elevenlabs-sfx`, the only sfx model wired today) · `--dry-run`.
+
+> **Status:** request/response schema confirmed against ElevenLabs' live
+> `openapi.json` (`POST /v1/sound-generation`; `text` + optional `duration_seconds`).
+> Pricing is subscription-tier-based like `elevenlabs-tts`, unpriced here — untested
+> against a live generation, so `--dry-run` first.
+
 ### `nazca make3d`
 
 Generate a 3D asset (GLB) from a text prompt or an `--image` (image-to-3D), via Atlas Cloud
@@ -564,6 +581,7 @@ Audio/ElevenLabs pricing changes often and is tier/resolution-dependent — trea
 | `fish-tts` | audio | unverified against a live key | premium | Fish Audio |
 | `elevenlabs-tts` | audio | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-music-minimax` | audio (music) | $0.15 / gen | premium | Atlas |
+| `elevenlabs-sfx` | audio (sfx) | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |

@@ -281,6 +281,29 @@ def test_post_bytes_returns_raw_body_unparsed(fast_retry):
     assert isinstance(out, bytes)
 
 
+def test_post_bytes_rejects_json_content_type_on_200(fast_retry):
+    """An expired signed URL / partial-failure response can return an error body
+    (JSON/XML/HTML) at HTTP 200 — post_bytes must not hand that back as if it
+    were valid audio, mirroring Atlas's `_poll` Content-Type guard.
+    """
+    slept = fast_retry
+    error_body = b'{"detail": "something went wrong"}'
+    resp = _Resp(error_body, headers={"Content-Type": "application/json"})
+    with pytest.raises(RuntimeError, match="http 200"):
+        _call_bytes(slept, lambda req, timeout=None: resp)
+
+
+def test_post_bytes_accepts_unknown_content_type_as_media(fast_retry):
+    """Real audio Content-Types vary per provider/format and aren't enumerable —
+    only the known non-media types are rejected, everything else passes through.
+    """
+    slept = fast_retry
+    audio = b"\xff\xfb audio bytes"
+    resp = _Resp(audio, headers={"Content-Type": "audio/mpeg"})
+    out = _call_bytes(slept, lambda req, timeout=None: resp)
+    assert out == audio
+
+
 def test_post_bytes_persistent_429_exhausts_to_rate_limit_error(fast_retry):
     """`post_bytes` shares the same retry/backoff loop as `post_json` — verify
     that sharing didn't drop rate-limit handling for the raw-bytes path.

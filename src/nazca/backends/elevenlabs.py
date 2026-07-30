@@ -1,15 +1,16 @@
-"""ElevenLabs backend — text-to-speech via ElevenLabs' own API (issue #122 phase A3).
+"""ElevenLabs backend — text-to-speech and sound effects via ElevenLabs' own
+API (issue #122 phase A3).
 
 Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
-fourth *direct* speech provider, parallel to Worder/Fish — this pass is **TTS
-only**; sound effects/voice design/speech-to-speech/dubbing/etc are a later
-follow-up per `docs/media-modalities.md`'s "Audio roadmap" (A3 sub-phases).
-This also absorbs issue #121 (a full-integration proposal) — only `tts` is
-built here, the rest of #121's scope is deferred to future A3 sub-phases.
+fourth *direct* speech provider, parallel to Worder/Fish. TTS and sound
+effects (`sfx`) are wired; voice design/speech-to-speech/dubbing/etc are
+still a later follow-up per `docs/media-modalities.md`'s "Audio roadmap" (A3
+sub-phases). This also absorbs issue #121 (a full-integration proposal).
 
     POST /v1/text-to-speech/{voice_id}?output_format=...  -> raw audio bytes
+    POST /v1/sound-generation?output_format=...           -> raw audio bytes
     GET  /v2/voices                                       -> {"voices": [...], "next_page_token", ...}
 
 Three structural differences from every other backend in this codebase worth
@@ -19,9 +20,10 @@ backend follows the same shape as Fish/Worder/Atlas/OpenAI (it doesn't):
 1. **Auth header is `xi-api-key: <key>`, NOT `Authorization: Bearer <key>`.**
    Every other backend here (Fish, Worder, Atlas, OpenAI) uses Bearer auth;
    ElevenLabs does not. Get this wrong and every request 401s.
-2. **The voice is a URL *path* parameter**, not a body field — unlike Fish's
-   `reference_id` body field or Worder's `voice_id` body field. `tts_endpoint`
-   therefore takes `voice_id` and bakes it into the URL.
+2. **(TTS only) the voice is a URL *path* parameter**, not a body field —
+   unlike Fish's `reference_id` body field or Worder's `voice_id` body field.
+   `tts_endpoint` therefore takes `voice_id` and bakes it into the URL. `sfx`
+   has no voice concept at all — `sfx_endpoint` takes no id.
 3. **`output_format` is a query-string parameter**, not a body field — unlike
    Fish/Atlas where format is inside the JSON body. nazca's `--format mp3|wav`
    maps to ElevenLabs' enum: `"mp3"` -> `"mp3_44100_128"` (ElevenLabs' own
@@ -49,6 +51,15 @@ style 0, use_speaker_boost true, speed 1).
 Response is raw audio bytes (`audio/mpeg` typically, treated generically),
 NOT JSON — same shape as Fish's `/v1/tts` — so `retry.post_bytes` is used,
 not `retry.post_json`.
+
+`sfx` (`POST /v1/sound-generation`) has no `voice_id` path segment at all —
+it's `{"text": ...}` (+ optional `duration_seconds`, 0.5-30s, omitted to let
+ElevenLabs auto-guess the duration) posted straight to a fixed URL, with
+`output_format` as the same kind of query-string param as TTS. `text` here is
+a sound description ("glass breaking on concrete"), not speech. `prompt_influence`
+and `loop` (the latter model-id-gated) exist in ElevenLabs' schema but aren't
+exposed via CLI this pass, same "don't expose every knob" posture as TTS's
+`voice_settings`.
 
 Error responses (verified against ElevenLabs' published docs, 2026-07-30):
 401 covers both an invalid/missing key AND (confusingly) insufficient
@@ -117,12 +128,40 @@ class ElevenLabsBackend(Backend):
             url += "?" + urlencode({"output_format": output_format})
         return url
 
+    def sfx_endpoint(self, output_format: str | None = None) -> str:
+        """`POST /v1/sound-generation` — no `voice_id` path segment (sfx has no
+        voice concept); `output_format` (when given) is a query-string param,
+        same convention as `tts_endpoint`.
+        """
+        url = f"{ELEVENLABS_BASE}/v1/sound-generation"
+        if output_format:
+            url += "?" + urlencode({"output_format": output_format})
+        return url
+
     def voices_endpoint(self) -> str:
         """`GET /v2/voices` — the modern, paginated voice listing. `GET /v1/voices`
         also exists but ElevenLabs' own docs say it stops working once a
         workspace exceeds 500 voices, so `/v2` is preferred here.
         """
         return f"{ELEVENLABS_BASE}/v2/voices"
+
+    def _resolve_output_format(self, req: AudioRequest) -> str | None:
+        """Map `req.output_format` to ElevenLabs' query-param enum, or raise.
+
+        `AudioRequest.output_format` is an unvalidated `str` (the CLI restricts
+        it to `mp3`/`wav` via `click.Choice`, but a direct library caller could
+        pass anything) — a value outside `_OUTPUT_FORMAT_MAP` must raise here
+        rather than silently falling back to ElevenLabs' own default format.
+        """
+        if not req.output_format:
+            return None
+        mapped = _OUTPUT_FORMAT_MAP.get(req.output_format)
+        if mapped is None:
+            raise ElevenLabsError(
+                f"Unsupported output_format {req.output_format!r} for ElevenLabs; "
+                f"supported: {', '.join(sorted(_OUTPUT_FORMAT_MAP))}"
+            )
+        return mapped
 
     # ------------------------------------------------------------------ auth/http
     def auth_token(self) -> str:
@@ -159,35 +198,40 @@ class ElevenLabsBackend(Backend):
 
     # ------------------------------------------------------------------ run seam
     def run_audio(self, resolved, req: AudioRequest):
-        """Synchronous text-to-speech. `req.voice` (or the resolved provider_id,
-        when it names a real voice) supplies the required `voice_id`, baked into
-        the URL path — not a body field. `model_id` defaults to
-        `eleven_multilingual_v2` (ElevenLabs' own default, not user-configurable
-        today beyond the routed `--model`). `req.output_format` (`--format
-        mp3|wav`) is mapped to ElevenLabs' `output_format` query-string enum and
-        omitted entirely when unset.
+        """Synchronous text-to-speech (`op="tts"`) or sound-effect generation
+        (`op="sfx"`, issue #122 phase A3).
 
-        The CLI restricts `--format` to `mp3`/`wav` (`click.Choice`), but
-        `AudioRequest.output_format` itself is an unvalidated `str` — a direct
-        library caller passing anything else must get a clear error here rather
-        than the request silently falling back to ElevenLabs' own default format.
+        TTS: `req.voice` (or the resolved provider_id, when it names a real
+        voice) supplies the required `voice_id`, baked into the URL path — not
+        a body field. `model_id` defaults to `eleven_multilingual_v2`
+        (ElevenLabs' own default, not user-configurable today beyond the
+        routed `--model`).
+
+        sfx: no voice concept at all — `req.text` is a sound description, not
+        speech, posted to a fixed URL with no `voice_id`. `req.duration_seconds`
+        (when set) is forwarded; ElevenLabs auto-guesses the duration otherwise.
+
+        Both map `req.output_format` (`--format mp3|wav`) to ElevenLabs'
+        `output_format` query-string enum via `_resolve_output_format` (which
+        raises for anything outside `mp3`/`wav` rather than silently falling
+        back to ElevenLabs' own default format).
         """
-        voice_id = req.voice or (resolved.provider_id or None)
-        if not voice_id:
-            raise ElevenLabsError(
-                "ElevenLabs requires a voice: pass --voice <voice_id> (look one up "
-                "via GET https://api.elevenlabs.io/v2/voices)."
-            )
-        output_format = None
-        if req.output_format:
-            output_format = _OUTPUT_FORMAT_MAP.get(req.output_format)
-            if output_format is None:
+        output_format = self._resolve_output_format(req)
+
+        if req.op == "sfx":
+            url = self.sfx_endpoint(output_format)
+            body: dict = {"text": req.text}
+            if req.duration_seconds is not None:
+                body["duration_seconds"] = req.duration_seconds
+        else:
+            voice_id = req.voice or (resolved.provider_id or None)
+            if not voice_id:
                 raise ElevenLabsError(
-                    f"Unsupported output_format {req.output_format!r} for ElevenLabs; "
-                    f"supported: {', '.join(sorted(_OUTPUT_FORMAT_MAP))}"
+                    "ElevenLabs requires a voice: pass --voice <voice_id> (look one up "
+                    "via GET https://api.elevenlabs.io/v2/voices)."
                 )
-        url = self.tts_endpoint(voice_id, output_format)
-        body: dict = {"text": req.text, "model_id": ELEVENLABS_DEFAULT_MODEL}
+            url = self.tts_endpoint(voice_id, output_format)
+            body = {"text": req.text, "model_id": ELEVENLABS_DEFAULT_MODEL}
 
         if req.dry_run:
             return {

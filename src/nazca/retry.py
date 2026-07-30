@@ -94,21 +94,25 @@ def _post_with_retry(
     *,
     on_http_error: Callable[[int, str], Exception],
     on_rate_limited: Callable[[int, str], Exception],
-    decode: Callable[[bytes], object],
+    decode: Callable[[bytes, dict], object],
     timeout: float | None = None,
     _sleep: Callable[[float], None] = time.sleep,
     _rand: Callable[[], float] = random.random,
 ) -> object:
     """Shared retry/backoff loop for a POST whose success body `decode` turns into
     the return value — `json.loads` for `post_json`/`post_multipart`, raw
-    passthrough for `post_bytes`. See `post_json` for the retry/backoff
-    semantics; this is the body all three public helpers share so the retry
-    logic lives in exactly one place.
+    passthrough (with a Content-Type check) for `post_bytes`. See `post_json`
+    for the retry/backoff semantics; this is the body all three public
+    helpers share so the retry logic lives in exactly one place.
 
     `data` is the already-encoded request body (JSON bytes for `post_json`/
     `post_bytes`, a hand-built multipart/form-data body for `post_multipart`) —
     encoding happens once in the caller, before the retry loop, so each retry
     attempt reuses the identical bytes rather than re-encoding.
+
+    `decode` also receives the response headers (dict) alongside the payload,
+    so `post_bytes` can inspect Content-Type before treating a 2xx body as
+    valid — see its docstring for why.
     """
     retries = max_retries()
     base = backoff_base()
@@ -123,8 +127,9 @@ def _post_with_retry(
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (trusted provider endpoint)
                 payload = resp.read()
+                resp_headers = dict(resp.headers or {})
                 # fal requeue signal rides on a successful (2xx) response.
-                if _needs_retry_header(dict(resp.headers or {})):
+                if _needs_retry_header(resp_headers):
                     if attempt < retries:
                         base_delay = base * (2 ** attempt)
                         logger.warning(
@@ -136,7 +141,7 @@ def _post_with_retry(
                     raise on_rate_limited(
                         getattr(resp, "status", 0), "server requested retry (x-fal-needs-retry)"
                     )
-                return decode(payload)
+                return decode(payload, resp_headers)
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:600]
             err_headers = dict(e.headers or {})
@@ -189,11 +194,23 @@ def post_json(
         headers,
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
-        decode=lambda payload: json.loads(payload.decode()),
+        decode=lambda payload, resp_headers: json.loads(payload.decode()),
         timeout=timeout,
         _sleep=_sleep,
         _rand=_rand,
     )
+
+
+# Content-Types that mean "this 2xx body isn't the media it claims to be" — an
+# expired signed URL or partial-failure response can return an error body (JSON/
+# XML/HTML) at HTTP 200, which would otherwise be written straight to the output
+# file as if it were real audio. A narrow negative check (reject known non-media
+# types) rather than a positive whitelist, since real audio Content-Types vary
+# per provider/format and aren't worth enumerating — same approach as Atlas's
+# `_poll` Content-Type guard (issue #122 phase A4).
+_NON_MEDIA_CONTENT_TYPES = frozenset(
+    {"application/json", "application/xml", "text/xml", "text/html"}
+)
 
 
 def post_bytes(
@@ -210,17 +227,29 @@ def post_bytes(
     """POST a JSON body with the same bounded exponential backoff as `post_json`,
     but return the raw response body as `bytes` instead of JSON-decoding it.
 
-    For providers (e.g. Fish Audio's `/v1/tts`) whose success response is a raw
-    audio stream, not a JSON envelope. Retry/backoff semantics are identical to
-    `post_json` — see its docstring.
+    For providers (e.g. Fish Audio's `/v1/tts`, ElevenLabs' `/v1/text-to-speech`
+    and `/v1/sound-generation`) whose success response is a raw audio stream, not
+    a JSON envelope. Retry/backoff semantics are identical to `post_json` — see
+    its docstring. A 2xx response whose Content-Type is JSON/XML/HTML (see
+    `_NON_MEDIA_CONTENT_TYPES`) raises `on_http_error(200, ...)` instead of being
+    returned as if it were audio.
     """
+
+    def _decode(payload: bytes, resp_headers: dict) -> bytes:
+        ctype = (resp_headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype in _NON_MEDIA_CONTENT_TYPES:
+            raise on_http_error(
+                200, f"response Content-Type is {ctype!r}, not audio: {payload[:400]!r}"
+            )
+        return payload
+
     return _post_with_retry(
         url,
         json.dumps(body).encode(),
         headers,
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
-        decode=lambda payload: payload,
+        decode=_decode,
         timeout=timeout,
         _sleep=_sleep,
         _rand=_rand,
@@ -310,7 +339,7 @@ def post_multipart(
         post_headers,
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
-        decode=lambda payload: json.loads(payload.decode()),
+        decode=lambda payload, resp_headers: json.loads(payload.decode()),
         timeout=timeout,
         _sleep=_sleep,
         _rand=_rand,
