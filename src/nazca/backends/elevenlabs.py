@@ -7,10 +7,10 @@ Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
 fourth *direct* speech provider, parallel to Worder/Fish. TTS, sound effects
 (`sfx`), voice cloning (`voice_clone`), voice design (`voice_design`),
-speech-to-speech voice conversion (`speech_to_speech`), and speech-to-text
-(`stt`) are wired; dubbing/`align` are still a later follow-up per
-`docs/media-modalities.md`'s "Audio roadmap" (A3 sub-phases). This also
-absorbs issue #121 (a full-integration proposal).
+speech-to-speech voice conversion (`speech_to_speech`), speech-to-text
+(`stt`), and forced alignment (`align`) are wired; only dubbing remains a
+later follow-up per `docs/media-modalities.md`'s "Audio roadmap" (A3
+sub-phases). This also absorbs issue #121 (a full-integration proposal).
 
     POST /v1/text-to-speech/{voice_id}?output_format=...    -> raw audio bytes
     POST /v1/sound-generation?output_format=...              -> raw audio bytes
@@ -19,6 +19,7 @@ absorbs issue #121 (a full-integration proposal).
     POST /v1/text-to-voice/design                             -> {"previews": [...], "text": ...} (voice_design)
     POST /v1/speech-to-speech/{voice_id}?output_format=...    -> raw audio bytes (multipart request)
     POST /v1/speech-to-text                                    -> JSON transcript ({"text", "words": [...], "language_code", ...})
+    POST /v1/forced-alignment                                  -> {"characters", "words", "loss"} (align)
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -125,6 +126,23 @@ field: optional). It therefore doesn't go through `run_audio`/`AudioRequest`
 at all — see `ElevenLabsBackend.run_stt`, `request.TranscriptionRequest`, and
 the new `nazca.transcribe` orchestrator, mirroring the precedent Fish's
 `voice_clone` (also multipart, via `retry.post_multipart`) set in phase A2.
+
+`align` (`POST /v1/forced-alignment`, issue #122 phase A3's final sub-phase) is
+a genuinely different shape from `tts`/`sfx`: input is a LOCAL audio file plus
+a text transcript, output is JSON timing data (character- and word-level
+timestamps + a confidence `loss`), not audio bytes — so, like
+`voice_clone`/`voice_design`, it does NOT go through `run_audio`/
+`AudioRequest`; see `ElevenLabsBackend.align` and the `nazca.align`
+orchestrator (which calls it with plain `source`/`text` args, not a request
+dataclass — `align()`'s signature is simple enough that a request object
+would just be built and immediately unpacked). It is a `multipart/form-data`
+POST (two fields: `file`, `text`) — the third multipart call in this codebase,
+after Fish's `voice_clone` (A2) and this same file's `stt` (A3) — so it goes
+through `retry.post_multipart`, same as those. Endpoint, request fields,
+and response schema verified live against ElevenLabs' own API reference
+(elevenlabs.io/docs/api-reference/forced-alignment/create, 2026-07-30) —
+NOT the Atlas-style "schema unverified" posture most of this file otherwise
+carries.
 
 Error responses (verified against ElevenLabs' published docs, 2026-07-30):
 401 covers both an invalid/missing key AND (confusingly) insufficient
@@ -281,6 +299,13 @@ class ElevenLabsBackend(Backend):
         `voice_clone_endpoint` (`POST /model`) to its `tts_endpoint`.
         """
         return f"{ELEVENLABS_BASE}/v1/voices/add"
+
+    def align_endpoint(self) -> str:
+        """`POST /v1/forced-alignment` — no path parameters (unlike `tts_endpoint`'s
+        `voice_id` segment); `file` + `text` are multipart form fields, not query
+        params, so there is nothing to bake into the URL here.
+        """
+        return f"{ELEVENLABS_BASE}/v1/forced-alignment"
 
     def speech_to_speech_endpoint(self, voice_id: str, output_format: str | None = None) -> str:
         """`POST /v1/speech-to-speech/{voice_id}` — voice_id is a URL path segment,
@@ -755,4 +780,80 @@ class ElevenLabsBackend(Backend):
             # async envelope) would otherwise be written straight to the
             # output file and reported as a successful transcript.
             raise ElevenLabsError(f"stt: unexpected response shape (missing 'text'): {result!r}")
+        return result
+
+    # ------------------------------------------------------------------ align
+    def align(
+        self,
+        source: str,
+        text: str,
+        *,
+        est_cost_usd: float | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """Force-align `text` to the local audio file `source` (`POST
+        /v1/forced-alignment`, issue #122 phase A3). Returns the decoded JSON
+        response: `{"characters": [...], "words": [...], "loss": ...}` — each
+        character/word entry carries `text`/`start`/`end` (+ `loss` on words).
+
+        A `multipart/form-data` POST — the SAME shape as Fish's `voice_clone`
+        (see `retry.post_multipart`'s docstring), not `run_audio`'s JSON-body
+        `_post`. `source` is validated as a real file here (not left to a raw
+        `OSError`) for the same reason Fish's `voice_clone` validates its
+        `audio_paths` — a direct library caller (or a TOCTOU race between the
+        CLI's `click.Path(exists=True)` parse-time check and this call)
+        otherwise hits an unclean error instead of `ElevenLabsError`.
+
+        Per dry-run's invariant (see module docstring point 1 and this
+        module's docstring on `align`): the `dry_run` check MUST happen before
+        `auth_token()`/`_headers()`-equivalent work — here, before reading the
+        file bytes off disk, since `post_multipart`'s `headers` param is only
+        built (and `auth_token()` only called) below that check.
+        """
+        if not text:
+            raise ElevenLabsError("align requires a non-empty text transcript")
+        path = Path(source)
+        if not path.is_file():
+            raise ElevenLabsError(f"align: not a file: {source}")
+
+        try:
+            if dry_run:
+                return {
+                    "url": self.align_endpoint(),
+                    "backend": self.name,
+                    "est_cost_usd": est_cost_usd,
+                    "fields": {"text": text},
+                    "files": [
+                        {"field": "file", "filename": path.name, "size_bytes": path.stat().st_size}
+                    ],
+                    "headers": {},  # `xi-api-key` deliberately redacted, same posture as run_audio's plan
+                }
+
+            file_bytes = path.read_bytes()
+        except OSError as e:
+            # A TOCTOU race (deleted/permission-changed between the is_file()
+            # check above and either stat() or read_bytes()) — clean
+            # ElevenLabsError, not a raw traceback, same posture as
+            # speech_to_speech/run_stt's equivalent guards.
+            raise ElevenLabsError(f"align: couldn't read source audio: {e}") from e
+
+        result = retry.post_multipart(
+            self.align_endpoint(),
+            {"text": text},
+            [("file", path.name, file_bytes, mimetypes.guess_type(source)[0] or "application/octet-stream")],
+            headers={"xi-api-key": self.auth_token()},
+            timeout=120,
+            on_http_error=lambda code, detail: ElevenLabsError(
+                f"ElevenLabs HTTP {code}: {detail}{hint('elevenlabs', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: ElevenLabsRateLimitError(
+                f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )
+        if not isinstance(result, dict) or "words" not in result or "characters" not in result:
+            # A 2xx response with an unexpected shape (schema change, partial/
+            # async envelope) would otherwise be written straight to the
+            # output file and reported as a successful alignment — same guard
+            # as run_stt's response-shape check.
+            raise ElevenLabsError(f"align: unexpected response shape (missing 'words'/'characters'): {result!r}")
         return result
