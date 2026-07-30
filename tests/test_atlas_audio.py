@@ -26,6 +26,16 @@ def test_speak_elevenlabs_slug(tmp_path):
     assert plan["model"] == "elevenlabs/v3/text-to-speech"  # stem + tts suffix
 
 
+def test_speak_op_is_a_real_parameter_not_hardcoded(tmp_path):
+    # audio.speak() used to hardcode AudioRequest(op="tts", ...) — issue #122 A1
+    # widened it to a real `op` kwarg (default "tts", unchanged for every existing
+    # caller). No backend implements anything but tts yet, so this just proves the
+    # value threads through to AudioRequest rather than asserting new behavior.
+    out = tmp_path / "hi.mp3"
+    plan_path = speak(out, "hi", model="atlas-tts-grok", op="voice_clone", dry_run=True)
+    assert json.loads(plan_path.read_text())["backend"] == "atlas"
+
+
 def test_audio_cost():
     est = estimate_audio_cost("atlas-tts-grok", chars=1000)
     assert est is not None
