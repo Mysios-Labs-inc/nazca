@@ -173,8 +173,7 @@ Atlas's tag literally.
 **Where this points:** ElevenLabs is the only provider with a fully public,
 documented API across nearly the whole audio ops vocabulary (missing only `dub`,
 not live yet anywhere, and `separate`) — `tts`/`sfx`/`voice_clone`/`voice_design`/
-`speech_to_speech`/`stt` are now wired (A3); only `align` remains future A3
-sub-phase work. Fish Audio is second — genuinely has `voice_clone`/
+`speech_to_speech`/`stt`/`align` are all wired now (A3 complete). Fish Audio is second — genuinely has `voice_clone`/
 `voice_design`/`stt` as real endpoints; nazca wires the first two through Fish
 (A2), but `stt` was wired through ElevenLabs instead, this phase — Fish's own
 `stt` endpoint remains unused. Worder is intentionally narrow. Atlas turned
@@ -292,10 +291,10 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   for every existing bytes-producing caller); ✅ `align` wired
   (`elevenlabs-align` — `POST /v1/forced-alignment`, multipart; LOCAL audio
   file + transcript in, JSON word/character timestamps out; new
-  `request.AlignRequest`, `backends.base.SupportsAlign`, and `align.py`
-  orchestrator module — same different-shape reasoning as `voice_clone`/
-  `voice_design`; new `nazca align SOURCE (--text|--text-file) -o out.json`
-  CLI command). Only `dub` remains named-but-unwired in the whole audio ops
+  `backends.base.SupportsAlign` protocol and `align.py` orchestrator module —
+  same different-shape reasoning as `voice_clone`/`voice_design`; new `nazca
+  align SOURCE (--text|--text-file) -o out.json` CLI command). Only `dub`
+  remains named-but-unwired in the whole audio ops
   vocabulary, with no ElevenLabs endpoint live yet to wire it against.
   **Correction, twice over:** `music` (A4) and `sfx` both turned out to fit
   `speak()`'s text→single-audio-file shape directly, same as TTS — the

@@ -994,9 +994,9 @@ def transcribe(source, out, language, model, dry_run):
 
 
 @cli.command()
-@click.argument("source", required=True, type=click.Path(exists=True))
+@click.argument("source", required=True, type=click.Path(exists=True, dir_okay=False))
 @click.option("--text", default=None, help="Transcript text to align (short transcripts; mutually exclusive with --text-file).")
-@click.option("--text-file", "text_file", default=None, type=click.Path(exists=True), help="Read the transcript from a file instead of --text (longer transcripts).")
+@click.option("--text-file", "text_file", default=None, type=click.Path(exists=True, dir_okay=False), help="Read the transcript from a file instead of --text (longer transcripts).")
 @click.option("-o", "--out", required=True, help="Output alignment JSON path.")
 @click.option("--model", default=None, help="Align model (default: elevenlabs-align).")
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
@@ -1016,7 +1016,11 @@ def align(source, text, text_file, out, model, dry_run):
         click.echo("❌ align needs exactly one of --text or --text-file", err=True)
         raise SystemExit(2)
     if text_file:
-        text = Path(text_file).read_text()
+        try:
+            text = Path(text_file).read_text()
+        except OSError as e:  # TOCTOU race after click.Path(exists=True)'s parse-time check
+            click.echo(f"❌ couldn't read --text-file: {e}", err=True)
+            raise SystemExit(2) from e
 
     resolved_model = model or "elevenlabs-align"
     _validate_or_exit(resolved_model, "align")

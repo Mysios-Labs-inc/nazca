@@ -127,16 +127,18 @@ at all — see `ElevenLabsBackend.run_stt`, `request.TranscriptionRequest`, and
 the new `nazca.transcribe` orchestrator, mirroring the precedent Fish's
 `voice_clone` (also multipart, via `retry.post_multipart`) set in phase A2.
 
-`align` (`POST /v1/forced-alignment`, issue #122 phase A3's third sub-phase) is
+`align` (`POST /v1/forced-alignment`, issue #122 phase A3's final sub-phase) is
 a genuinely different shape from `tts`/`sfx`: input is a LOCAL audio file plus
 a text transcript, output is JSON timing data (character- and word-level
 timestamps + a confidence `loss`), not audio bytes — so, like
 `voice_clone`/`voice_design`, it does NOT go through `run_audio`/
 `AudioRequest`; see `ElevenLabsBackend.align` and the `nazca.align`
-orchestrator, and `request.AlignRequest` for the request shape. It is a
-`multipart/form-data` POST (two fields: `file`, `text`) — the second
-multipart call in this codebase after Fish's `voice_clone` — so it goes
-through `retry.post_multipart`, same as that call. Endpoint, request fields,
+orchestrator (which calls it with plain `source`/`text` args, not a request
+dataclass — `align()`'s signature is simple enough that a request object
+would just be built and immediately unpacked). It is a `multipart/form-data`
+POST (two fields: `file`, `text`) — the third multipart call in this codebase,
+after Fish's `voice_clone` (A2) and this same file's `stt` (A3) — so it goes
+through `retry.post_multipart`, same as those. Endpoint, request fields,
 and response schema verified live against ElevenLabs' own API reference
 (elevenlabs.io/docs/api-reference/forced-alignment/create, 2026-07-30) —
 NOT the Atlas-style "schema unverified" posture most of this file otherwise
@@ -835,7 +837,7 @@ class ElevenLabsBackend(Backend):
             # speech_to_speech/run_stt's equivalent guards.
             raise ElevenLabsError(f"align: couldn't read source audio: {e}") from e
 
-        return retry.post_multipart(
+        result = retry.post_multipart(
             self.align_endpoint(),
             {"text": text},
             [("file", path.name, file_bytes, mimetypes.guess_type(source)[0] or "application/octet-stream")],
@@ -848,3 +850,10 @@ class ElevenLabsBackend(Backend):
                 f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
             ),
         )
+        if not isinstance(result, dict) or "words" not in result or "characters" not in result:
+            # A 2xx response with an unexpected shape (schema change, partial/
+            # async envelope) would otherwise be written straight to the
+            # output file and reported as a successful alignment — same guard
+            # as run_stt's response-shape check.
+            raise ElevenLabsError(f"align: unexpected response shape (missing 'words'/'characters'): {result!r}")
+        return result

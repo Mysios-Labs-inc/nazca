@@ -316,15 +316,19 @@ All notable changes to nazca are documented here. Format follows
   takes a LOCAL audio file plus a text transcript and returns character- and
   word-level timestamps (+ a confidence `loss`) as JSON — a genuinely different
   shape from every other audio op in this codebase, so it does NOT go through
-  `run_audio`/`AudioRequest`: a new `request.AlignRequest` dataclass, a new
-  `SupportsAlign` protocol (`backends/base.py`), and a new `align.py`
-  orchestrator module (`align_audio()`) carry it instead, mirroring how phase
-  A2's `voice_clone`/`voice_design` got their own module for the same reason.
-  `ElevenLabsBackend.align()` is a `multipart/form-data` POST — the second
-  multipart call in this codebase, after Fish's `voice_clone` — sending `file`
+  `run_audio`/`AudioRequest`: a new `SupportsAlign` protocol (`backends/base.py`)
+  and a new `align.py` orchestrator module (`align_audio()`) carry it instead,
+  mirroring how phase A2's `voice_clone`/`voice_design` got their own module
+  for the same reason — `align()`'s signature is simple enough (source, text)
+  that it takes plain args rather than a request dataclass built only to be
+  immediately unpacked.
+  `ElevenLabsBackend.align()` is a `multipart/form-data` POST — the third
+  multipart call in this codebase, after Fish's `voice_clone` (A2) and this
+  same phase's `stt` — sending `file`
   + `text` fields via `retry.post_multipart`. New CLI command: `nazca align
   SOURCE (--text "..." | --text-file script.txt) -o alignment.json
-  [--dry-run]` — `SOURCE` is a local audio file (`click.Path(exists=True)`,
+  [--dry-run]` — `SOURCE` is a local audio file (`click.Path(exists=True,
+  dir_okay=False)`,
   the first audio-modality command to take one); `--text`/`--text-file` are
   mutually exclusive (exactly one required), mirroring `music`'s `--lyrics`
   free-text-via-flag precedent but adding a file variant for longer
@@ -343,6 +347,27 @@ All notable changes to nazca are documented here. Format follows
   actual authenticated call made).*
 
 ### Fixed
+- **`align()` never validated ElevenLabs' response shape before writing it
+  out**, the same gap `run_stt` had just been fixed for (see below) — a 2xx
+  response missing `words`/`characters` would have been silently written to
+  the output file and reported as a successful alignment. Now raises
+  `ElevenLabsError` if either key is absent.
+- **`nazca align --text-file`'s read had no error handling and its
+  `click.Path` arguments lacked `dir_okay=False`**, unlike every sibling
+  file-consuming command — a directory, a permission race after Click's
+  parse-time check, or non-UTF-8 content all surfaced as a raw traceback
+  instead of the clean `❌ ...` one-liner every other error path in this
+  command produces. Fixed: added `dir_okay=False` to both `SOURCE` and
+  `--text-file`, and wrapped the read in `try/except OSError`.
+- **`align.py` built an `AlignRequest` dataclass only to immediately unpack
+  it into individual kwargs** — `align()`'s two-argument signature never
+  needed a request object, and the unused `AlignRequest` dataclass (plus a
+  dead `AudioError` re-export with a "back-compat" comment that couldn't
+  have been true in a file created by this same PR) added indirection with
+  no payoff. Removed both; `align.py` now calls `backend.align(source, text,
+  ...)` directly, and `est_cost_usd` is now actually wired via
+  `estimate_audio_cost()` (it was previously always `None` by construction,
+  contradicting its own docstring's "precomputed" claim).
 - **`ElevenLabsBackend.align`'s dry-run branch had the identical unguarded
   `stat()` call as `run_stt`'s (see the very next entry) — the third time
   this exact TOCTOU gap shipped in this issue's rollout**, caught this time

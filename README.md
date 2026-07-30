@@ -330,10 +330,10 @@ from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id
 > **not** `Authorization: Bearer` like every other backend here. The TTS model defaults to
 > `eleven_multilingual_v2` (ElevenLabs' own default) — not user-configurable today. `voice_settings`
 > (stability/similarity/style/speed) is also not exposed via CLI yet — ElevenLabs' own defaults apply.
-> TTS, sound effects, voice cloning, voice design, speech-to-speech, and speech-to-text
-> (`nazca transcribe`) are wired; only dubbing/align remain a later follow-up (see
-> `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is subscription-tier-based, so
-> `--dry-run` shows the request plan, not a cost estimate.
+> TTS, sound effects, voice cloning, voice design, speech-to-speech, speech-to-text
+> (`nazca transcribe`), and forced alignment (`nazca align`) are all wired — the full audio
+> ops vocabulary except `dub` (see `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is
+> subscription-tier-based, so `--dry-run` shows the request plan, not a cost estimate.
 
 ### `nazca voice-clone` and `nazca voice-design`
 

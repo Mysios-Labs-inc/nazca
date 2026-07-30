@@ -67,6 +67,50 @@ def test_align_audio_dry_run_missing_source_file_raises_before_dry_run_plan(tmp_
         raise AssertionError("expected ElevenLabsError for a missing source file")
 
 
+def test_align_dry_run_read_failure_after_is_file_check_raises_cleanly(tmp_path, monkeypatch):
+    # The TOCTOU race the module docstring implies: a file that passes
+    # is_file() but fails on stat() (permission change, deleted between check
+    # and read) must raise a clean ElevenLabsError even on a dry run — the
+    # exact bug class that shipped twice already in this rollout
+    # (speech_to_speech #132, stt #133), where only the real-run read was
+    # guarded, not the dry-run stat().
+    sample = _sample(tmp_path)
+
+    import pathlib
+
+    real_stat = pathlib.Path.stat
+    calls = {"n": 0}
+
+    def flaky_stat(self, *args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] > 1:  # first call is is_file()'s own internal stat()
+            raise PermissionError("denied")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr("pathlib.Path.stat", flaky_stat)
+    try:
+        ElevenLabsBackend().align(str(sample), "Hello.", dry_run=True)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a dry-run stat() failure after is_file() passed")
+
+
+def test_align_real_run_read_failure_after_is_file_check_raises_cleanly(tmp_path, monkeypatch):
+    sample = _sample(tmp_path)
+
+    def raise_permission_error(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_bytes", raise_permission_error)
+    try:
+        ElevenLabsBackend().align(str(sample), "Hello.", dry_run=False)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a read failure after is_file() passed")
+
+
 def test_align_audio_default_model_is_elevenlabs_align(tmp_path):
     sample = _sample(tmp_path)
     plan_path = align_audio(tmp_path / "alignment.json", str(sample), "some text", dry_run=True)
@@ -162,6 +206,21 @@ def test_cli_align_missing_source_file_is_click_usage_error(tmp_path):
     assert r.exit_code != 0
 
 
+def test_cli_align_success_writes_json_and_prints_confirmation(tmp_path):
+    sample = _sample(tmp_path)
+    out = tmp_path / "alignment.json"
+    response = {"characters": [], "words": [{"text": "Hello.", "start": 0.0, "end": 0.5}], "loss": 0.01}
+
+    def fake_align(self, source, text, **kwargs):
+        return response
+
+    with mock.patch.object(ElevenLabsBackend, "align", fake_align):
+        r = CliRunner().invoke(cli, ["align", str(sample), "--text", "Hello.", "-o", str(out)])
+    assert r.exit_code == 0
+    assert "✅" in r.output
+    assert json.loads(out.read_text()) == response
+
+
 def test_cli_align_backend_error_is_clean_not_a_traceback(tmp_path):
     # ElevenLabsError subclasses BackendError — the CLI's `align` command must
     # catch it via the same except BackendError pattern as speak/music/sfx.
@@ -233,6 +292,35 @@ def test_backend_align_success_returns_decoded_json(monkeypatch, tmp_path):
     assert b"Hello" in body
     assert b'name="file"' in body
     assert b'filename="narration.mp3"' in body
+
+
+def test_backend_align_response_missing_words_raises_instead_of_writing_garbage(monkeypatch, tmp_path):
+    # A 2xx response with an unexpected shape (schema change, partial/async
+    # envelope) must not be silently written out as if it were a valid
+    # alignment — same guard as run_stt's response-shape check.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    sample = _sample(tmp_path)
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"unexpected": "shape"}).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        try:
+            ElevenLabsBackend().align(str(sample), "Hello")
+        except ElevenLabsError as e:
+            assert "words" in str(e) or "characters" in str(e)
+        else:
+            raise AssertionError("expected ElevenLabsError when 'words'/'characters' are missing")
 
 
 def test_backend_align_missing_api_key_raises_before_network(monkeypatch, tmp_path):
