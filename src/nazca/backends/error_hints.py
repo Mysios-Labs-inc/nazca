@@ -179,9 +179,11 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
         (
             422,
             None,
-            " — validation error (body is a list of {loc, type, msg}); check that"
-            " `text` is non-empty and `reference_id` names a real model from"
-            " GET /model",
+            " — validation error (body is a list of {loc, type, msg}); check the"
+            " required fields for the endpoint you called — `text` non-empty +"
+            " `reference_id` a real model from GET /model for TTS, `title` +"
+            " 1-20 `voices` files for POST /model (voice clone), or `instruction`"
+            " (1-2000 chars) for POST /v1/voice-design",
         ),
         (
             503,

@@ -332,6 +332,8 @@ CAPS: dict[str, Caps] = {
     "worder-tts":              _aud("worder-tts",              note="Worder; per-second pricing set per voice actor (from $0.01/s); --voice required"),
     # --- Fish Audio (hosted + community voice models; sync REST; requires --voice) ---
     "fish-tts":                _aud("fish-tts",                note="Fish Audio; s2-pro model tier by default; pricing unverified; --voice required"),
+    "fish-voice-clone":        _aud("fish-voice-clone",        note="Fish Audio; POST /model; --title + 1-20 audio samples -> reference_id; visibility defaults private"),
+    "fish-voice-design":       _aud("fish-voice-design",       note="Fish Audio; POST /v1/voice-design; text instruction -> n candidate voices w/ preview audio"),
     # --- Atlas Cloud 3D (text/image → GLB mesh; async media API; schema unverified) ---
     "atlas-hunyuan3d-rapid":   _3d("atlas-hunyuan3d-rapid",    note="Atlas; tencent/hunyuan3d-rapid; $0.02/run; schema unverified"),
     "atlas-hunyuan3d-pro":     _3d("atlas-hunyuan3d-pro",      note="Atlas; tencent/hunyuan3d-pro; $0.02/run; schema unverified"),

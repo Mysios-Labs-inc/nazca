@@ -1389,6 +1389,30 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"tts"}),
     ),
+    # Routing placeholders (issue #122 phase A2) — voice_clone/voice_design aren't a
+    # "voice" pick the way TTS is (no reference_id to default), so provider_id is
+    # empty and there is no tier default; they dispatch straight to FishBackend's
+    # dedicated voice_clone()/voice_design() methods, not run_audio.
+    "fish-voice-clone": ModelSpec(
+        shorthand="fish-voice-clone",
+        provider_id="",
+        backend="fish",
+        api="fish",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"voice_clone"}),
+    ),
+    "fish-voice-design": ModelSpec(
+        shorthand="fish-voice-design",
+        provider_id="",
+        backend="fish",
+        api="fish",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"voice_design"}),
+    ),
 }
 
 

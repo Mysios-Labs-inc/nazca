@@ -6,6 +6,64 @@ All notable changes to nazca are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+- **Fish Audio `voice_clone` / `voice_design` (issue #122, phase A2):** two new
+  Fish Audio endpoints are wired — `POST /model` (create a reusable voice from
+  1-20 audio samples, `FishBackend.voice_clone`) and `POST /v1/voice-design`
+  (generate `n` candidate voices from a text description, `FishBackend.
+  voice_design`). Neither fits `audio.speak()`'s text→single-audio-file shape
+  (`voice_clone` uploads files and returns model metadata, no media file;
+  `voice_design` returns several audio candidates in one response), so they're
+  exposed through a new orchestrator module, `nazca.voice`
+  (`clone_voice`/`design_voice`), and two new CLI commands:
+  - `nazca voice-clone AUDIO... --title "My Voice" [--description] [--visibility private|unlist|public] [--tags a,b] [--dry-run]`
+    — visibility defaults to `private` (Fish's own API default is `public`;
+    nazca picks the safer default so a clone isn't silently published). Prints
+    the created `reference_id` on success; `--dry-run` prints the request plan
+    (file names + sizes only — never the raw audio bytes) to stdout.
+  - `nazca voice-design INSTRUCTION [-o prefix] [--reference-text] [--language] [-n] [--speed] [--dry-run]`
+    — `-o/--out` is an output filename **prefix** (default `voice_design`);
+    writes each candidate's decoded preview audio to `<prefix>_<index>.mp3`.
+  - New two-model registry entries, `fish-voice-clone`/`fish-voice-design`
+    (routing placeholders, like `fish-tts`/`worder-tts` — empty `provider_id`,
+    no default voice), each declaring exactly one of the two new ops so
+    `capabilities.validate_op` rejects them for every other audio model
+    (`fish-tts`, `worder-tts`, the two Atlas TTS models) and vice versa.
+  - **New retry machinery:** `retry.post_multipart()` — the first
+    `multipart/form-data` POST in nazca (every other backend POSTs JSON or
+    receives raw bytes). Hand-builds the multipart body (random `uuid4` hex
+    boundary, one part per simple form field, one part per file — `voices`
+    repeats its field name once per audio sample) since the project takes no
+    `requests`/`httpx` dependency, and shares the same retry/backoff loop as
+    `post_json`/`post_bytes`. That required a small refactor to
+    `retry._post_with_retry`: it now takes pre-encoded `data: bytes` instead of
+    a `body: dict` it JSON-encoded internally, with `post_json`/`post_bytes`
+    doing the `json.dumps(...).encode()` themselves before calling in — a
+    behavior-preserving change (existing `retry` tests pass unchanged) that
+    lets `post_multipart` share the loop without being forced through
+    `json.dumps`.
+  - The Fish `422` error hint (`backends/error_hints.py`) was widened from
+    TTS-specific wording (`text`/`reference_id`) to cover all three endpoints
+    it can now fire from.
+
+### Fixed
+- **`nazca speak` let real backend errors crash instead of printing a clean
+  message.** `FishError`/`WorderError`/`AtlasError` subclass `BackendError`
+  directly, not `AudioError` — but the CLI's `speak` command (and, before this
+  release, the two new voice-clone/voice-design commands built the same way)
+  caught only `AudioError`, so a genuine Fish/Worder/Atlas HTTP error (bad key,
+  4xx, etc.) propagated as an unhandled Python traceback instead of the `❌
+  ...` one-liner + clean exit `nazca image`/`nazca video` already give for the
+  same class of failure. Found while wiring the new voice-clone/voice-design
+  commands (issue #122 A2) on the same pattern — fixed at the source for all
+  three commands by catching `BackendError` (which `AudioError` already
+  subclasses) via the existing `_emit_backend_error` helper. **User-visible
+  side effect:** `nazca speak`'s exit code for a backend/HTTP failure moved
+  from `2` to `1`, aligning it with `nazca image`/`nazca video` (exit `2`
+  stays reserved for capability-validation failures, e.g. an unsupported
+  `--model`/op combination); anyone scripting against `speak`'s previous exit
+  code for that specific failure class should update to `1`.
+
 ### Changed (internal — no behavior change)
 - **Audio ops vocabulary spine (issue #122, phase A1):** `capabilities.AUDIO_OPS`
   now names the full 10-op audio vocabulary (`tts`, `voice_clone`, `voice_design`,

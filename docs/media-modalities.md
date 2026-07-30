@@ -124,9 +124,12 @@ the API level — that's a later, per-provider step where native role fields exi
 | `atlas-tts-elevenlabs-v3` | atlas | tts | ElevenLabs `eleven_v3` proxied through Atlas — fixed model choice, no voice_settings/streaming/cloning; $0.10/1K chars |
 | `worder-tts` | worder | tts | marketplace of real voice actors; direction/pause/emphasis/pronunciation tags; Whisper-verified ≥90% similarity or no charge; `--voice` required, per-voice pricing |
 | `fish-tts` | fish | tts | `reference_id`-selected voice, `model` header picks quality tier (`s1`/`s2-pro`/`s2.1-pro`/`s2.1-pro-free`); `--voice` required; pricing unverified |
+| `fish-voice-clone` | fish | voice_clone | `POST /model` (multipart); `--title` + 1-20 audio samples → `reference_id`; visibility defaults to **private** (Fish's own API default is public); pricing unverified |
+| `fish-voice-design` | fish | voice_design | `POST /v1/voice-design`; text instruction → `n` (default 2) candidate voices with base64-encoded preview audio; pricing unverified |
 
-Every wired audio model does **`tts` only**. No `voice_clone`, `voice_design`,
-`speech_to_speech`, `stt`, `sfx`, `music`, `separate`, or `align` model is wired
+Every wired audio model does `tts` only, except the two Fish Audio entries above
+(issue #122 phase A2). No `speech_to_speech`, `stt`, `sfx`, `music`, `separate`,
+or `align` model is wired
 anywhere in nazca today.
 
 ### Audio capability matrix (what each provider's *own* API offers — not what's wired)
@@ -226,8 +229,12 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   the same `validate_op` check image/video already had. No model declares
   anything but `tts` yet — this phase is descriptive plumbing, not new
   capability, exactly like image/video's P1.
-- ⬜ **A2** — Fish Audio: wire `voice_clone` (`POST /model`) and `voice_design`
-  (`POST /v1/voice-design`) — already-integrated provider, cheapest next step.
+- ✅ **A2** — Fish Audio: wired `voice_clone` (`POST /model`, multipart via the
+  new `retry.post_multipart`) and `voice_design` (`POST /v1/voice-design`) as
+  `FishBackend.voice_clone`/`.voice_design`, dispatched through the new
+  `nazca.voice` orchestrator (`clone_voice`/`design_voice`) and the `nazca
+  voice-clone`/`nazca voice-design` CLI commands — not through `audio.speak()`/
+  `AudioRequest`, since neither fits that text→single-audio-file shape.
 - ⬜ **A3** — ElevenLabs backend (absorbs issue #121): `tts` first, then the
   new-noun ops (`sfx`/`music`/`voice_design`, no existing `speak`-shaped input to
   reuse), then `speech_to_speech`/`voice_clone`/`stt`/`align`.
