@@ -1457,6 +1457,20 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         standalone_slug=True,
         ops=frozenset({"music"}),
     ),
+    # ElevenLabs sound effects (issue #122 phase A3, second sub-phase after
+    # `tts`) — no voice concept, no per-model choice, so provider_id is empty
+    # like elevenlabs-tts. Pricing is subscription-tier-based (same posture as
+    # elevenlabs-tts), unpriced here.
+    "elevenlabs-sfx": ModelSpec(
+        shorthand="elevenlabs-sfx",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"sfx"}),
+    ),
 }
 
 

@@ -90,6 +90,24 @@ All notable changes to nazca are documented here. Format follows
   *Status: integrated per the published OpenAPI schema and public docs,
   unverified against a live key.*
 
+- **ElevenLabs sound effects (`elevenlabs-sfx` / `nazca sfx`, issue #122 phase A3,
+  second sub-phase after `tts`):** wires `sfx` — named in `AUDIO_OPS` since phase
+  A1, unwired until now. `POST /v1/sound-generation` has no `voice_id` concept
+  (no `--voice`, no URL path segment) — a text *description* of a sound in, raw
+  audio bytes out, same synchronous shape as `elevenlabs-tts` otherwise (same
+  `xi-api-key` auth, same `output_format` query-param convention). New
+  `AudioRequest.duration_seconds` field (optional target length, 0.5-30s;
+  ElevenLabs auto-guesses when omitted) and `audio.generate_sfx()` (a thin
+  wrapper over `speak(..., op="sfx")`), mirroring how `duration_seconds` and
+  `lyrics` are each op-specific fields on the shared `AudioRequest`, ignored by
+  ops that don't use them. New CLI command: `nazca sfx "sound description"
+  [--duration 8] [--format mp3|wav] -o effect.mp3`. Pricing is
+  subscription-tier-based like `elevenlabs-tts`, so `elevenlabs-sfx` is
+  likewise unpriced (`price_usd=None`).
+
+  *Status: integrated per the published OpenAPI schema, unverified against a
+  live key.*
+
 ### Fixed
 - **ElevenLabs' `voice_id` was interpolated unescaped into the request URL.**
   Unlike Fish/Worder (voice is a JSON body field, so `json.dumps` handles

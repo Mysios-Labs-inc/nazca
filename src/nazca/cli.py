@@ -922,6 +922,42 @@ def music(prompt, out, lyrics, output_format, model, dry_run):
         click.echo(f"✅ {result}")
 
 
+@cli.command()
+@click.argument("prompt", required=True)
+@click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
+@click.option("--duration", "duration_seconds", default=None, type=float, help="Target length in seconds (0.5-30; omit to let ElevenLabs auto-guess).")
+@click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
+@click.option("--model", default=None, help="Sound-effect model (default: elevenlabs-sfx).")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def sfx(prompt, out, duration_seconds, output_format, model, dry_run):
+    """Generate a sound effect from a text PROMPT (a sound description, not speech).
+
+    \b
+      nazca sfx "glass breaking on concrete" -o effect.mp3
+      nazca sfx "heavy rainfall with distant thunder" --duration 8 -o rain.mp3
+    """
+    from nazca.audio import audio_cost_label
+    from nazca.audio import generate_sfx as _generate_sfx
+    from nazca.errors import BackendError
+
+    resolved_model = model or "elevenlabs-sfx"
+    _validate_or_exit(resolved_model, "sfx")
+    try:
+        result = _generate_sfx(
+            out, prompt, model=resolved_model, duration_seconds=duration_seconds,
+            output_format=output_format, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+    if dry_run:
+        click.echo(f"📝 {result}")
+        cost = audio_cost_label(resolved_model)
+        if cost:
+            click.echo(f"💵 {cost}")
+    else:
+        click.echo(f"✅ {result}")
+
+
 @cli.command(name="make3d")
 @click.argument("prompt", required=False)
 @click.option("-o", "--out", required=True, help="Output 3D asset path (.glb).")
