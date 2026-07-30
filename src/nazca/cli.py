@@ -866,6 +866,7 @@ def speak(text, out, model, voice, output_format, tier, dry_run):
     from nazca.audio import speak as _speak
 
     resolved_model = model or select_audio_model(tier)
+    _validate_or_exit(resolved_model, "tts")
     try:
         result = _speak(
             out, text, model=resolved_model, voice=voice,

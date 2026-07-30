@@ -90,9 +90,42 @@ def test_op_families_are_disjoint():
     assert cap.OPS == cap.IMAGE_OPS | cap.VIDEO_OPS | cap.AUDIO_OPS | cap.THREED_OPS
 
 
+def test_ops_order_is_a_complete_duplicate_free_cover_of_ops():
+    # An op missing from _OPS_ORDER silently vanishes from ops_str/`nazca models`
+    # output instead of erroring — this is the guard that keeps that impossible.
+    assert len(cap._OPS_ORDER) == len(set(cap._OPS_ORDER)), "duplicate entries"
+    assert set(cap._OPS_ORDER) == cap.OPS
+
+
 def test_every_model_supports_at_least_one_op():
     for sh, c in cap.CAPS.items():
         assert c.ops, f"{sh} declares no ops"
+
+
+# --------------------------------------------------------------------------- audio vocabulary (issue #122 A1)
+def test_audio_ops_names_full_vocabulary():
+    # The drawers named in docs/media-modalities.md's "Audio out" table — even
+    # though only `tts` is wired by any model today.
+    assert cap.AUDIO_OPS == {
+        "tts", "voice_clone", "voice_design", "speech_to_speech",
+        "stt", "sfx", "music", "dub", "separate", "align",
+    }
+
+
+def test_no_audio_model_supports_unwired_ops_yet():
+    # Descriptive, not aspirational (same posture as image/video P1): every
+    # audio model's declared ops is still exactly {"tts"} until a later phase
+    # (#122 A2+) actually wires a backend for one of the other drawers.
+    unwired = cap.AUDIO_OPS - {"tts"}
+    for sh, c in cap.CAPS.items():
+        if c.produces == "audio":
+            assert not (c.ops & unwired), f"{sh} unexpectedly declares {c.ops & unwired}"
+
+
+def test_models_supporting_tts_nonempty_others_empty():
+    assert cap.models_supporting("tts")
+    assert cap.models_supporting("voice_clone") == []
+    assert cap.models_supporting("sfx") == []
 
 
 # --------------------------------------------------------------------------- specific encodings

@@ -35,20 +35,33 @@ def speak(
     model: str | None = None,
     voice: str | None = None,
     output_format: str = "mp3",
+    op: str = "tts",
     dry_run: bool = False,
 ) -> Path:
-    """Synthesize speech from `text` to `out` (or write the dry-run plan)."""
+    """Synthesize speech from `text` to `out` (or write the dry-run plan).
+
+    `op` defaults to `"tts"` — the only op any audio model declares today (see
+    `capabilities.AUDIO_OPS` / docs/media-modalities.md). Exposed as a real
+    parameter, not hardcoded, so future ops (`voice_clone`, `sfx`, `music`, ...)
+    can route through the same seam once a backend implements them. Validated
+    against the resolved model's `Caps` before dispatch — unlike `op` on image/
+    video's modify calls, no backend reads `AudioRequest.op` for anything but
+    `"tts"` today, so an unmapped op would otherwise silently fall back to plain
+    TTS (Atlas) or be ignored outright (Worder/Fish) instead of erroring.
+    """
+    from nazca.capabilities import validate_op
     from nazca.resolve import resolve  # local import: avoids circular at module load
 
     out = Path(out)
     resolved = resolve(model or DEFAULT_AUDIO_MODEL, "audio")
+    validate_op(resolved.shorthand, op)
     backend = require_capability(get_backend(resolved.backend), "audio")
 
     req = AudioRequest(
         text=text,
         voice=voice,
         output_format=output_format,
-        op="tts",
+        op=op,
         est_cost_usd=(
             est.usd if (est := estimate_audio_cost(resolved.shorthand, chars=len(text or ""))) else None
         ),

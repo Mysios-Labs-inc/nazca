@@ -81,6 +81,18 @@ class TestValidateOrExit:
         captured = capsys.readouterr()
         assert "does not support 'reframe'" in captured.err
 
+    def test_passes_for_audio_tts(self):
+        # fish-tts supports tts — the only op any audio model declares today.
+        _validate_or_exit("fish-tts", "tts")
+
+    def test_voice_clone_on_fish_tts_exits_2(self, capsys):
+        # Vocabulary named (issue #122 A1) but no audio model declares it yet.
+        with pytest.raises(SystemExit) as exc:
+            _validate_or_exit("fish-tts", "voice_clone")
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert "does not support 'voice_clone'" in captured.err
+
 
 # ---------------------------------------------------------------------------
 # _validate_image_inputs

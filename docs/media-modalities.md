@@ -32,7 +32,25 @@ backends that support it, not a new ad-hoc code path.
 | `extend` | source video → video | lengthen a clip |
 
 ### Audio out
-`tts`, `music`, `dub` — **named but deliberately out of scope** for nazca today.
+| op | inputs → output | meaning |
+|---|---|---|
+| `tts` | text + voice → audio | text-to-speech — **the only op nazca drives today** |
+| `voice_clone` | audio sample(s) → voice_id | derive a reusable voice from a recording |
+| `voice_design` | text description → 3× voice_id | generate new voice candidates from a prompt |
+| `speech_to_speech` | source audio + voice_id → audio | voice changer — recast an existing recording in another voice |
+| `stt` | audio → text | transcription |
+| `sfx` | text → audio | sound effect / Foley generation |
+| `music` | text → audio | music generation |
+| `dub` | video/audio + target language → audio/video | cross-language dubbing |
+| `separate` | audio → stems | split into vocals/instruments/etc |
+| `align` | audio + text → timed transcript | forced alignment (subtitle/caption timing) |
+
+`music`, `dub` are named here as vocabulary but **out of scope for nazca today** — no
+model wires them yet. `voice_clone` / `voice_design` / `speech_to_speech` / `stt` /
+`sfx` / `separate` / `align` are newly named (were previously undocumented); none are
+wired either. This is deliberately the full vocabulary across *all* audio providers
+nazca could reach, not just what's implemented — see the capability matrix below for
+which provider's public API actually offers which op.
 
 ## Ref roles (P1 — descriptive)
 
@@ -99,6 +117,48 @@ the API level — that's a later, per-provider step where native role fields exi
 | `v2v` | fal | v2v | wan-vace-apps/video-edit; SOURCE video URL + prompt (`video_url` field unverified) |
 | `extend` | fal | extend | pixverse/extend; SOURCE video URL + prompt, `--duration 5|8` (`video_url` field unverified) |
 
+### Audio
+| shorthand | backend | ops | notes |
+|---|---|---|---|
+| `atlas-tts-grok` | atlas | tts | xai/tts-v1; 20 langs, 80+ voices; $0.015/1K chars |
+| `atlas-tts-elevenlabs-v3` | atlas | tts | ElevenLabs `eleven_v3` proxied through Atlas — fixed model choice, no voice_settings/streaming/cloning; $0.10/1K chars |
+| `worder-tts` | worder | tts | marketplace of real voice actors; direction/pause/emphasis/pronunciation tags; Whisper-verified ≥90% similarity or no charge; `--voice` required, per-voice pricing |
+| `fish-tts` | fish | tts | `reference_id`-selected voice, `model` header picks quality tier (`s1`/`s2-pro`/`s2.1-pro`/`s2.1-pro-free`); `--voice` required; pricing unverified |
+
+Every wired audio model does **`tts` only**. No `voice_clone`, `voice_design`,
+`speech_to_speech`, `stt`, `sfx`, `music`, `separate`, or `align` model is wired
+anywhere in nazca today.
+
+### Audio capability matrix (what each provider's *own* API offers — not what's wired)
+
+Researched against each provider's public developer docs on 2026-07-30. This is
+deliberately broader than "Models today" above — it's the map to plan future backend
+work against, the audio equivalent of the fal/ModelArk/OpenAI image-ops survey that
+led to the modify-op backends.
+
+| provider | tts | voice_clone | voice_design | speech_to_speech | stt | sfx | music | dub | separate | align |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **Atlas Cloud** | ✅ (2 wired; fronts 17 "text-to-audio" models total per atlascloud.ai/models, rest unexplored) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed ("audio-to-video", 4 models — may be avatar/lip-sync, not voice-change) | ✅ 2 "audio-to-text" models (unwired) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed |
+| **Worder** | ✅ (rich prosody control; no other audio capability offered — a TTS-only marketplace by design) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **Fish Audio** | ✅ REST + WebSocket streaming | ✅ `POST /model` (instant clone or persistent trained model) | ✅ `POST /v1/voice-design` | ⚠️ marketing-only — "voice transformation" is a web-app feature, not in the public API/OpenAPI index | ✅ `POST /v1/speech-to-text`, per-segment timestamps | ⚠️ marketing-only — not in the public API index | ⚠️ marketing-only — not in the public API index | ❌ | ⚠️ marketing-only ("audio separation") — not in the public API index | ❌ |
+| **ElevenLabs** *(not integrated — issue [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121))* | ✅ 3 model tiers (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) | ✅ instant + professional cloning | ✅ `/v1/text-to-voice/design` | ✅ `/v1/speech-to-speech/{voice_id}` | ✅ Scribe v2 (batch + realtime) | ✅ `/v1/text-to-sound-effects/convert` | ✅ Eleven Music | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ `/forced-alignment/create` |
+
+**Reading this table:** ⚠️ rows are claims from marketing copy that don't appear in
+the provider's own API reference/OpenAPI index — treat as "web-app only, unverified
+as a callable endpoint" until checked against the actual OpenAPI schema, the same
+posture nazca already takes for unverified fal/ModelArk ids. ❓ means Atlas's full
+catalog wasn't enumerable from public docs alone (needs a live account /
+`atlascloud.ai/models` deep-dive) — it likely fronts more than the 2 audio models
+nazca has wired, given it aggregates ~91 models total across all modalities.
+
+**Where this points:** ElevenLabs is the only provider with a fully public,
+documented API across nearly the whole audio ops vocabulary (missing only `dub`,
+not live yet anywhere, and `separate`). Fish Audio is second — genuinely has
+`voice_clone`/`voice_design`/`stt` as real endpoints, which nazca doesn't use at all
+today (Fish is wired for `tts` only). Worder is intentionally narrow. Atlas is the
+biggest unknown — likely has unwired audio models worth a `nazca models`-style
+catalog pull before assuming it's TTS-only.
+
 ## Mismatches (1 & 2 fixed in P2)
 
 1. ✅ **`nazca video` no longer forces `--start`.** Omit it for pure `t2v` (wan-2.6,
@@ -152,3 +212,27 @@ nazca video SOURCE -p "restyle ..."        # v2v
   convention but **UNVERIFIED live** — dry-run safe; verify with a real call
   before spend (same posture as the existing fal video ids). Local-file SOURCE
   (→ fal-storage upload) is the one remaining follow-up.
+
+## Audio roadmap (issue [#122](https://github.com/Mysios-Labs-inc/nazca/issues/122))
+
+Audio didn't go through P1–P4 the way image/video did — `AudioRequest.op` was
+hardcoded to `"tts"` and the ops vocabulary named only `tts` until now. Same
+sequencing as image/video: name the vocabulary + widen the spine first (A1),
+*then* wire it per provider (A2+) — not "add a provider" in isolation.
+
+- ✅ **A1** — `AUDIO_OPS` names the full 10-op vocabulary (the "Audio out" table
+  above); `audio.speak()`'s `op` is a real parameter (default `"tts"`, unchanged
+  for every existing caller) instead of hardcoded; `nazca speak`'s CLI now runs
+  the same `validate_op` check image/video already had. No model declares
+  anything but `tts` yet — this phase is descriptive plumbing, not new
+  capability, exactly like image/video's P1.
+- ⬜ **A2** — Fish Audio: wire `voice_clone` (`POST /model`) and `voice_design`
+  (`POST /v1/voice-design`) — already-integrated provider, cheapest next step.
+- ⬜ **A3** — ElevenLabs backend (absorbs issue #121): `tts` first, then the
+  new-noun ops (`sfx`/`music`/`voice_design`, no existing `speak`-shaped input to
+  reuse), then `speech_to_speech`/`voice_clone`/`stt`/`align`.
+- ⬜ **A4** — survey Atlas Cloud's full audio catalog (17 text-to-audio / 2
+  audio-to-text / 4 audio-to-video models, only 2 wired today) before assuming
+  it's TTS-only.
+- **A5** — Worder stays `tts`-only; a voice-actor marketplace by design, not a
+  gap to fill.
