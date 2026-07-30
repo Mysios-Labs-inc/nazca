@@ -379,11 +379,16 @@ raises a clean error rather than silently doing nothing.
 > Fish Audio pricing is unverified against a live key (same posture as `fish-tts`), and
 > ElevenLabs pricing is subscription-tier-based (same posture as `elevenlabs-tts`).
 >
-> `--model elevenlabs-voice-design` ignores `--language`, `-n`, and `--speed` — ElevenLabs'
-> `POST /v1/text-to-voice/design` has no request-level knob for any of the three (its model
-> returns however many previews it produces, with no count/language/speed override), so
-> those flags are silently no-ops for ElevenLabs while still fully honored for Fish. It's
-> also **Step 1 of ElevenLabs' two-step voice-creation flow only** — the returned
+> `--model elevenlabs-voice-design` rejects `--language`, `-n`, and `--speed` with a clean
+> error rather than silently ignoring them — ElevenLabs' `POST /v1/text-to-voice/design` has
+> no request-level knob for any of the three (its model returns however many previews it
+> produces, with no count/language/speed override), so nazca refuses the flags outright
+> instead of letting a caller believe they took effect (same posture as `voice-clone`'s
+> `--visibility`/`--tags` on ElevenLabs). `--reference-text` IS honored (maps to ElevenLabs'
+> `text` field; omit it to let ElevenLabs auto-generate preview text). ElevenLabs' INSTRUCTION
+> must also be 20-1000 characters — validated locally before the request is sent, so a
+> too-short/too-long instruction fails fast with a clear error instead of a round-trip 422.
+> It's also **Step 1 of ElevenLabs' two-step voice-creation flow only** — the returned
 > `generated_voice_id` previews are temporary and not yet a durable, speakable voice;
 > permanently saving one as an account voice (ElevenLabs' `POST /v1/text-to-voice`) is not
 > wired here (see `docs/media-modalities.md`'s Audio roadmap).

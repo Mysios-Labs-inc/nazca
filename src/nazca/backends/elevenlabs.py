@@ -14,7 +14,7 @@ absorbs issue #121 (a full-integration proposal).
     POST /v1/sound-generation?output_format=...           -> raw audio bytes
     GET  /v2/voices                                       -> {"voices": [...], "next_page_token", ...}
     POST /v1/voices/add                                   -> {"voice_id", "requires_verification"} (voice_clone)
-    POST /v1/text-to-voice/design?output_format=...       -> {"previews": [...], "text": ...} (voice_design)
+    POST /v1/text-to-voice/design                          -> {"previews": [...], "text": ...} (voice_design)
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -207,17 +207,16 @@ class ElevenLabsBackend(Backend):
             url += "?" + urlencode({"output_format": output_format})
         return url
 
-    def voice_design_endpoint(self, output_format: str | None = None) -> str:
+    def voice_design_endpoint(self) -> str:
         """`POST /v1/text-to-voice/design` — Step 1 of ElevenLabs' two-step voice
         creation flow (preview generation only; see module docstring for why
-        Step 2, `POST /v1/text-to-voice`, is out of scope here). `output_format`
-        (when given) is a query-string param, same convention as `tts_endpoint`/
-        `sfx_endpoint`.
+        Step 2, `POST /v1/text-to-voice`, is out of scope here). Unlike
+        `tts_endpoint`/`sfx_endpoint`, this endpoint has no `output_format`
+        query param — there's no `--format` flag on `nazca voice-design` and
+        no caller ever resolves one, so the parameter isn't here to begin with
+        rather than being accepted-but-always-`None`.
         """
-        url = f"{ELEVENLABS_BASE}/v1/text-to-voice/design"
-        if output_format:
-            url += "?" + urlencode({"output_format": output_format})
-        return url
+        return f"{ELEVENLABS_BASE}/v1/text-to-voice/design"
 
     def voices_endpoint(self) -> str:
         """`GET /v2/voices` — the modern, paginated voice listing. `GET /v1/voices`
@@ -508,13 +507,20 @@ class ElevenLabsBackend(Backend):
         )
 
         previews = raw.get("previews")
-        if previews is None:
+        # Covers both a missing key and an empty/wrong-typed value — an empty
+        # list would otherwise pass a bare `is None` check and silently return
+        # zero candidates (exit 0, no files written, no explanation).
+        if not isinstance(previews, list) or not previews:
             raise ElevenLabsError(
-                f"ElevenLabs voice-design response is missing 'previews': {raw!r}"
+                f"ElevenLabs voice-design response has no previews: {raw!r}"
             )
 
         candidates = []
         for preview in previews:
+            if not isinstance(preview, dict):
+                raise ElevenLabsError(
+                    f"ElevenLabs voice-design response has a non-object preview: {preview!r}"
+                )
             candidate = dict(preview)
             generated_voice_id = candidate.pop("generated_voice_id", None)
             if generated_voice_id is not None:

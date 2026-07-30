@@ -24,6 +24,7 @@ from nazca.backends.elevenlabs import ElevenLabsBackend, ElevenLabsError, Eleven
 from nazca.capabilities import CapabilityError, validate_op
 from nazca.cli import cli
 from nazca.cost import estimate_audio_cost
+from nazca.errors import AudioError
 from nazca.voice import design_voice
 
 
@@ -103,6 +104,18 @@ def test_voice_design_instruction_too_long_raises():
         assert "1000" in str(e)
     else:
         raise AssertionError("expected ElevenLabsError for a too-long instruction")
+
+
+def test_voice_design_instruction_exactly_20_chars_is_accepted():
+    # boundary check: len == 20 is the inclusive floor, must not raise
+    plan = ElevenLabsBackend().voice_design("x" * 20, dry_run=True)
+    assert plan["body"]["voice_description"] == "x" * 20
+
+
+def test_voice_design_instruction_exactly_1000_chars_is_accepted():
+    # boundary check: len == 1000 is the inclusive ceiling, must not raise
+    plan = ElevenLabsBackend().voice_design("x" * 1000, dry_run=True)
+    assert plan["body"]["voice_description"] == "x" * 1000
 
 
 # --------------------------------------------------------------------------- auth
@@ -222,6 +235,62 @@ def test_voice_design_missing_previews_key_raises():
             raise AssertionError("expected ElevenLabsError when 'previews' is missing")
 
 
+def test_voice_design_empty_previews_list_raises():
+    # An empty list would pass a bare `is None` check and silently return zero
+    # candidates (exit 0, no files written, no explanation) — must raise instead.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"previews": [], "text": "sample"}).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        try:
+            with mock.patch.dict("os.environ", {"ELEVENLABS_API_KEY": "test-key"}):
+                ElevenLabsBackend().voice_design("A narrator voice, warm and confident", dry_run=False)
+        except ElevenLabsError as e:
+            assert "previews" in str(e)
+        else:
+            raise AssertionError("expected ElevenLabsError for an empty previews list")
+
+
+def test_voice_design_non_dict_preview_item_raises_cleanly():
+    # A malformed response (previews present, but an item isn't an object) must
+    # not crash with a raw TypeError from dict(preview) — a clean ElevenLabsError
+    # instead, same "clean error, not a raw traceback" posture as the rest of
+    # this backend.
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"previews": ["not-an-object"]}).encode()
+
+    with mock.patch("urllib.request.urlopen", lambda req, timeout=None: _Resp()):
+        try:
+            with mock.patch.dict("os.environ", {"ELEVENLABS_API_KEY": "test-key"}):
+                ElevenLabsBackend().voice_design("A narrator voice, warm and confident", dry_run=False)
+        except ElevenLabsError as e:
+            assert "preview" in str(e)
+        else:
+            raise AssertionError("expected ElevenLabsError for a non-object preview item")
+
+
 def test_voice_design_http_error_wraps_as_elevenlabs_error_with_hint(monkeypatch):
     _clear_real_config_attr("ELEVENLABS_API_KEY")
     monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
@@ -311,6 +380,59 @@ def test_design_voice_orchestrator_decodes_audio_bytes_for_elevenlabs(monkeypatc
     # generically — must work unchanged for ElevenLabs' reshaped candidates too.
     assert out["candidates"][0]["audio_bytes"] == b"fake"
     assert out["candidates"][0]["id"] == "gvid1"
+
+
+def test_design_voice_orchestrator_rejects_fish_only_n_for_elevenlabs():
+    # Unlike the backend method (which silently ignores n/language/speed),
+    # the orchestrator raises rather than letting a caller believe their
+    # requested count took effect — same posture as clone_voice()'s
+    # --visibility/--tags guard.
+    try:
+        design_voice(
+            "A sassy squeaky mouse with a Brooklyn accent",
+            model="elevenlabs-voice-design", n=4, dry_run=True,
+        )
+    except AudioError as e:
+        assert "elevenlabs-voice-design" in str(e)
+    else:
+        raise AssertionError("expected AudioError for -n on a non-Fish backend")
+
+
+def test_design_voice_orchestrator_rejects_fish_only_language_for_elevenlabs():
+    try:
+        design_voice(
+            "A sassy squeaky mouse with a Brooklyn accent",
+            model="elevenlabs-voice-design", language="en", dry_run=True,
+        )
+    except AudioError:
+        pass
+    else:
+        raise AssertionError("expected AudioError for --language on a non-Fish backend")
+
+
+def test_design_voice_orchestrator_rejects_fish_only_speed_for_elevenlabs():
+    try:
+        design_voice(
+            "A sassy squeaky mouse with a Brooklyn accent",
+            model="elevenlabs-voice-design", speed=1.5, dry_run=True,
+        )
+    except AudioError:
+        pass
+    else:
+        raise AssertionError("expected AudioError for --speed on a non-Fish backend")
+
+
+def test_cli_voice_design_rejects_language_flag_for_elevenlabs_cleanly():
+    r = CliRunner().invoke(
+        cli,
+        [
+            "voice-design", "A sassy squeaky mouse with a Brooklyn accent",
+            "--model", "elevenlabs-voice-design", "--language", "en",
+        ],
+    )
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)
+    assert "❌" in r.output
 
 
 def test_cli_voice_design_elevenlabs_dry_run(tmp_path):

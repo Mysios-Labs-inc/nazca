@@ -175,11 +175,16 @@ All notable changes to nazca are documented here. Format follows
   instruction fails fast with a clear `ElevenLabsError` instead of a round-trip
   422); `reference_text` maps to the optional `text` field, or
   `auto_generate_text: true` is sent when omitted so ElevenLabs still produces
-  a spoken preview. `n`/`language`/`speed` are accepted (same call signature
-  `design_voice()` uses for every backend) but silently ignored for
-  ElevenLabs — `/design` has no request-level knob for a candidate count,
-  language, or speech rate, unlike Fish's explicit `n`/`language`/`speed` body
-  fields; ElevenLabs' model simply returns however many previews it produces.
+  a spoken preview. `n`/`language`/`speed` are accepted by the *backend
+  method* (satisfying `voice_design()`'s uniform per-backend call shape) but
+  never forwarded to ElevenLabs' API — `/design` has no request-level knob
+  for a candidate count, language, or speech rate, unlike Fish's explicit
+  `n`/`language`/`speed` body fields; ElevenLabs' model simply returns
+  however many previews it produces. `nazca.voice.design_voice()` (the
+  orchestrator every caller goes through) rejects any non-default value of
+  the three outright for this backend, same posture as `clone_voice()`'s
+  `--visibility`/`--tags` guard (see Fixed below) — a caller can't be misled
+  into thinking a requested count/language/speed took effect.
   `model_id` is pinned to `eleven_multilingual_ttv_v2` (ElevenLabs' own
   default for this endpoint, sent explicitly — same "don't rely on the
   provider's implicit default" posture as `elevenlabs-tts`'s `model_id`).
@@ -192,6 +197,28 @@ All notable changes to nazca are documented here. Format follows
   unverified against a live key.*
 
 ### Fixed
+- **`nazca voice-design`'s `n`/`language`/`speed` were silently no-ops for
+  ElevenLabs** — a caller passing `-n 4`/`--language en`/`--speed 1.5` with
+  `--model elevenlabs-voice-design` got no indication their flags did
+  nothing (documented in prose, but nowhere at the terminal). Fixed
+  identically to `voice-clone`'s `--visibility`/`--tags` fix below:
+  `nazca.voice.design_voice()` now rejects a non-default value of any of the
+  three outright for any backend but Fish, with a clean `AudioError`.
+- **`nazca voice-design` could exit 0 having written nothing.** ElevenLabs
+  returning `{"previews": []}` (present but empty, vs. entirely missing)
+  passed the existing "is `previews` missing" check, silently producing zero
+  candidates — no error, no files written, no explanation. Fixed by checking
+  `previews` is both present and non-empty.
+- **ElevenLabs voice-design errors were misattributed to Fish Audio.**
+  `nazca.voice.design_voice()`'s error messages ("Fish voice-design response
+  is missing 'candidates'", etc.) were hardcoded to name Fish even though
+  this same orchestrator now dispatches ElevenLabs too — a malformed
+  ElevenLabs response surfaced an error blaming the wrong provider. Now
+  interpolates the resolved model's shorthand instead.
+- **`voice_design_endpoint()` accepted a dead `output_format` parameter** —
+  no caller ever passed one (`nazca voice-design` has no `--format` flag),
+  so the parameter and the module docstring's `?output_format=...` in its
+  endpoint map were speculative generality with no real code path. Removed.
 - **`nazca voice-clone`'s success output silently dropped the created voice's
   id when the backend was ElevenLabs.** The CLI's success-path formatting
   read Fish's response field name (`_id`) unconditionally and hard-coded the
