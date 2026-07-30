@@ -96,6 +96,33 @@ class AudioRequest:
 
 
 @dataclass
+class SpeechToSpeechRequest:
+    """Everything a backend needs to convert one source audio file into a
+    target voice's speech (issue #122 phase A3, `speech_to_speech` op — the
+    "voice changer"/dubbing-adjacent op ElevenLabs calls speech-to-speech).
+
+    Genuinely different shape from every other audio op: the primary input is
+    a local audio FILE, not a text string, so this does NOT reuse
+    `AudioRequest` (whose `text` field doesn't fit here — there is no text).
+    `source_audio_path` names the file on disk; per this codebase's existing
+    precedent for file-bearing ops (`FishBackend.voice_clone`), the backend
+    itself validates/reads the path (dry-run needs only its size, a real run
+    needs its bytes) rather than the request dataclass carrying raw bytes.
+    `voice` supplies the required target voice_id (no single default voice,
+    same posture as tts/sfx/voice_clone/voice_design — the caller must pass
+    one). `output_format` is the container (mp3/wav), same convention as
+    `AudioRequest.output_format`. `est_cost_usd` is precomputed by the
+    orchestrator and echoed into the dry-run plan.
+    """
+
+    source_audio_path: str = ""
+    voice: str | None = None
+    output_format: str = "mp3"
+    est_cost_usd: float | None = None
+    dry_run: bool = False
+
+
+@dataclass
 class ThreeDRequest:
     """Everything a backend needs to generate one 3D asset (GLB mesh).
 

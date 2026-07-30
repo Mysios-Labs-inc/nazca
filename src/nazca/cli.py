@@ -1105,6 +1105,44 @@ def voice_design(instruction, out, reference_text, language, n, speed, model, dr
         click.echo(f"✅ {path}  (id={candidate.get('id')})")
 
 
+@cli.command(name="speech-to-speech")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", required=True, help="Output audio path (.mp3/.wav).")
+@click.option("--voice", required=True, help="Target voice_id (look one up via GET https://api.elevenlabs.io/v2/voices).")
+@click.option("--format", "output_format", default="mp3", type=click.Choice(["mp3", "wav"]), help="Audio container.")
+@click.option("--model", default=None, help="Speech-to-speech backend model (default: elevenlabs-speech-to-speech).")
+@click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
+def speech_to_speech(source, out, voice, output_format, model, dry_run):
+    """Convert SOURCE audio's speech into a target --voice (voice changer, ElevenLabs).
+
+    SOURCE is a LOCAL audio file only — unlike `nazca video`'s edit ops
+    (--reframe/--v2v/--extend), which accept a URL for their fal/Atlas
+    sources, ElevenLabs' speech-to-speech endpoint takes a multipart file
+    upload, not a URL, so there is no "fetch this URL first" step to add for
+    v1. A URL-source convenience (download-then-upload) is left for a
+    follow-up if a real need shows up.
+
+    \b
+      nazca speech-to-speech recording.mp3 --voice 21m00Tcm4TlvDq8ikWAM -o converted.mp3
+    """
+    from nazca.errors import BackendError
+    from nazca.voice import speech_to_speech as _speech_to_speech
+
+    resolved_model = model or "elevenlabs-speech-to-speech"
+    _validate_or_exit(resolved_model, "speech_to_speech")
+    try:
+        result = _speech_to_speech(
+            source, out=out, voice=voice, model=resolved_model,
+            output_format=output_format, dry_run=dry_run,
+        )
+    except BackendError as e:  # 429s/auth/HTTP errors → clean one-liner, not a traceback
+        _emit_backend_error(e)
+    if dry_run:
+        click.echo(f"📝 {result}")
+    else:
+        click.echo(f"✅ {result}")
+
+
 @cli.command()
 def login() -> None:
     """Interactively store API credentials in ~/.config/nazca/config.ini.

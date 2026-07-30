@@ -1505,6 +1505,23 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"voice_design"}),
     ),
+    # ElevenLabs speech-to-speech (issue #122 phase A3, third sub-phase) — the
+    # voice-changer op: convert a source audio file's speech into a target
+    # voice. Like tts/voice_clone/voice_design there is no single default
+    # voice, so provider_id is empty and the caller MUST pass --voice
+    # <voice_id> (look one up via GET https://api.elevenlabs.io/v2/voices).
+    # Pricing is subscription-tier-based (same posture as elevenlabs-tts/
+    # elevenlabs-sfx), unpriced here.
+    "elevenlabs-speech-to-speech": ModelSpec(
+        shorthand="elevenlabs-speech-to-speech",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"speech_to_speech"}),
+    ),
 }
 
 

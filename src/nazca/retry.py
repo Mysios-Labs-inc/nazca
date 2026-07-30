@@ -272,19 +272,10 @@ def _escape_header_value(value: str) -> str:
     return _strip_crlf(value).replace('"', "%22")
 
 
-def post_multipart(
-    url: str,
-    fields: dict[str, str],
-    files: list[tuple[str, str, bytes, str]],
-    headers: dict,
-    *,
-    on_http_error: Callable[[int, str], Exception],
-    on_rate_limited: Callable[[int, str], Exception],
-    timeout: float | None = None,
-    _sleep: Callable[[float], None] = time.sleep,
-    _rand: Callable[[], float] = random.random,
-) -> dict:
-    """POST a hand-built `multipart/form-data` body, return decoded JSON.
+def _build_multipart_body(
+    fields: dict[str, str], files: list[tuple[str, str, bytes, str]]
+) -> tuple[bytes, str]:
+    """Hand-build a `multipart/form-data` body; return `(data, content_type)`.
 
     The stdlib has no multipart encoder and this project takes no `requests`/
     `httpx` dependency (see pyproject.toml — only `click` + `Pillow` are core
@@ -295,12 +286,6 @@ def post_multipart(
     array field), each terminated with `\\r\\n`, and a final `--boundary--\\r\\n`
     sentinel.
 
-    Unlike `post_json`/`post_bytes` (where the caller sets its own
-    `Content-Type`), if the caller sets `Content-Type` in `headers` here it is
-    silently overwritten — this function always sets it to
-    `multipart/form-data; boundary=<boundary>` itself, since the boundary is
-    generated inside this call.
-
     Every `name`/`filename`/field value is escaped before being placed in a
     header line: CR/LF are stripped (otherwise a value containing a newline
     could inject an extra part into the body — header/part injection) and `"`
@@ -308,8 +293,8 @@ def post_multipart(
     malformed `Content-Disposition` header). Field *content* (`content_bytes`)
     is untouched — only the surrounding header text is escaped.
 
-    Retry/backoff semantics are identical to `post_json` — see its docstring.
-    `_sleep`/`_rand` are injectable for testing.
+    Shared by `post_multipart` (JSON response) and `post_multipart_bytes` (raw
+    audio response) so the encoding lives in exactly one place.
     """
     boundary = uuid.uuid4().hex
     parts: list[bytes] = []
@@ -329,9 +314,35 @@ def post_multipart(
         parts.append(part_header + content_bytes + b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode())
     data = b"".join(parts)
+    return data, f"multipart/form-data; boundary={boundary}"
 
+
+def post_multipart(
+    url: str,
+    fields: dict[str, str],
+    files: list[tuple[str, str, bytes, str]],
+    headers: dict,
+    *,
+    on_http_error: Callable[[int, str], Exception],
+    on_rate_limited: Callable[[int, str], Exception],
+    timeout: float | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _rand: Callable[[], float] = random.random,
+) -> dict:
+    """POST a hand-built `multipart/form-data` body, return decoded JSON.
+
+    See `_build_multipart_body` for the encoding. Unlike `post_json`/
+    `post_bytes` (where the caller sets its own `Content-Type`), if the
+    caller sets `Content-Type` in `headers` here it is silently overwritten —
+    this function always sets it to `multipart/form-data; boundary=<boundary>`
+    itself, since the boundary is generated inside this call.
+
+    Retry/backoff semantics are identical to `post_json` — see its docstring.
+    `_sleep`/`_rand` are injectable for testing.
+    """
+    data, content_type = _build_multipart_body(fields, files)
     post_headers = dict(headers)
-    post_headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    post_headers["Content-Type"] = content_type
 
     return _post_with_retry(
         url,
@@ -340,6 +351,58 @@ def post_multipart(
         on_http_error=on_http_error,
         on_rate_limited=on_rate_limited,
         decode=lambda payload, resp_headers: json.loads(payload.decode()),
+        timeout=timeout,
+        _sleep=_sleep,
+        _rand=_rand,
+    )
+
+
+def post_multipart_bytes(
+    url: str,
+    fields: dict[str, str],
+    files: list[tuple[str, str, bytes, str]],
+    headers: dict,
+    *,
+    on_http_error: Callable[[int, str], Exception],
+    on_rate_limited: Callable[[int, str], Exception],
+    timeout: float | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _rand: Callable[[], float] = random.random,
+) -> bytes:
+    """POST a hand-built `multipart/form-data` body, return the raw response
+    body as `bytes` instead of JSON-decoding it.
+
+    Combines `post_multipart`'s request encoding (see `_build_multipart_body`)
+    with `post_bytes`'s response handling: for providers (e.g. ElevenLabs'
+    `POST /v1/speech-to-speech/{voice_id}`, issue #122 phase A3) whose request
+    is a multipart file upload but whose *success* response is a raw audio
+    stream, not a JSON envelope — neither existing helper covers that
+    combination on its own. Same `_NON_MEDIA_CONTENT_TYPES` guard as
+    `post_bytes`: a 2xx response whose Content-Type is JSON/XML/HTML raises
+    `on_http_error(200, ...)` instead of being returned as if it were audio.
+
+    Retry/backoff semantics are identical to `post_json` — see its docstring.
+    `_sleep`/`_rand` are injectable for testing.
+    """
+    data, content_type = _build_multipart_body(fields, files)
+    post_headers = dict(headers)
+    post_headers["Content-Type"] = content_type
+
+    def _decode(payload: bytes, resp_headers: dict) -> bytes:
+        ctype = (resp_headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        if ctype in _NON_MEDIA_CONTENT_TYPES:
+            raise on_http_error(
+                200, f"response Content-Type is {ctype!r}, not audio: {payload[:400]!r}"
+            )
+        return payload
+
+    return _post_with_retry(
+        url,
+        data,
+        post_headers,
+        on_http_error=on_http_error,
+        on_rate_limited=on_rate_limited,
+        decode=_decode,
         timeout=timeout,
         _sleep=_sleep,
         _rand=_rand,
