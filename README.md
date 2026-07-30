@@ -562,6 +562,39 @@ flowchart LR
 
 An env var always overrides the stored file — handy for CI or a one-off second account.
 
+### Using a secrets manager instead of config.ini
+
+Because env vars always win, nazca composes with any secrets manager's `run --` wrapper — no
+integration needed on nazca's side. Keep `~/.config/nazca/config.ini` empty and let the wrapper
+inject keys as env vars for just that one process; nothing touches disk beyond the vault itself.
+
+**1Password CLI** ([`op run`](https://developer.1password.com/docs/cli/secrets-environment-variables)):
+
+```bash
+# .env — pointers only, safe to commit
+FAL_KEY=op://AI/fal.ai/key
+ARK_API_KEY=op://AI/ModelArk/key
+
+op run --env-file=.env -- nazca video -s start.png -p "push-in" -o clip.mp4
+```
+
+**Doppler** ([`doppler run`](https://www.doppler.com/agents-opencode)):
+
+```bash
+doppler run -- nazca image -p "..." -o out.png
+```
+
+**Infisical** ([`infisical run`](https://github.com/Infisical/agent-vault)):
+
+```bash
+infisical run -- nazca video -s start.png -p "push-in" -o clip.mp4
+```
+
+All three resolve secrets, set them as env vars in a throwaway subprocess, and discard them when
+the command exits — the values never land in `config.ini`, shell history, or process logs. This is
+the same pattern nazca's MCP server benefits from too: launch it via `op run` / `doppler run` /
+`infisical run` and each provider key is injected fresh per session instead of persisted.
+
 ### Google Vertex (default — no key)
 
 Runs on your gcloud credentials (short-lived token, nothing
