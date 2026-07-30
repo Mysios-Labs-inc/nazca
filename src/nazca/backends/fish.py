@@ -13,7 +13,9 @@ Synchronous (no submit→poll): `/v1/tts` streams the synthesized audio directly
 in the response body. The TTS *model* to run (voice-quality tier, distinct
 from the `reference_id` voice) is selected via a required `model` HTTP header
 — one of `s1`, `s2-pro`, `s2.1-pro`, `s2.1-pro-free` — not a body field;
-defaulting to `s2-pro` (Fish's own recommended default) unless overridden.
+defaulting to `s2-pro` (nazca's own default choice — Fish's header itself
+defaults to `s2.1-pro-free` and Fish recommends `s2.1-pro` for production)
+unless overridden.
 
 Because the success response is raw bytes rather than a JSON envelope,
 `retry.post_bytes` (not `retry.post_json`) is used to POST it.
@@ -94,8 +96,10 @@ class FishBackend(Backend):
     def run_audio(self, resolved, req: AudioRequest):
         """Synchronous text-to-speech. `req.voice` (or the resolved provider_id,
         when it names a real voice) supplies the required `reference_id`. The TTS
-        `model` header defaults to `s2-pro` and is not user-configurable today
-        (nazca has no per-request knob for it beyond the routed `--model`).
+        `model` header defaults to `s2-pro` — nazca's own default, not user-
+        configurable today (nazca has no per-request knob for it beyond the
+        routed `--model`). `req.output_format` (`--format mp3|wav`) is forwarded
+        as the `format` body field, same as the Atlas backend.
         """
         reference_id = req.voice or (resolved.provider_id or None)
         if not reference_id:
@@ -105,6 +109,8 @@ class FishBackend(Backend):
             )
         model = FISH_DEFAULT_MODEL
         body: dict = {"reference_id": reference_id, "text": req.text}
+        if req.output_format:
+            body["format"] = req.output_format
 
         if req.dry_run:
             return {

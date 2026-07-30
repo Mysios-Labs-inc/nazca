@@ -1,7 +1,7 @@
 [project]
 name = "nazca"
 version = "0.13.0"
-description = "Thin, Claude-driven, capability-aware CLI for AI image, video, audio, and 3D generation across Vertex (Gemini/Imagen/Veo), fal, ModelArk, OpenAI, Atlas Cloud, and Worder"
+description = "Thin, Claude-driven, capability-aware CLI for AI image, video, audio, and 3D generation across Vertex (Gemini/Imagen/Veo), fal, ModelArk, OpenAI, Atlas Cloud, Worder, and Fish Audio"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = [

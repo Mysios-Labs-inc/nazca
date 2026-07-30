@@ -183,6 +183,11 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
             " `text` is non-empty and `reference_id` names a real model from"
             " GET /model",
         ),
+        (
+            503,
+            None,
+            " — Fish Audio's TTS service is temporarily unavailable; retry shortly",
+        ),
     ],
 }
 

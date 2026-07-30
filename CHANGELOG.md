@@ -17,9 +17,11 @@ All notable changes to nazca are documented here. Format follows
   is selected via a required `model` HTTP header (`s1` / `s2-pro` / `s2.1-pro` /
   `s2.1-pro-free`), defaulted to `s2-pro`, separate from the `reference_id` voice.
   No default voice exists — callers must pass `--voice <reference_id>` (from
-  `GET /model`) or use the `fish:<reference_id>` prefix. Pricing is unverified
-  against a live key, so it's left unpriced in `cost.py` (`--dry-run` shows the
-  request plan, not a cost estimate). Wired into `nazca login` / `nazca config`.
+  `GET /model`) or use the `fish:<reference_id>` prefix. `--format mp3|wav` is
+  forwarded as the `format` body field, same as Atlas. Pricing is unverified
+  against a live key, so `fish-tts` has `price_usd=None` in `models.py`
+  (`--dry-run` shows the request plan, not a cost estimate). Wired into
+  `nazca login` / `nazca config`.
   *Status: integrated per the published OpenAPI schema, unverified against a live
   key.*
 
