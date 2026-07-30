@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from nazca.models import AUDIO_MODELS as _AUDIO_REGISTRY
 from nazca.models import MODELS as _MODEL_REGISTRY
 from nazca.models import THREED_MODELS as _THREED_REGISTRY
 
@@ -436,9 +437,27 @@ _TTS_PER_1K_CHARS: dict[str, float] = {
     "atlas-tts-elevenlabs-v3": 0.10,
 }
 
+# Music (and any other flat-per-generation audio op, e.g. a future sfx model) is
+# billed per generation, not per character — derived from the registry so the
+# price has a single source of truth (the ModelSpec), same pattern as 3D's
+# _3D_PER_RUN below. TTS models all have price_usd=None (they're per-1K-chars,
+# handled above instead), so this dict only ever picks up flat-rate audio ops.
+_AUDIO_FLAT_PER_RUN: dict[str, float] = {
+    sh: spec.price_usd
+    for sh, spec in _AUDIO_REGISTRY.items()
+    if spec.price_usd is not None
+}
 
-def estimate_audio_cost(model_shorthand: str | None, *, chars: int) -> CostEstimate | None:
-    """Estimate the cost of one TTS synthesis (per-1K-characters × char count)."""
+
+def estimate_audio_cost(model_shorthand: str | None, *, chars: int = 0) -> CostEstimate | None:
+    """Estimate the cost of one audio generation.
+
+    Flat per-generation models (e.g. music) are checked first; everything else
+    falls back to the per-1,000-characters TTS estimate (× `chars`).
+    """
+    flat = _AUDIO_FLAT_PER_RUN.get(model_shorthand or "")
+    if flat is not None:
+        return CostEstimate(flat, approx=True, basis="flat per generation")
     rate = _TTS_PER_1K_CHARS.get(model_shorthand or "")
     if rate is None:
         return None

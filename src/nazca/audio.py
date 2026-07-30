@@ -1,8 +1,10 @@
-"""Audio generation (text-to-speech) — the audio modality entry point.
+"""Audio generation (text-to-speech, and — issue #122 phase A4 — music) — the
+audio modality entry point.
 
 Mirrors the image/video modules: resolve an audio model shorthand to its backend
 + provider id, hand a single `AudioRequest` to the backend's `run_audio` seam, and
-write the result (or the dry-run plan). TTS is billed per 1,000 input characters
+write the result (or the dry-run plan). TTS is billed per 1,000 input characters;
+music (and any other flat-per-generation audio op) is billed per generation
 (see cost.estimate_audio_cost).
 """
 
@@ -18,6 +20,7 @@ from nazca.models import AUDIO_PROVIDER_IDS as AUDIO_MODELS  # noqa: F401  (re-e
 from nazca.request import AudioRequest
 
 DEFAULT_AUDIO_MODEL = "atlas-tts-grok"
+DEFAULT_MUSIC_MODEL = "atlas-music-minimax"
 
 # tier → default audio model shorthand
 _TIER_DEFAULTS: dict[str, str] = {"cheap": "atlas-tts-grok", "premium": "atlas-tts-elevenlabs-v3"}
@@ -34,20 +37,24 @@ def speak(
     *,
     model: str | None = None,
     voice: str | None = None,
+    lyrics: str | None = None,
     output_format: str = "mp3",
     op: str = "tts",
     dry_run: bool = False,
 ) -> Path:
-    """Synthesize speech from `text` to `out` (or write the dry-run plan).
+    """Synthesize speech (or, with `op="music"`, a song) from `text` to `out`
+    (or write the dry-run plan).
 
-    `op` defaults to `"tts"` — the only op any audio model declares today (see
-    `capabilities.AUDIO_OPS` / docs/media-modalities.md). Exposed as a real
-    parameter, not hardcoded, so future ops (`voice_clone`, `sfx`, `music`, ...)
-    can route through the same seam once a backend implements them. Validated
-    against the resolved model's `Caps` before dispatch — unlike `op` on image/
-    video's modify calls, no backend reads `AudioRequest.op` for anything but
-    `"tts"` today, so an unmapped op would otherwise silently fall back to plain
-    TTS (Atlas) or be ignored outright (Worder/Fish/ElevenLabs) instead of erroring.
+    `op` defaults to `"tts"`; `"music"` is the other op wired today (issue #122
+    phase A4 — see `capabilities.AUDIO_OPS` / docs/media-modalities.md for the
+    rest of the named-but-unwired vocabulary). `lyrics` is music-only (optional
+    `[Verse]`/`[Chorus]`-structured text) and ignored by TTS backends. Exposed
+    as real parameters, not hardcoded, so future ops can route through the same
+    seam once a backend implements them. `op` is validated against the resolved
+    model's `Caps` before dispatch — unlike `op` on image/video's modify calls,
+    no backend reads `AudioRequest.op` for anything but `"tts"`/`"music"` today,
+    so an unmapped op would otherwise silently fall back to plain TTS (Atlas) or
+    be ignored outright (Worder/Fish/ElevenLabs) instead of erroring.
     """
     from nazca.capabilities import validate_op
     from nazca.resolve import resolve  # local import: avoids circular at module load
@@ -60,6 +67,7 @@ def speak(
     req = AudioRequest(
         text=text,
         voice=voice,
+        lyrics=lyrics,
         output_format=output_format,
         op=op,
         est_cost_usd=(
@@ -71,7 +79,30 @@ def speak(
     return write_result(out, backend.run_audio(resolved, req), dry_run)
 
 
-def audio_cost_label(model: str | None, *, chars: int) -> str | None:
-    """Cost line for a TTS synthesis, or None when unpriced."""
+def generate_music(
+    out: str | Path,
+    prompt: str,
+    *,
+    model: str | None = None,
+    lyrics: str | None = None,
+    output_format: str = "mp3",
+    dry_run: bool = False,
+) -> Path:
+    """Generate a song from a style `prompt` (optionally with `lyrics`) to `out`.
+
+    A thin wrapper over `speak(..., op="music")` — same resolve/validate/
+    dispatch/write_result seam, just a clearer public name than calling
+    `speak()` with an `op` kwarg for something that isn't speech.
+    """
+    return speak(
+        out, prompt, model=model or DEFAULT_MUSIC_MODEL, lyrics=lyrics,
+        output_format=output_format, op="music", dry_run=dry_run,
+    )
+
+
+def audio_cost_label(model: str | None, *, chars: int = 0) -> str | None:
+    """Cost line for an audio generation (TTS: per-char; music: flat), or None
+    when unpriced. `chars` is ignored for flat-rate ops like music.
+    """
     est = estimate_audio_cost(model, chars=chars)
     return est.label() if est else None

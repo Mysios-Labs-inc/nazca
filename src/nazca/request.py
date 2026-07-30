@@ -72,16 +72,20 @@ class VideoRequest:
 
 @dataclass
 class AudioRequest:
-    """Everything a backend needs to synthesize one audio clip (text-to-speech).
+    """Everything a backend needs to synthesize one audio clip (text-to-speech or,
+    as of issue #122 phase A4, music).
 
-    `op` defaults to "tts" (text → speech) — the only op any audio model declares
-    today; see `capabilities.AUDIO_OPS` for the full vocabulary named but not yet
-    wired. `voice` selects a named voice; `output_format` is the container
-    (mp3/wav). `est_cost_usd` is precomputed and echoed into the plan.
+    `op` defaults to "tts" (text → speech); `"music"` (text/style-prompt → song)
+    is the other currently-wired value — see `capabilities.AUDIO_OPS` for the
+    full vocabulary named but not yet wired. `voice` selects a named TTS voice
+    (unused for music). `lyrics` is music-only: optional `[Verse]`/`[Chorus]`-
+    structured lyrics text, ignored by every TTS backend. `output_format` is the
+    container (mp3/wav). `est_cost_usd` is precomputed and echoed into the plan.
     """
 
     text: str = ""
     voice: str | None = None
+    lyrics: str | None = None
     output_format: str = "mp3"
     op: str = "tts"
     est_cost_usd: float | None = None

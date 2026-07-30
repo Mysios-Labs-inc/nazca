@@ -1334,8 +1334,12 @@ VIDEO_MODELS: dict[str, ModelSpec] = {
 }
 
 # ---------------------------------------------------------------------------
-# Audio model registry (text-to-speech). price_usd is None — TTS is billed per
-# 1K characters (handled by cost.estimate_audio_cost).
+# Audio model registry (text-to-speech, and — issue #122 phase A4 — music).
+# TTS models carry price_usd=None (billed per 1K characters, a separate flat-
+# rate table in cost.py); flat-per-generation ops like music carry a real
+# price_usd (cost.py derives _AUDIO_FLAT_PER_RUN from it, same pattern as
+# _3D_PER_RUN below) — adding a new TTS model with a non-None price_usd would
+# silently route it through the flat-rate path instead of per-char billing.
 # ---------------------------------------------------------------------------
 AUDIO_MODELS: dict[str, ModelSpec] = {
     "atlas-tts-grok": ModelSpec(
@@ -1429,6 +1433,29 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         tier="premium",
         price_usd=None,
         ops=frozenset({"tts"}),
+    ),
+    # Atlas Cloud music generation (issue #122 phase A4) — the first model to wire
+    # `music`, named in AUDIO_OPS since phase A1 but unimplemented until now. Found
+    # via a live, no-auth call to https://api.atlascloud.ai/api/v1/models (2026-07-30):
+    # Atlas's own catalog lists this at $0.15/gen (base_price), a genuinely confirmed
+    # price. Unlike most other Atlas entries here, the request/response *schema* is
+    # ALSO confirmed, not a guess — every model in that same API response carries a
+    # `schema` URL to its own public, no-auth OpenAPI fragment
+    # (static.atlascloud.ai/model/schema/minimax-music-2.6.json, fetched 2026-07-30):
+    # required {model, prompt}; optional {lyrics, is_instrumental, format (mp3|wav|
+    # pcm), sample_rate, bitrate}. nazca wires prompt/lyrics/format today;
+    # is_instrumental/sample_rate/bitrate are real, confirmed fields with no CLI flag
+    # yet — a feature gap, not a schema gap.
+    "atlas-music-minimax": ModelSpec(
+        shorthand="atlas-music-minimax",
+        provider_id="minimax/music-2.6",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.15,
+        standalone_slug=True,
+        ops=frozenset({"music"}),
     ),
 }
 
