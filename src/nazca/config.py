@@ -28,6 +28,7 @@ __all__ = [  # noqa: F822
     "ARK_API_KEY",
     "OPENAI_API_KEY",
     "ATLAS_API_KEY",
+    "WORDER_API_KEY",
 ]
 
 
@@ -76,5 +77,10 @@ def __getattr__(name: str):  # noqa: ANN001, ANN201
     # Precedence: ATLAS_API_KEY env var > ~/.config/nazca/config.ini > None
     if name == "ATLAS_API_KEY":
         return os.getenv("ATLAS_API_KEY") or get_value("atlas_api_key")
+
+    # --- Worder (optional — only required when a worder model is selected) ---
+    # Precedence: WORDER_API_KEY env var > ~/.config/nazca/config.ini > None
+    if name == "WORDER_API_KEY":
+        return os.getenv("WORDER_API_KEY") or get_value("worder_api_key")
 
     raise AttributeError(name)

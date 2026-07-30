@@ -74,12 +74,15 @@ _ENV_MAP: dict[str, str] = {
     "ark_api_key": "ARK_API_KEY",
     "openai_api_key": "OPENAI_API_KEY",
     "atlas_api_key": "ATLAS_API_KEY",
+    "worder_api_key": "WORDER_API_KEY",
     "vertex_project": "VERTEX_PROJECT",
     "vertex_location": "VERTEX_LOCATION",
 }
 
 #: Keys that hold secrets (masked in `config get`/`list`). Project/region are not.
-SECRET_KEYS: tuple[str, ...] = ("fal_key", "ark_api_key", "openai_api_key", "atlas_api_key")
+SECRET_KEYS: tuple[str, ...] = (
+    "fal_key", "ark_api_key", "openai_api_key", "atlas_api_key", "worder_api_key",
+)
 
 
 def _key_source(key: str) -> tuple[str | None, str]:
@@ -106,6 +109,7 @@ KNOWN_KEYS: tuple[str, ...] = (
     "ark_api_key",
     "openai_api_key",
     "atlas_api_key",
+    "worder_api_key",
     "vertex_project",
     "vertex_location",
 )

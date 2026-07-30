@@ -137,6 +137,34 @@ _HINTS: dict[str, list[tuple[int, str | None, str]]] = {
             " — rate-limited by Atlas Cloud; reduce concurrency or check plan limits",
         ),
     ],
+    "worder": [
+        (
+            401,
+            None,
+            " — invalid or missing WORDER_API_KEY; get one at worder.com/developers",
+        ),
+        (
+            402,
+            None,
+            " — insufficient credits; top up (min $5) at worder.com",
+        ),
+        (
+            404,
+            None,
+            " — voice or sample not found; verify voice_id via GET /api/v1/voices",
+        ),
+        (
+            422,
+            None,
+            " — quality check failed (Whisper transcript <90% similarity to input"
+            " text); not charged, try rephrasing or splitting tagged sections",
+        ),
+        (
+            502,
+            None,
+            " — Worder's underlying TTS service errored; retry shortly",
+        ),
+    ],
 }
 
 

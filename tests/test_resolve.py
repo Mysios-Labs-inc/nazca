@@ -38,6 +38,8 @@ _AUDIO_LITERALS = {
     "atlas-tts-grok": ("atlas", "xai/tts-v1"),
     "atlas-tts-elevenlabs-v3": ("atlas", "elevenlabs/v3"),
     "atlas:xai/tts-raw": ("atlas", "xai/tts-raw"),
+    "worder-tts": ("worder", ""),
+    "worder:voice_raw": ("worder", "voice_raw"),
     None: ("atlas", "xai/tts-v1"),  # DEFAULT_AUDIO_MODEL
 }
 
@@ -92,6 +94,7 @@ _BUILTINS = [
     ("video", "atlas-veo-3.1"),  # atlas
     ("audio", "atlas-tts-grok"),
     ("audio", "atlas-tts-elevenlabs-v3"),
+    ("audio", "worder-tts"),
     ("3d", "atlas-hunyuan3d-rapid"),
     ("3d", "atlas-hunyuan3d-pro"),
     ("3d", "atlas-seed3d-2"),
@@ -123,6 +126,7 @@ _PREFIXES = [
     ("video", "modelark:seedance-raw"),
     ("video", "atlas:google/veo-raw"),
     ("audio", "atlas:xai/tts-raw"),
+    ("audio", "worder:voice_raw"),
     ("3d", "atlas:tencent/hunyuan-raw"),
 ]
 

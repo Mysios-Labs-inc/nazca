@@ -318,6 +318,8 @@ CAPS: dict[str, Caps] = {
     # --- Atlas Cloud audio (text-to-speech; async media API; schema unverified) ---
     "atlas-tts-grok":          _aud("atlas-tts-grok",          note="Atlas; xai/tts-v1; 20 langs, 80+ voices; $0.015/1K chars; schema unverified"),
     "atlas-tts-elevenlabs-v3": _aud("atlas-tts-elevenlabs-v3", note="Atlas; elevenlabs/v3; $0.10/1K chars; schema unverified"),
+    # --- Worder (human voice actor TTS marketplace; sync REST; requires --voice) ---
+    "worder-tts":              _aud("worder-tts",              note="Worder; per-second pricing set per voice actor (from $0.01/s); --voice required"),
     # --- Atlas Cloud 3D (text/image → GLB mesh; async media API; schema unverified) ---
     "atlas-hunyuan3d-rapid":   _3d("atlas-hunyuan3d-rapid",    note="Atlas; tencent/hunyuan3d-rapid; $0.02/run; schema unverified"),
     "atlas-hunyuan3d-pro":     _3d("atlas-hunyuan3d-pro",      note="Atlas; tencent/hunyuan3d-pro; $0.02/run; schema unverified"),

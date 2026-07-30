@@ -21,6 +21,8 @@ def _png(path):
 
 
 # Resolved (model_id, api, region) routing per backend for the image dry-run probe.
+# Only image-capable backends are keyed here (mirrors _VIDEO_PROBE below) — an
+# audio-only backend like worder has no run_image to probe.
 _IMAGE_PROBE = {
     "vertex": ("gemini-2.5-flash-image", "gemini", "us-central1"),
     "fal": ("fal-ai/flux/schnell", "fal", ""),
@@ -58,6 +60,7 @@ def test_backends_satisfy_their_capability_protocols():
         "modelark": (True, True, False, False),
         "openai": (True, False, False, False),
         "atlas": (True, True, True, True),
+        "worder": (False, False, True, False),
     }
     for name, backend in BACKENDS.items():
         img, vid, aud, td = expected[name]
@@ -67,7 +70,7 @@ def test_backends_satisfy_their_capability_protocols():
         assert isinstance(backend, SupportsThreeD) == td, f"{name} 3d"
 
 
-@pytest.mark.parametrize("name", list(BACKENDS))
+@pytest.mark.parametrize("name", list(_IMAGE_PROBE))
 def test_image_dry_run_round_trips_to_plan(name, tmp_path, monkeypatch):
     from nazca import config
 

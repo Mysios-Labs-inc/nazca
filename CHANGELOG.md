@@ -4,6 +4,22 @@ All notable changes to nazca are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [semantic versioning](https://semver.org/) (pre-1.0: minor = features, patch = fixes).
 
+## [Unreleased]
+
+### Added
+- **Worder speech backend (`worder-tts` / `worder:<voice_id>`):** new opt-in TTS
+  provider (`WORDER_API_KEY`) alongside Atlas as a second `nazca speak` option — a
+  marketplace of real, ethically-sourced human voice actors rather than a house
+  model. Synchronous `POST /api/v1/generate` (no submit→poll), text supports
+  direction tags (`[happy]`), pause tags (`[pause N]`), emphasis tags, and
+  pronunciation overrides (`{written|spoken}`). No default voice exists — callers
+  must pass `--voice <voice_id>` (from `GET /api/v1/voices`) or use the
+  `worder:<voice_id>` prefix. Pricing is per-second and set per voice actor, so
+  it's left unpriced in `cost.py` (`--dry-run` shows the request plan, not a cost
+  estimate) rather than guessing a flat rate. Wired into `nazca login` /
+  `nazca config`. *Status: integrated per the published API docs, unverified
+  against a live key.*
+
 ## [0.12.0] — 2026-07-01
 
 ### Added
