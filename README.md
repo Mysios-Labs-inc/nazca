@@ -28,7 +28,7 @@ nazca make3d "a stylised anticucho skewer" -o skewer.glb
 - [How it works](#how-it-works)
 - [Install](#install)
 - [Quickstart](#quickstart)
-- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
+- [Commands](#commands) — [`image`](#nazca-image) · [`video`](#nazca-video) · [`speak`](#nazca-speak) · [`voice-clone` & `voice-design`](#nazca-voice-clone-and-nazca-voice-design) · [`music`](#nazca-music) · [`make3d`](#nazca-make3d) · [`grade` & `format`](#nazca-grade-and-nazca-format) · [`batch`](#nazca-batch)
 - [Models & cost](#models--cost) — the `--tier` shortcut + price table
 - [Diagnostics](#diagnostics--v---vv) — `-v`/`-vv` logging + `NAZCA_LOG_LEVEL`
 - [Credentials](#credentials) — `nazca login`, precedence, per-provider setup
@@ -368,6 +368,27 @@ to stdout — file sizes/names only, never the raw audio bytes).
 > Both commands are unpriced (`--dry-run` shows the request plan, not a cost estimate) —
 > Fish Audio pricing is unverified against a live key, same posture as `fish-tts`.
 
+### `nazca music`
+
+Generate a song from a style prompt via Atlas Cloud (needs `ATLAS_API_KEY`) — `music`,
+distinct from `speak`'s text-to-*speech*, is nazca's first text-to-*music* op.
+
+```bash
+nazca music "warm acoustic folk, gentle guitar" -o track.mp3
+nazca music "upbeat synth-pop" --lyrics "[Verse]
+Walking through the city lights" -o track.mp3
+```
+
+**Flags:** positional style PROMPT (required) · `-o/--out` (`.mp3`/`.wav`, required) ·
+`--lyrics` (optional `[Verse]`/`[Chorus]`-structured text) · `--model` (default
+`atlas-music-minimax`, the only music model wired today — `minimax/music-2.6`, $0.15/gen)
+· `--dry-run`.
+
+> **Status:** request/response schema unverified against a live key (Atlas's docs for this
+> specific model weren't published at time of writing) — `--dry-run` first. The $0.15/gen
+> price itself *is* confirmed (pulled from Atlas's live, public model-list API), unlike most
+> other Atlas entries in this README, which are priced from marketing copy.
+
 ### `nazca make3d`
 
 Generate a 3D asset (GLB) from a text prompt or an `--image` (image-to-3D), via Atlas Cloud
@@ -540,6 +561,7 @@ Audio/ElevenLabs pricing changes often and is tier/resolution-dependent — trea
 | `worder-tts` | audio | per voice actor, from $0.01/s | premium | Worder |
 | `fish-tts` | audio | unverified against a live key | premium | Fish Audio |
 | `elevenlabs-tts` | audio | subscription-tier-based, unpriced here | premium | ElevenLabs |
+| `atlas-music-minimax` | audio (music) | $0.15 / gen | premium | Atlas |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |

@@ -7,6 +7,38 @@ All notable changes to nazca are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **Atlas music generation (`atlas-music-minimax` / `nazca music`, issue #122 phase
+  A4):** `music` was named in `capabilities.AUDIO_OPS` since phase A1 but never
+  wired by any model until now — this is the first. Wired `minimax/music-2.6`
+  through Atlas Cloud's existing async submit→poll dispatch (`AtlasBackend.
+  run_audio`, same seam as TTS — music is text/style-prompt → one audio file,
+  just like TTS, unlike phase A2's `voice_clone`/`voice_design`, which needed a
+  new module because their output shape genuinely differs). New CLI command:
+  `nazca music "style prompt" [--lyrics "[Verse]\n..."] -o track.mp3`. A new
+  `AudioRequest.lyrics` field and `audio.generate_music()` (a thin wrapper over
+  `speak(..., op="music")`) carry the music-specific state. `$0.15/gen` is a
+  **confirmed** price (unlike most Atlas entries, which are priced from
+  marketing copy) — pulled directly from Atlas's live, public, no-auth
+  `GET https://api.atlascloud.ai/api/v1/models` endpoint; the request/response
+  *schema* is still unverified (`prompt`/`lyrics` field names are a best-effort
+  guess following this file's established convention, same posture as every
+  other Atlas model here).
+
+  **A4 survey findings** (same live API call, 446 models total): Atlas's own
+  catalog tags 17 models `TEXT-TO-SPEECH` — but that category conflates real
+  TTS (2 already wired as `atlas-tts-grok`/`atlas-tts-elevenlabs-v3`, plus 6
+  more unwired: `bytedance/seed-audio-1.0`, three `google/gemini-*-tts`
+  variants, two `minimax/speech-2.6-*` variants — deferred, low marginal value
+  given nazca already has 4 direct TTS providers) with actual music generation
+  (`minimax/music-2.6`, wired here, plus 8 `suno/chirp-*` variants — deferred
+  as a dedicated batch fast-follow rather than wiring 8 near-duplicates in one
+  pass). `SPEECH-TO-TEXT` (2 models: `bytedance/seed-asr-2.0`, `xai/stt-v1`)
+  stays out of scope per the standing issue #121 decision (analysis, not
+  generation — doesn't fit nazca's generation-only CLI). `AUDIO-TO-VIDEO` (4
+  models, a video-output/avatar modality, not this phase's concern) has 3
+  already wired and one unwired `veed/fabric-1.0/fast` variant, noted but not
+  built. See `docs/media-modalities.md`'s Audio roadmap for the full writeup.
+
 - **ElevenLabs speech backend (`elevenlabs-tts` / `elevenlabs:<voice_id>`, issue #122
   phase A3, absorbs issue #121):** new opt-in TTS provider (`ELEVENLABS_API_KEY`)
   alongside Atlas/Worder/Fish as a fourth `nazca speak` option — a direct path to

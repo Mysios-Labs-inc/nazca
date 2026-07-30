@@ -1430,6 +1430,25 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"tts"}),
     ),
+    # Atlas Cloud music generation (issue #122 phase A4) — the first model to wire
+    # `music`, named in AUDIO_OPS since phase A1 but unimplemented until now. Found
+    # via a live, no-auth call to https://api.atlascloud.ai/api/v1/models (2026-07-30):
+    # Atlas's own catalog lists this at $0.15/gen (base_price), a genuinely confirmed
+    # price — unlike most other Atlas entries here, this one isn't a guess. The
+    # request/response *schema* is still unverified (Atlas's docs for this specific
+    # model weren't found; the "prompt"/"lyrics" fields in atlas.py's run_audio are a
+    # best-effort guess following this file's established field-naming convention).
+    "atlas-music-minimax": ModelSpec(
+        shorthand="atlas-music-minimax",
+        provider_id="minimax/music-2.6",
+        backend="atlas",
+        api="atlas",
+        region="",
+        tier="premium",
+        price_usd=0.15,
+        standalone_slug=True,
+        ops=frozenset({"music"}),
+    ),
 }
 
 

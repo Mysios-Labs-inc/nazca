@@ -336,6 +336,8 @@ CAPS: dict[str, Caps] = {
     "fish-voice-design":       _aud("fish-voice-design",       note="Fish Audio; POST /v1/voice-design; text instruction -> n candidate voices w/ preview audio"),
     # --- ElevenLabs (issue #122 phase A3, TTS only; sync REST; requires --voice) ---
     "elevenlabs-tts":          _aud("elevenlabs-tts",          note="ElevenLabs; eleven_multilingual_v2 by default; xi-api-key auth; pricing subscription-tier-based, unpriced here; --voice required"),
+    # --- Atlas Cloud music (issue #122 phase A4; async media API; schema unverified) ---
+    "atlas-music-minimax":     _aud("atlas-music-minimax",     note="Atlas; minimax/music-2.6; $0.15/gen (confirmed via live model-list API); style prompt + optional --lyrics; schema unverified"),
     # --- Atlas Cloud 3D (text/image → GLB mesh; async media API; schema unverified) ---
     "atlas-hunyuan3d-rapid":   _3d("atlas-hunyuan3d-rapid",    note="Atlas; tencent/hunyuan3d-rapid; $0.02/run; schema unverified"),
     "atlas-hunyuan3d-pro":     _3d("atlas-hunyuan3d-pro",      note="Atlas; tencent/hunyuan3d-pro; $0.02/run; schema unverified"),

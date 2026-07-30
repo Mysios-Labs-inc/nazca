@@ -284,14 +284,27 @@ class AtlasBackend(Backend):
         return self._poll(pred_id, download_timeout=120)
 
     def run_audio(self, resolved, req: AudioRequest):
-        """Async text-to-speech. Endpoint + schema UNVERIFIED → dry-run safe."""
+        """Async text-to-speech, or (op="music", issue #122 phase A4) text-to-music.
+        Endpoint + schema UNVERIFIED → dry-run safe.
+
+        Music uses a different body shape than TTS — a style `prompt` (+
+        optional `lyrics`), not `text`/`voice`/`format` — since it's a distinct
+        Atlas model family (`minimax/music-2.6`, `standalone_slug=True`, so
+        `_model_slug` returns it unchanged regardless of `op`), not a variant of
+        the TTS models. Both share the same submit→poll dispatch below.
+        """
         model_id = resolved.provider_id
         slug = _model_slug(model_id, req.op or "tts", "text-to-speech")
-        body: dict = {"model": slug, "text": req.text}
-        if req.voice:
-            body["voice"] = req.voice  # verify field name
-        if req.output_format:
-            body["format"] = req.output_format  # verify field name
+        if req.op == "music":
+            body: dict = {"model": slug, "prompt": req.text}
+            if req.lyrics:
+                body["lyrics"] = req.lyrics  # verify field name
+        else:
+            body = {"model": slug, "text": req.text}
+            if req.voice:
+                body["voice"] = req.voice  # verify field name
+            if req.output_format:
+                body["format"] = req.output_format  # verify field name
 
         if req.dry_run:
             return {

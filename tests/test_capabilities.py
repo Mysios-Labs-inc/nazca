@@ -114,11 +114,12 @@ def test_audio_ops_names_full_vocabulary():
 
 def test_no_audio_model_supports_unwired_ops_yet():
     # Descriptive, not aspirational (same posture as image/video P1): every
-    # audio model's declared ops is still exactly {"tts"} except the two Fish
-    # Audio models wired in #122 phase A2 (voice_clone / voice_design) —
-    # everything else (speech_to_speech/stt/sfx/music/dub/separate/align)
-    # remains unwired until a later phase.
-    unwired = cap.AUDIO_OPS - {"tts", "voice_clone", "voice_design"}
+    # audio model's declared ops is exactly {"tts"} except the two Fish Audio
+    # models wired in #122 phase A2 (voice_clone / voice_design) and Atlas's
+    # music model wired in phase A4 — everything else
+    # (speech_to_speech/stt/sfx/dub/separate/align) remains unwired until a
+    # later phase.
+    unwired = cap.AUDIO_OPS - {"tts", "voice_clone", "voice_design", "music"}
     for sh, c in cap.CAPS.items():
         if c.produces == "audio":
             assert not (c.ops & unwired), f"{sh} unexpectedly declares {c.ops & unwired}"

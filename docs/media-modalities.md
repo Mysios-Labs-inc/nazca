@@ -127,11 +127,12 @@ the API level — that's a later, per-provider step where native role fields exi
 | `fish-voice-clone` | fish | voice_clone | `POST /model` (multipart); `--title` + 1-20 audio samples → `reference_id`; visibility defaults to **private** (Fish's own API default is public); pricing unverified |
 | `fish-voice-design` | fish | voice_design | `POST /v1/voice-design`; text instruction → `n` (default 2) candidate voices with base64-encoded preview audio; pricing unverified |
 | `elevenlabs-tts` | elevenlabs | tts | `POST /v1/text-to-speech/{voice_id}`; voice_id is a URL path param (not a body field); `eleven_multilingual_v2` by default; `xi-api-key` auth (not Bearer); `output_format` is a query param, not a body field; `--voice` required; pricing subscription-tier-based, unpriced here |
+| `atlas-music-minimax` | atlas | music | `minimax/music-2.6`; style prompt + optional `--lyrics` (`[Verse]`/`[Chorus]` structure); $0.15/gen (confirmed via live model-list API); request/response schema unverified |
 
-Every wired audio model does `tts` only, except the two Fish Audio entries above
-(issue #122 phase A2). No `speech_to_speech`, `stt`, `sfx`, `music`, `separate`,
-or `align` model is wired
-anywhere in nazca today.
+Every wired audio model does `tts` only, except the two Fish Audio entries (issue
+#122 phase A2, `voice_clone`/`voice_design`) and `atlas-music-minimax` (phase A4,
+`music`). No `speech_to_speech`, `stt`, `sfx`, `separate`, or `align` model is
+wired anywhere in nazca today.
 
 ### Audio capability matrix (what each provider's *own* API offers — not what's wired)
 
@@ -142,7 +143,7 @@ led to the modify-op backends.
 
 | provider | tts | voice_clone | voice_design | speech_to_speech | stt | sfx | music | dub | separate | align |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **Atlas Cloud** | ✅ (2 wired; fronts 17 "text-to-audio" models total per atlascloud.ai/models, rest unexplored) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed ("audio-to-video", 4 models — may be avatar/lip-sync, not voice-change) | ✅ 2 "audio-to-text" models (unwired) | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed | ❓ unconfirmed |
+| **Atlas Cloud** *(surveyed via a live, no-auth call to `GET api.atlascloud.ai/api/v1/models`, 2026-07-30 — issue [#122 A4](https://github.com/Mysios-Labs-inc/nazca/issues/122))* | ✅ **8 real TTS models**, 2 wired (`atlas-tts-grok`=`xai/tts-v1`, `atlas-tts-elevenlabs-v3`=`elevenlabs/v3`), 6 unwired (`bytedance/seed-audio-1.0`, 3× `google/gemini-*-tts`, 2× `minimax/speech-2.6-*` — deferred, low marginal value given 4 direct TTS providers already exist) | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found (the 4 "AUDIO-TO-VIDEO" models are avatar/lip-sync — video output, not voice-changed audio; see `Models today` → Video) | ✅ 2 models (`bytedance/seed-asr-2.0`, `xai/stt-v1`), deliberately unwired — analysis, not generation, per the standing #121 scoping decision | ❌ not offered by any Atlas model found | ✅ **9 real models, 1 wired**: `minimax/music-2.6` wired as `atlas-music-minimax` ($0.15/gen, confirmed price); 8× `suno/chirp-*` variants deferred as a batch fast-follow (near-duplicates, not wired individually this pass) | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found |
 | **Worder** | ✅ (rich prosody control; no other audio capability offered — a TTS-only marketplace by design) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Fish Audio** | ✅ REST + WebSocket streaming | ✅ `POST /model` (instant clone or persistent trained model) | ✅ `POST /v1/voice-design` | ⚠️ marketing-only — "voice transformation" is a web-app feature, not in the public API/OpenAPI index | ✅ `POST /v1/speech-to-text`, per-segment timestamps | ⚠️ marketing-only — not in the public API index | ⚠️ marketing-only — not in the public API index | ❌ | ⚠️ marketing-only ("audio separation") — not in the public API index | ❌ |
 | **ElevenLabs** *(`tts` integrated — issue [#122 A3](https://github.com/Mysios-Labs-inc/nazca/issues/122), absorbs [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121); rest still unwired)* | ✅ **wired** (`elevenlabs-tts`); 3 model tiers exist (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) but only the default (`eleven_multilingual_v2`) is used — no `--model-id` flag yet | ✅ instant + professional cloning (not wired) | ✅ `/v1/text-to-voice/design` (not wired) | ✅ `/v1/speech-to-speech/{voice_id}` (not wired) | ✅ Scribe v2 (batch + realtime) (not wired) | ✅ `/v1/text-to-sound-effects/convert` (not wired) | ✅ Eleven Music (not wired) | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ `/forced-alignment/create` (not wired) |
@@ -150,19 +151,28 @@ led to the modify-op backends.
 **Reading this table:** ⚠️ rows are claims from marketing copy that don't appear in
 the provider's own API reference/OpenAPI index — treat as "web-app only, unverified
 as a callable endpoint" until checked against the actual OpenAPI schema, the same
-posture nazca already takes for unverified fal/ModelArk ids. ❓ means Atlas's full
-catalog wasn't enumerable from public docs alone (needs a live account /
-`atlascloud.ai/models` deep-dive) — it likely fronts more than the 2 audio models
-nazca has wired, given it aggregates ~91 models total across all modalities.
+posture nazca already takes for unverified fal/ModelArk ids. Atlas's row (unlike the
+others) comes from a live API response, not docs prose — `GET
+api.atlascloud.ai/api/v1/models` needs no auth and returns all 446 models with a
+`categories` tag per model, so "❌ not offered" for Atlas means "no model in the live
+catalog carries that category tag", a stronger claim than the ❓/unconfirmed posture
+this row used to have (see #122 A4). One caveat: Atlas's own `TEXT-TO-SPEECH`
+category tag is overloaded — it conflates real speech synthesis with music
+generation (the 8 `suno/chirp-*` + `minimax/music-2.6` models are tagged
+`TEXT-TO-SPEECH` on Atlas's side despite being song/music generators, not TTS) — the
+table above reclassifies them into nazca's `music` column rather than trusting
+Atlas's tag literally.
 
 **Where this points:** ElevenLabs is the only provider with a fully public,
 documented API across nearly the whole audio ops vocabulary (missing only `dub`,
-not live yet anywhere, and `separate`) — `tts` is now wired (A3, this pass);
-the rest of its vocabulary is future A3 sub-phase work. Fish Audio is second — genuinely has
+not live yet anywhere, and `separate`) — `tts` is now wired (A3); the rest of its
+vocabulary is future A3 sub-phase work. Fish Audio is second — genuinely has
 `voice_clone`/`voice_design`/`stt` as real endpoints, which nazca doesn't use at all
-today (Fish is wired for `tts` only). Worder is intentionally narrow. Atlas is the
-biggest unknown — likely has unwired audio models worth a `nazca models`-style
-catalog pull before assuming it's TTS-only.
+today (Fish is wired for `tts` only). Worder is intentionally narrow. Atlas turned
+out to be TTS-and-music (not TTS-only as originally guessed) — `music` is now wired
+(A4, this pass) via `minimax/music-2.6`; the remaining 6 unwired TTS variants and 8
+unwired Suno music variants are documented, explicit deferrals, not gaps nobody
+looked at.
 
 ## Mismatches (1 & 2 fixed in P2)
 
@@ -242,8 +252,16 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   voice_id-in-URL, output_format-as-query-param); ⬜ still to come — the
   new-noun ops (`sfx`/`music`/`voice_design`, no existing `speak`-shaped input
   to reuse), then `speech_to_speech`/`voice_clone`/`stt`/`align`.
-- ⬜ **A4** — survey Atlas Cloud's full audio catalog (17 text-to-audio / 2
-  audio-to-text / 4 audio-to-video models, only 2 wired today) before assuming
-  it's TTS-only.
+- ✅ **A4** — surveyed Atlas Cloud's full audio catalog via a live, no-auth
+  `GET api.atlascloud.ai/api/v1/models` call (446 models total): 17
+  `TEXT-TO-SPEECH`-tagged (8 real TTS — 2 wired, 6 deferred; 9 actually
+  music, mistagged — 1 wired as `atlas-music-minimax`, 8 Suno variants
+  deferred as a batch fast-follow), 2 `SPEECH-TO-TEXT` (deliberately unwired,
+  out of scope per #121), 4 `AUDIO-TO-VIDEO` (avatar/lip-sync, 3 already
+  wired as video models, 1 unwired `veed/fabric-1.0/fast` variant noted but
+  not built). Wired `music` — named in `AUDIO_OPS` since A1, unimplemented
+  until now — via `minimax/music-2.6` ($0.15/gen, a confirmed price) and the
+  new `nazca music` command. See the capability matrix above for the full
+  per-model breakdown.
 - **A5** — Worder stays `tts`-only; a voice-actor marketplace by design, not a
   gap to fill.
