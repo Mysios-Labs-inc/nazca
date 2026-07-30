@@ -4,14 +4,16 @@ API (issue #122 phase A3).
 Today ElevenLabs is only reachable indirectly through one Atlas-proxied model
 (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
 `voice_settings`, and output-format control. This module adds ElevenLabs as a
-fourth *direct* speech provider, parallel to Worder/Fish. TTS and sound
-effects (`sfx`) are wired; voice design/speech-to-speech/dubbing/etc are
-still a later follow-up per `docs/media-modalities.md`'s "Audio roadmap" (A3
-sub-phases). This also absorbs issue #121 (a full-integration proposal).
+fourth *direct* speech provider, parallel to Worder/Fish. TTS, sound effects
+(`sfx`), and voice cloning (`voice_clone`) are wired; voice design/speech-to-
+speech/dubbing/etc are still a later follow-up per `docs/media-modalities.md`'s
+"Audio roadmap" (A3 sub-phases). This also absorbs issue #121 (a full-
+integration proposal).
 
     POST /v1/text-to-speech/{voice_id}?output_format=...  -> raw audio bytes
     POST /v1/sound-generation?output_format=...           -> raw audio bytes
     GET  /v2/voices                                       -> {"voices": [...], "next_page_token", ...}
+    POST /v1/voices/add                                   -> {"voice_id", "requires_verification"} (voice_clone)
 
 Three structural differences from every other backend in this codebase worth
 flagging explicitly, since a future maintainer would reasonably assume this
@@ -73,10 +75,25 @@ body) — this is what `ElevenLabsRateLimitError` corresponds to, matching
 `retry.py`'s `RETRYABLE_STATUS = {429, 503}`. 422 is a validation error with
 body shape `{"detail": [{"loc": [...], "msg": ..., "type": ...}]}` — an
 object with a `detail` *list*, different from Fish's bare *list* body.
+
+`voice_clone` (issue #122 phase A3, `POST /v1/voices/add`) is the closest 1:1
+precedent to `FishBackend.voice_clone` (issue #122 A2) — same validate-then-
+dry-run-then-multipart shape, reusing `retry.post_multipart` exactly like
+Fish's `POST /model` does. It differs from Fish's version in the request
+field names ElevenLabs itself defines: `name` (not `title`), no `type`/
+`train_mode` (ElevenLabs has no train-mode choice), and no per-call sample
+count cap in ElevenLabs' published OpenAPI spec (Fish caps at 20/call;
+ElevenLabs' only documented limit is a workspace-wide 500 *total* voices,
+which nazca cannot check client-side). `visibility`/`tags` are Fish-only
+concepts with no ElevenLabs equivalent — `voice_clone` below accepts them
+(so it satisfies the exact call shape `nazca.voice.clone_voice()` uses
+uniformly for every backend) but never forwards them to the API.
 """
 
 from __future__ import annotations
 
+import mimetypes
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlencode
 
@@ -144,6 +161,14 @@ class ElevenLabsBackend(Backend):
         workspace exceeds 500 voices, so `/v2` is preferred here.
         """
         return f"{ELEVENLABS_BASE}/v2/voices"
+
+    def voice_clone_endpoint(self) -> str:
+        """`POST /v1/voices/add` — creates a new Instant Voice Clone. A distinct
+        "voices" collection endpoint, not a text-to-speech endpoint like
+        `tts_endpoint`/`sfx_endpoint` — same relationship as Fish's
+        `voice_clone_endpoint` (`POST /model`) to its `tts_endpoint`.
+        """
+        return f"{ELEVENLABS_BASE}/v1/voices/add"
 
     def _resolve_output_format(self, req: AudioRequest) -> str | None:
         """Map `req.output_format` to ElevenLabs' query-param enum, or raise.
@@ -243,3 +268,97 @@ class ElevenLabsBackend(Backend):
             }
 
         return self._post(url, body)
+
+    # ------------------------------------------------------------------ voice_clone
+    def voice_clone(
+        self,
+        title: str,
+        audio_paths: list[str],
+        *,
+        description: str | None = None,
+        visibility: str = "private",
+        tags: list[str] | None = None,
+        remove_background_noise: bool = False,
+        dry_run: bool = False,
+    ) -> dict:
+        """Create an Instant Voice Clone from 1+ audio samples (`POST /v1/voices/add`,
+        issue #122 phase A3). Mirrors `FishBackend.voice_clone`'s validate-then-
+        dry-run-then-multipart shape closely — see the module docstring for how
+        the two backends' request fields differ.
+
+        `title` maps to ElevenLabs' required `name` field. `visibility`/`tags`
+        are accepted (so this method satisfies the exact call shape
+        `nazca.voice.clone_voice()` uses uniformly for every voice_clone-capable
+        backend) but silently ignored — ElevenLabs' `POST /v1/voices/add` has no
+        equivalent of Fish's `visibility`/`tags` fields. `remove_background_noise`
+        (a real ElevenLabs field, off by default per its own docs) has no CLI
+        flag yet, same "don't expose every knob this pass" posture as
+        `run_audio`'s `voice_settings`.
+
+        Unlike Fish (which caps at 20 samples/call), ElevenLabs' published
+        OpenAPI spec documents no per-call sample-count limit — only a
+        workspace-wide cap of 500 *total* voices, which nazca cannot check
+        client-side — so only "at least one sample" is validated here.
+
+        Validates each path itself (not just relying on the CLI's
+        `click.Path(exists=True)`) for the same reason as Fish: a direct
+        library caller, or a TOCTOU race between the CLI's parse-time check
+        and this call, would otherwise hit a raw `OSError` instead of a clean
+        `ElevenLabsError`.
+
+        Returns the decoded JSON response — key field `voice_id` (the id to
+        pass to `nazca speak --model elevenlabs-tts --voice <voice_id>`); also
+        carries `requires_verification` (bool).
+        """
+        if not audio_paths:
+            raise ElevenLabsError("voice_clone requires at least one audio sample path")
+        for p in audio_paths:
+            if not Path(p).is_file():
+                raise ElevenLabsError(f"voice_clone: not a file: {p}")
+
+        fields: dict[str, str] = {"name": title}
+        if description:
+            fields["description"] = description
+        if remove_background_noise:
+            fields["remove_background_noise"] = "true"
+
+        try:
+            if dry_run:
+                return {
+                    "url": self.voice_clone_endpoint(),
+                    "backend": self.name,
+                    "fields": dict(fields),
+                    "files": [
+                        {"field": "files", "filename": Path(p).name, "size_bytes": Path(p).stat().st_size}
+                        for p in audio_paths
+                    ],
+                }
+
+            files: list[tuple[str, str, bytes, str]] = [
+                (
+                    "files",
+                    Path(p).name,
+                    Path(p).read_bytes(),
+                    mimetypes.guess_type(p)[0] or "application/octet-stream",
+                )
+                for p in audio_paths
+            ]
+        except OSError as e:
+            # A TOCTOU race (deleted/permission-changed between the is_file()
+            # check above and the actual read) — clean ElevenLabsError, not a
+            # raw traceback, mirroring Fish's voice_clone.
+            raise ElevenLabsError(f"voice_clone: couldn't read an audio sample: {e}") from e
+
+        return retry.post_multipart(
+            self.voice_clone_endpoint(),
+            fields,
+            files,
+            headers={"xi-api-key": self.auth_token()},
+            timeout=120,
+            on_http_error=lambda code, detail: ElevenLabsError(
+                f"ElevenLabs HTTP {code}: {detail}{hint('elevenlabs', code, detail)}"
+            ),
+            on_rate_limited=lambda code, detail: ElevenLabsRateLimitError(
+                f"ElevenLabs rate limit (HTTP {code}) persisted after retries: {detail}"
+            ),
+        )

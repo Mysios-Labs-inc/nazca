@@ -1471,6 +1471,22 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"sfx"}),
     ),
+    # ElevenLabs voice cloning (issue #122 phase A3, third sub-phase after
+    # `tts`/`sfx`) — like `fish-voice-clone`, this is a routing placeholder:
+    # provider_id is empty and there is no tier default, since voice_clone
+    # dispatches straight to ElevenLabsBackend's dedicated voice_clone()
+    # method, not run_audio. Pricing is subscription-tier-based (same posture
+    # as elevenlabs-tts/-sfx), unpriced here.
+    "elevenlabs-voice-clone": ModelSpec(
+        shorthand="elevenlabs-voice-clone",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"voice_clone"}),
+    ),
 }
 
 

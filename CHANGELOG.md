@@ -108,6 +108,32 @@ All notable changes to nazca are documented here. Format follows
   *Status: integrated per the published OpenAPI schema, unverified against a
   live key.*
 
+- **ElevenLabs voice cloning (`elevenlabs-voice-clone` / `nazca voice-clone
+  --model elevenlabs-voice-clone`, issue #122 phase A3, third sub-phase after
+  `tts`/`sfx`):** wires `POST /v1/voices/add` (Instant Voice Clone) as a
+  second `voice_clone`-capable backend alongside Fish Audio's
+  `fish-voice-clone` (phase A2). `ElevenLabsBackend.voice_clone` plugs
+  straight into the existing `SupportsVoiceClone` protocol and
+  `nazca.voice.clone_voice()` orchestrator — no changes needed to either;
+  only a new `ModelSpec` (`models.py`), a new `Caps` entry
+  (`capabilities.py`), and the backend method itself. Multipart upload via
+  the same `retry.post_multipart` Fish's `voice_clone` already uses; 1+
+  audio sample files under a `files` field (ElevenLabs' name, vs Fish's
+  `voices`) plus a required `name` field (`--title`) and optional
+  `description`. Unlike Fish (hard caps at 20 samples/call), ElevenLabs'
+  published OpenAPI spec documents no per-call sample-count limit — only a
+  workspace-wide cap of 500 *total* voices, which nazca can't check
+  client-side, so only "at least one sample" is validated here. Fish-only
+  concepts (`--visibility`, `--tags`) have no ElevenLabs equivalent — the
+  method accepts them (satisfying `clone_voice()`'s uniform per-backend call
+  shape) but never forwards them to the API. Response's `voice_id` is what
+  `nazca speak --model elevenlabs-tts --voice <voice_id>` then consumes.
+  Pricing is subscription-tier-based like `elevenlabs-tts`/`elevenlabs-sfx`,
+  so `elevenlabs-voice-clone` is likewise unpriced (`price_usd=None`).
+
+  *Status: integrated per the published OpenAPI schema, unverified against a
+  live key.*
+
 ### Fixed
 - **`retry.post_bytes` never validated the Content-Type of a 2xx response**
   (found during `elevenlabs-sfx`'s PR review, but pre-existing — shared by
