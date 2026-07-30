@@ -278,7 +278,6 @@ class ElevenLabsBackend(Backend):
         description: str | None = None,
         visibility: str = "private",
         tags: list[str] | None = None,
-        remove_background_noise: bool = False,
         dry_run: bool = False,
     ) -> dict:
         """Create an Instant Voice Clone from 1+ audio samples (`POST /v1/voices/add`,
@@ -290,10 +289,11 @@ class ElevenLabsBackend(Backend):
         are accepted (so this method satisfies the exact call shape
         `nazca.voice.clone_voice()` uses uniformly for every voice_clone-capable
         backend) but silently ignored — ElevenLabs' `POST /v1/voices/add` has no
-        equivalent of Fish's `visibility`/`tags` fields. `remove_background_noise`
-        (a real ElevenLabs field, off by default per its own docs) has no CLI
-        flag yet, same "don't expose every knob this pass" posture as
-        `run_audio`'s `voice_settings`.
+        equivalent of Fish's `visibility`/`tags` fields. ElevenLabs also has a
+        real `remove_background_noise` field (off by default) with no parameter
+        here — nothing in this codebase can set it yet (no CLI flag, no
+        orchestrator kwarg), so it's left out entirely rather than added as a
+        parameter no caller can reach.
 
         Unlike Fish (which caps at 20 samples/call), ElevenLabs' published
         OpenAPI spec documents no per-call sample-count limit — only a
@@ -319,8 +319,6 @@ class ElevenLabsBackend(Backend):
         fields: dict[str, str] = {"name": title}
         if description:
             fields["description"] = description
-        if remove_background_noise:
-            fields["remove_background_noise"] = "true"
 
         try:
             if dry_run:

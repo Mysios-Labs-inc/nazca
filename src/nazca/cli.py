@@ -1000,17 +1000,25 @@ def make3d(prompt, out, source, model, tier, dry_run):
 @click.option("--description", default=None, help="Optional description for the model.")
 @click.option(
     "--visibility", default="private", type=click.Choice(["private", "unlist", "public"]),
-    help="Model visibility (default: private — Fish's own API default is public).",
+    help="Model visibility (Fish only — default: private, Fish's own API default is public; "
+    "unsupported by elevenlabs-voice-clone, leave at default there).",
 )
-@click.option("--tags", default=None, help="Comma-separated tags (e.g. narration,warm).")
-@click.option("--model", default=None, help="Voice-clone backend model (default: fish-voice-clone).")
+@click.option(
+    "--tags", default=None,
+    help="Comma-separated tags (Fish only, e.g. narration,warm; unsupported by elevenlabs-voice-clone).",
+)
+@click.option(
+    "--model", default=None,
+    help="Voice-clone backend model (default: fish-voice-clone). Also: elevenlabs-voice-clone.",
+)
 @click.option("--dry-run", is_flag=True, help="Write the planned request; no API call.")
 def voice_clone(audio, title, description, visibility, tags, model, dry_run):
-    """Create a reusable voice from one or more AUDIO sample files (Fish Audio).
+    """Create a reusable voice from one or more AUDIO sample files (Fish Audio or ElevenLabs).
 
     \b
       nazca voice-clone sample1.mp3 sample2.mp3 --title "My Voice"
       nazca voice-clone sample.wav --title "Narrator" --visibility unlist --dry-run
+      nazca voice-clone sample.mp3 --title "Voice" --model elevenlabs-voice-clone
     """
     from nazca.errors import BackendError
     from nazca.voice import clone_voice as _clone_voice
@@ -1029,9 +1037,13 @@ def voice_clone(audio, title, description, visibility, tags, model, dry_run):
     if dry_run:
         click.echo("📝 " + json.dumps(result, indent=2))
     else:
-        ref_id = result.get("_id", "?")
+        # clone_voice() normalizes every backend's response to include
+        # "voice_id" (Fish's own key is "_id"; ElevenLabs' is "voice_id"
+        # natively) — see its docstring.
+        ref_id = result["voice_id"]
+        tts_model = "elevenlabs-tts" if resolved_model.startswith("elevenlabs") else "fish-tts"
         click.echo(f"✅ Voice cloned: {ref_id}")
-        click.echo(f"   ↳ use it: nazca speak \"...\" -o out.mp3 --model fish-tts --voice {ref_id}")
+        click.echo(f"   ↳ use it: nazca speak \"...\" -o out.mp3 --model {tts_model} --voice {ref_id}")
 
 
 @cli.command(name="voice-design")

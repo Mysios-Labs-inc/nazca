@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from nazca.backends.elevenlabs import ElevenLabsBackend, ElevenLabsError, ElevenLabsRateLimitError
 from nazca.capabilities import CapabilityError, validate_op
 from nazca.cli import cli
+from nazca.errors import AudioError
 from nazca.voice import clone_voice
 
 
@@ -63,11 +64,10 @@ def test_voice_clone_custom_options_in_dry_run_plan(tmp_path):
     s2.write_bytes(b"bb")
     plan = ElevenLabsBackend().voice_clone(
         "Narrator", [str(s1), str(s2)],
-        description="A warm narrator voice", remove_background_noise=True,
+        description="A warm narrator voice",
         dry_run=True,
     )
     assert plan["fields"]["description"] == "A warm narrator voice"
-    assert plan["fields"]["remove_background_noise"] == "true"
     assert len(plan["files"]) == 2
 
 
@@ -197,6 +197,66 @@ def test_clone_voice_orchestrator_dispatches_to_elevenlabs(tmp_path):
     assert plan["url"] == "https://api.elevenlabs.io/v1/voices/add"
 
 
+def test_clone_voice_orchestrator_rejects_fish_only_visibility_for_elevenlabs(tmp_path):
+    # Unlike the backend method (which silently ignores these), the
+    # orchestrator raises rather than letting a caller believe --visibility/
+    # --tags took effect when they were actually dropped.
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    try:
+        clone_voice(
+            "My Voice", [str(sample)], model="elevenlabs-voice-clone",
+            visibility="public", dry_run=True,
+        )
+    except AudioError as e:
+        assert "elevenlabs-voice-clone" in str(e)
+    else:
+        raise AssertionError("expected AudioError for --visibility on a non-Fish backend")
+
+
+def test_clone_voice_orchestrator_rejects_fish_only_tags_for_elevenlabs(tmp_path):
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    try:
+        clone_voice(
+            "My Voice", [str(sample)], model="elevenlabs-voice-clone",
+            tags=["narration"], dry_run=True,
+        )
+    except AudioError:
+        pass
+    else:
+        raise AssertionError("expected AudioError for --tags on a non-Fish backend")
+
+
+def test_clone_voice_orchestrator_normalizes_elevenlabs_response_to_voice_id(monkeypatch, tmp_path):
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+
+    def fake_voice_clone(self, title, audio_paths, **kwargs):
+        return {"voice_id": "abc123", "requires_verification": False}
+
+    monkeypatch.setattr(ElevenLabsBackend, "voice_clone", fake_voice_clone)
+    result = clone_voice("My Voice", [str(sample)], model="elevenlabs-voice-clone", dry_run=False)
+    assert result["voice_id"] == "abc123"
+
+
+def test_cli_voice_clone_rejects_visibility_flag_for_elevenlabs_cleanly(tmp_path):
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    r = CliRunner().invoke(
+        cli,
+        [
+            "voice-clone", str(sample), "--title", "My Voice",
+            "--model", "elevenlabs-voice-clone", "--visibility", "public",
+        ],
+    )
+    assert r.exit_code == 1
+    assert isinstance(r.exception, SystemExit)
+    assert "❌" in r.output
+
+
 # --------------------------------------------------------------------------- CLI
 
 
@@ -214,6 +274,29 @@ def test_cli_voice_clone_elevenlabs_dry_run(tmp_path):
     assert "📝" in r.output
     plan = json.loads(r.output.split("📝 ", 1)[1])
     assert plan["backend"] == "elevenlabs"
+
+
+def test_cli_voice_clone_elevenlabs_success_prints_voice_id_and_correct_hint(tmp_path, monkeypatch):
+    # Regression test: the CLI's success-output rendering used to read Fish's
+    # "_id" field and hard-code "--model fish-tts" in the follow-up hint,
+    # unconditionally — a real (non-dry-run) elevenlabs-voice-clone run
+    # printed "Voice cloned: ?" and pointed at the wrong backend, since
+    # ElevenLabs' response uses "voice_id", not "_id".
+    def fake_voice_clone(self, title, audio_paths, **kwargs):
+        return {"voice_id": "abc123", "requires_verification": False}
+
+    monkeypatch.setattr(ElevenLabsBackend, "voice_clone", fake_voice_clone)
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+    r = CliRunner().invoke(
+        cli,
+        ["voice-clone", str(sample), "--title", "My Voice", "--model", "elevenlabs-voice-clone"],
+    )
+    assert r.exit_code == 0
+    assert "abc123" in r.output
+    assert "?" not in r.output.split("Voice cloned:")[1].split("\n")[0]
+    assert "--model elevenlabs-tts" in r.output
+    assert "fish-tts" not in r.output
 
 
 def test_cli_voice_clone_backend_error_is_clean_not_a_traceback(tmp_path, monkeypatch):
@@ -269,6 +352,62 @@ def test_voice_clone_success_returns_created_metadata(monkeypatch, tmp_path):
     assert b'name="name"' in sent.data
     assert b"My Voice" in sent.data
     assert b'name="files"; filename="sample.mp3"' in sent.data
+
+
+def test_voice_clone_multi_file_multipart_body_has_a_part_per_sample(monkeypatch, tmp_path):
+    _clear_real_config_attr("ELEVENLABS_API_KEY")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "test-key")
+    s1 = tmp_path / "a.mp3"
+    s2 = tmp_path / "b.mp3"
+    s1.write_bytes(b"aaa-audio")
+    s2.write_bytes(b"bbb-audio")
+
+    class _Resp:
+        headers = {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps({"voice_id": "multi123", "requires_verification": False}).encode()
+
+    captured_requests = []
+
+    def fake_urlopen(request, timeout=None):
+        captured_requests.append(request)
+        return _Resp()
+
+    with mock.patch("urllib.request.urlopen", fake_urlopen):
+        ElevenLabsBackend().voice_clone("Narrator", [str(s1), str(s2)], dry_run=False)
+    sent_data = captured_requests[0].data
+    assert sent_data.count(b'name="files"') == 2
+    assert b'filename="a.mp3"' in sent_data
+    assert b'filename="b.mp3"' in sent_data
+    assert b"aaa-audio" in sent_data
+    assert b"bbb-audio" in sent_data
+
+
+def test_voice_clone_read_failure_after_is_file_check_raises_elevenlabs_error(monkeypatch, tmp_path):
+    # The TOCTOU race the module docstring explicitly calls out: a sample that
+    # passes is_file() but fails on read_bytes() (permission change, deleted
+    # between check and read) must raise a clean ElevenLabsError, not a raw
+    # traceback.
+    sample = tmp_path / "sample.mp3"
+    sample.write_bytes(b"fake-audio-bytes")
+
+    def raise_permission_error(self):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_bytes", raise_permission_error)
+    try:
+        ElevenLabsBackend().voice_clone("My Voice", [str(sample)], dry_run=False)
+    except ElevenLabsError as e:
+        assert "couldn't read" in str(e)
+    else:
+        raise AssertionError("expected ElevenLabsError on a read failure after is_file() passed")
 
 
 def test_voice_clone_http_error_wraps_as_elevenlabs_error(monkeypatch, tmp_path):
