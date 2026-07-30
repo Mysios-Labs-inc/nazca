@@ -7,6 +7,52 @@ All notable changes to nazca are documented here. Format follows
 ## [Unreleased]
 
 ### Added
+- **ElevenLabs speech backend (`elevenlabs-tts` / `elevenlabs:<voice_id>`, issue #122
+  phase A3, absorbs issue #121):** new opt-in TTS provider (`ELEVENLABS_API_KEY`)
+  alongside Atlas/Worder/Fish as a fourth `nazca speak` option — a direct path to
+  ElevenLabs' own model catalog, `voice_settings`, and output-format control,
+  previously only reachable indirectly via one fixed Atlas-proxied model
+  (`atlas-tts-elevenlabs-v3`). This pass is **TTS only**; sound effects, voice
+  design, speech-to-speech, dubbing, etc. remain unwired (see
+  `docs/media-modalities.md`'s Audio roadmap for the rest of A3). Two structural
+  differences from every other backend in this codebase, called out prominently
+  in `backends/elevenlabs.py`'s module docstring since they're exactly the kind
+  of thing that bites the next person to extend it:
+  - **Auth header is `xi-api-key: <key>`, NOT `Authorization: Bearer <key>`** —
+    every other backend here (Fish, Worder, Atlas, OpenAI) uses Bearer auth.
+  - **`voice_id` is a URL *path* parameter** (`POST
+    /v1/text-to-speech/{voice_id}`), not a body field like Fish's
+    `reference_id`/Worder's `voice_id`; `output_format` is likewise a **query
+    string parameter**, not a body field like Fish/Atlas — nazca's
+    `--format mp3|wav` maps to `mp3_44100_128`/`wav_44100`, omitted entirely
+    when unset.
+
+  Synchronous (no submit→poll): `/v1/text-to-speech/{voice_id}` streams raw audio
+  bytes directly (not a JSON envelope), so it's POSTed via the existing
+  `retry.post_bytes` helper, same as Fish. The `model_id` sent in the body
+  defaults to `eleven_multilingual_v2` (ElevenLabs' own default, reused as-is —
+  unlike Fish where nazca overrides Fish's own default) and is not
+  user-configurable today; `voice_settings` is likewise omitted from the body
+  entirely, letting ElevenLabs apply its own defaults. No default voice
+  exists — callers must pass `--voice <voice_id>` (from `GET /v2/voices`, the
+  modern paginated listing endpoint — `/v1/voices` also exists but ElevenLabs'
+  own docs say it stops working past 500 voices in a workspace) or use the
+  `elevenlabs:<voice_id>` prefix. Pricing is subscription-tier-based, not a
+  simple per-request rate, so `elevenlabs-tts` has `price_usd=None` in
+  `models.py` (`--dry-run` shows the request plan, not a cost estimate). Wired
+  into `nazca login` / `nazca config`.
+
+  **Error handling note:** ElevenLabs returns quota/credit exhaustion as HTTP
+  **401** with a body `status` of `"quota_exceeded"` — NOT HTTP 402, which is
+  what one might guess by analogy to Fish/Atlas/fal's conventions. Verified
+  against ElevenLabs' own error-messages docs rather than assumed; the new
+  `error_hints.py` entry distinguishes the two 401 cases (invalid key vs.
+  quota) by body substring. 429 (`too_many_concurrent_requests` /
+  `system_busy`) is the genuine rate-limit signal, matching `retry.py`'s
+  `RETRYABLE_STATUS`.
+
+  *Status: integrated per the published OpenAPI schema and public docs,
+  unverified against a live key.*
 - **Fish Audio `voice_clone` / `voice_design` (issue #122, phase A2):** two new
   Fish Audio endpoints are wired — `POST /model` (create a reusable voice from
   1-20 audio samples, `FishBackend.voice_clone`) and `POST /v1/voice-design`

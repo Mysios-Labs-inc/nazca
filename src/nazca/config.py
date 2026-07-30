@@ -30,6 +30,7 @@ __all__ = [  # noqa: F822
     "ATLAS_API_KEY",
     "WORDER_API_KEY",
     "FISH_API_KEY",
+    "ELEVENLABS_API_KEY",
 ]
 
 
@@ -88,5 +89,10 @@ def __getattr__(name: str):  # noqa: ANN001, ANN201
     # Precedence: FISH_API_KEY env var > ~/.config/nazca/config.ini > None
     if name == "FISH_API_KEY":
         return os.getenv("FISH_API_KEY") or get_value("fish_api_key")
+
+    # --- ElevenLabs (optional — only required when an elevenlabs model is selected) ---
+    # Precedence: ELEVENLABS_API_KEY env var > ~/.config/nazca/config.ini > None
+    if name == "ELEVENLABS_API_KEY":
+        return os.getenv("ELEVENLABS_API_KEY") or get_value("elevenlabs_api_key")
 
     raise AttributeError(name)

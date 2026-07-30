@@ -54,6 +54,7 @@ flowchart LR
     R -.->|opt-in · audio/3D| AT[Atlas backend<br/>ATLAS_API_KEY]
     R -.->|opt-in · speech| WD[Worder backend<br/>WORDER_API_KEY]
     R -.->|opt-in · speech| FI[Fish Audio backend<br/>FISH_API_KEY]
+    R -.->|opt-in · speech| EL[ElevenLabs backend<br/>ELEVENLABS_API_KEY]
     V --> G[(Google Vertex<br/>Gemini · Imagen · Veo)]
     F --> FP[(fal.ai<br/>FLUX · Wan · Seedance)]
     M --> MP[(ByteDance<br/>Seedream · Seedance)]
@@ -61,17 +62,20 @@ flowchart LR
     AT --> ATP[(Atlas Cloud<br/>~91 models · TTS · 3D · avatar)]
     WD --> WDP[(Worder<br/>human voice actor TTS)]
     FI --> FIP[(Fish Audio<br/>hosted + community voice models)]
-    G & FP & MP & OP & ATP & WDP & FIP --> O[/output file<br/>.png · .mp4 · .mp3 · .glb/]
+    EL --> ELP[(ElevenLabs<br/>full model catalog · voice_settings)]
+    G & FP & MP & OP & ATP & WDP & FIP & ELP --> O[/output file<br/>.png · .mp4 · .mp3 · .glb/]
     O --> A
 ```
 
 **Direct-first.** Google models always go straight to Vertex — the cheapest path, no API key. fal,
-ModelArk, OpenAI, Atlas Cloud, Worder, and Fish Audio are *dotted* because they're opt-in: a Vertex-only
-run never reaches for their keys. **Atlas Cloud** is one async API fronting ~91 models and is the home of
-the **speech (TTS)**, **3D (GLB)**, and **avatar / lip-sync** modalities. **Worder** and **Fish Audio** are
-two further, alternative speech providers — Worder a marketplace of real, ethically-sourced human voice
-actors instead of a house TTS model; Fish Audio a platform of hosted + community voice models selected by
-`reference_id`.
+ModelArk, OpenAI, Atlas Cloud, Worder, Fish Audio, and ElevenLabs are *dotted* because they're opt-in: a
+Vertex-only run never reaches for their keys. **Atlas Cloud** is one async API fronting ~91 models and is
+the home of the **speech (TTS)**, **3D (GLB)**, and **avatar / lip-sync** modalities. **Worder**, **Fish
+Audio**, and **ElevenLabs** are three further, alternative speech providers — Worder a marketplace of
+real, ethically-sourced human voice actors instead of a house TTS model; Fish Audio a platform of hosted +
+community voice models selected by `reference_id`; ElevenLabs a direct path to its own model catalog
+(`eleven_multilingual_v2` by default), previously only reachable indirectly via one fixed Atlas-proxied
+model.
 
 ---
 
@@ -284,8 +288,9 @@ Unlike fal's `--v2v`, omni-flash's `--v2v` SOURCE must be a **local file**, sent
 
 ### `nazca speak`
 
-Text-to-speech, via **Atlas Cloud** (needs `ATLAS_API_KEY`), **Worder** (needs `WORDER_API_KEY`), or
-**Fish Audio** (needs `FISH_API_KEY`). Takes the text as a positional argument, writes an `.mp3` or `.wav`.
+Text-to-speech, via **Atlas Cloud** (needs `ATLAS_API_KEY`), **Worder** (needs `WORDER_API_KEY`),
+**Fish Audio** (needs `FISH_API_KEY`), or **ElevenLabs** (needs `ELEVENLABS_API_KEY`). Takes the text
+as a positional argument, writes an `.mp3` or `.wav`.
 
 ```bash
 nazca speak "Fresh off the grill, every night." -o vo.mp3
@@ -296,12 +301,16 @@ nazca speak "[happy] Fresh off the grill, every night." -o vo.mp3 --model worder
 
 # Fish Audio — hosted + community voice models, selected by reference_id
 nazca speak "Fresh off the grill, every night." -o vo.mp3 --model fish-tts --voice <reference_id>
+
+# ElevenLabs — direct access to ElevenLabs' own model catalog, selected by voice_id
+nazca speak "Fresh off the grill, every night." -o vo.mp3 --model elevenlabs-tts --voice <voice_id>
 ```
 
 **Flags:** `-o/--out` (`.mp3`/`.wav`) · `--model` (default `atlas-tts-grok`; also `atlas-tts-elevenlabs-v3`,
-`worder-tts`, `fish-tts`) · `--voice <name>` (model-specific; **required** for `worder-tts` — a `voice_id`
-from `GET https://worder.com/api/v1/voices` — and for `fish-tts` — a `reference_id` from
-`GET https://api.fish.audio/model`) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
+`worder-tts`, `fish-tts`, `elevenlabs-tts`) · `--voice <name>` (model-specific; **required** for
+`worder-tts` — a `voice_id` from `GET https://worder.com/api/v1/voices` — `fish-tts` — a `reference_id`
+from `GET https://api.fish.audio/model` — and `elevenlabs-tts` — a `voice_id` from
+`GET https://api.elevenlabs.io/v2/voices`) · `--format mp3\|wav` · `--tier cheap\|premium` · `--dry-run`.
 
 > **Worder** is a TTS marketplace of verified human voice actors, not a house model — there's no
 > default voice, pricing is per-second and set per actor (from $0.01/s, so `nazca` can't estimate
@@ -314,6 +323,16 @@ from `GET https://worder.com/api/v1/voices` — and for `fish-tts` — a `refere
 > synthesis quality tier (`s1`, `s2-pro`, `s2.1-pro`, `s2.1-pro-free`) is a separate `model` HTTP
 > header nazca defaults to `s2-pro`; pricing is unverified against a live key, so `--dry-run` shows
 > the request plan, not a cost estimate.
+
+> **ElevenLabs** is nazca's fourth speech provider — a direct path to ElevenLabs' own model catalog,
+> instead of the one fixed model Atlas proxies (`atlas-tts-elevenlabs-v3`). No default voice — pick
+> one via `--voice <voice_id>` (from `GET https://api.elevenlabs.io/v2/voices`). Auth is `xi-api-key`,
+> **not** `Authorization: Bearer` like every other backend here. The TTS model defaults to
+> `eleven_multilingual_v2` (ElevenLabs' own default) — not user-configurable today. `voice_settings`
+> (stability/similarity/style/speed) is also not exposed via CLI yet — ElevenLabs' own defaults apply.
+> This pass is **TTS only**; sound effects, voice design, speech-to-speech, dubbing, etc. are a later
+> follow-up (see `docs/media-modalities.md`'s Audio roadmap, A3). Pricing is subscription-tier-based,
+> so `--dry-run` shows the request plan, not a cost estimate.
 
 ### `nazca voice-clone` and `nazca voice-design`
 
@@ -498,7 +517,8 @@ nazca video -o clip.mp4 -s a.png -p "..." --tier premium   # → veo-3.1
 ```
 
 Prices are **official Google Cloud rates** (verified 2026-06-18). fal/ModelArk/OpenAI/Atlas/Worder/Fish
-Audio pricing changes often and is tier/resolution-dependent — treat those as approximate and `--dry-run` first.
+Audio/ElevenLabs pricing changes often and is tier/resolution-dependent — treat those as approximate and
+`--dry-run` first.
 
 | model | kind | $/unit | tier | backend |
 |---|---|---|---|---|
@@ -519,6 +539,7 @@ Audio pricing changes often and is tier/resolution-dependent — treat those as 
 | `atlas-tts-elevenlabs-v3` | audio | ~$0.10 / 1K chars | premium | Atlas |
 | `worder-tts` | audio | per voice actor, from $0.01/s | premium | Worder |
 | `fish-tts` | audio | unverified against a live key | premium | Fish Audio |
+| `elevenlabs-tts` | audio | subscription-tier-based, unpriced here | premium | ElevenLabs |
 | `atlas-hunyuan3d-rapid` *(default 3D)* | 3d | ~$0.02 / asset | cheap | Atlas |
 | `atlas-hunyuan3d-pro` | 3d | ~$0.02 / asset | premium | Atlas |
 | `atlas-seed3d-2` | 3d | ~$0.353 / asset | premium | Atlas |
@@ -686,6 +707,28 @@ that nazca sends automatically (default `s2-pro`) — there is no flag for it to
 streams raw audio bytes directly (not a JSON envelope), and pricing is unverified against a live key, so
 `--dry-run` shows the request plan, not a cost estimate.
 
+### ElevenLabs (opt-in — full model catalog, alternative to Atlas/Worder/Fish speech)
+
+A direct path to ElevenLabs' own text-to-speech API — previously only reachable indirectly via one fixed
+Atlas-proxied model (`atlas-tts-elevenlabs-v3`), which hides ElevenLabs' real model catalog,
+`voice_settings`, and output-format control. Get a key at [elevenlabs.io](https://elevenlabs.io/), then
+store it:
+
+```bash
+nazca login   # → ElevenLabs  (ELEVENLABS_API_KEY)
+# or: nazca config set elevenlabs_api_key <key>   # or export ELEVENLABS_API_KEY=<key>
+```
+
+There's no default voice — list voices at `GET https://api.elevenlabs.io/v2/voices` and pass one's id via
+`--voice <voice_id>` or the `elevenlabs:<voice_id>` prefix. Two structural differences from every other
+backend here: auth is sent as an **`xi-api-key` header, not `Authorization: Bearer`**, and `voice_id` is a
+**URL path segment** (`/v1/text-to-speech/{voice_id}`), not a body field. `--format mp3|wav` maps to
+ElevenLabs' `output_format` **query-string parameter** (`mp3_44100_128` / `wav_44100`), also unlike the
+body-field convention Fish/Atlas use. The TTS model defaults to `eleven_multilingual_v2` (ElevenLabs' own
+default) and `voice_settings` is not exposed via CLI — neither is user-configurable today. This pass is
+**TTS only**; sound effects, voice design, speech-to-speech, dubbing, etc. are a later follow-up. Pricing
+is subscription-tier-based, so `--dry-run` shows the request plan, not a cost estimate.
+
 ---
 
 ## Custom / overriding models
@@ -702,6 +745,7 @@ nazca image --model "atlas:bytedance/seedream-v4.5" -o out.png -p "..."
 nazca video --model "vertex:veo-3.2-fast-generate-001" -s a.png -o c.mp4 -p "..."
 nazca speak "..." --model "worder:voice_abc123" -o vo.mp3   # a specific Worder voice_id
 nazca speak "..." --model "fish:ref_abc123" -o vo.mp3       # a specific Fish Audio reference_id
+nazca speak "..." --model "elevenlabs:voice_abc123" -o vo.mp3   # a specific ElevenLabs voice_id
 ```
 
 | prefix | backend | needs |
@@ -712,6 +756,7 @@ nazca speak "..." --model "fish:ref_abc123" -o vo.mp3       # a specific Fish Au
 | `atlas:` | Atlas Cloud | `ATLAS_API_KEY` |
 | `worder:` | Worder (audio only) | `WORDER_API_KEY` |
 | `fish:` | Fish Audio (audio only) | `FISH_API_KEY` |
+| `elevenlabs:` | ElevenLabs (audio only) | `ELEVENLABS_API_KEY` |
 | `vertex:` / `veo:` | Vertex | gcloud auth |
 
 **2. `~/.config/nazca/models.json` override** — re-point a shorthand (or add one) without a release:
@@ -830,7 +875,8 @@ src/nazca/
 │   ├── openai.py     OpenAI Images — OPENAI_API_KEY + generations/edits
 │   ├── atlas.py      Atlas Cloud — ATLAS_API_KEY + async submit→poll (image · video · audio · 3D)
 │   ├── worder.py     Worder — WORDER_API_KEY + sync REST (audio / human voice actor TTS)
-│   └── fish.py       Fish Audio — FISH_API_KEY + sync REST (audio / hosted + community voice models)
+│   ├── fish.py       Fish Audio — FISH_API_KEY + sync REST (audio / hosted + community voice models)
+│   └── elevenlabs.py ElevenLabs — ELEVENLABS_API_KEY (xi-api-key header) + sync REST (audio / TTS only)
 ├── image.py          thin orchestrator: resolve → build ImageRequest → backend.run_image()
 ├── video.py          thin orchestrator: resolve → build VideoRequest → backend.run_video()
 ├── audio.py          thin orchestrator: text-to-speech → backend.run_audio()
@@ -893,6 +939,13 @@ sequenceDiagram
   requires an explicit `--voice <reference_id>` (no default voice exists), its `/v1/tts` response is a raw
   audio stream rather than a JSON envelope (handled by `retry.post_bytes`), and pricing is unverified, so
   `--dry-run` cannot estimate cost.
+- **ElevenLabs** (a fourth `speak` backend, `elevenlabs-tts` / `elevenlabs:<voice_id>`) is integrated
+  per ElevenLabs' published OpenAPI schema and public docs, **TTS only** — sound effects, voice design,
+  speech-to-speech, dubbing, etc. are a later follow-up (issue #122, phase A3; absorbs issue #121). It
+  requires an explicit `--voice <voice_id>` (no default voice exists), auth is `xi-api-key` rather than
+  `Authorization: Bearer` (unlike every other backend here), `voice_id` is a URL path segment rather than
+  a body field, `output_format` is a query-string parameter rather than a body field, and pricing is
+  subscription-tier-based so `--dry-run` cannot estimate cost.
 
 ## License
 
