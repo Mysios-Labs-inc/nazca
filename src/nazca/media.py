@@ -22,7 +22,17 @@ MAX_THUMB_EDGE = 1280
 def write_result(out: str | Path, result: bytes | dict, dry_run: bool) -> Path:
     """Write a backend run result and return the path.
 
-    Real run: raw media bytes → ``out``. Dry run: the plan dict → ``<out>.request.json``.
+    Real run: raw media bytes → ``out`` (unchanged behavior for every existing
+    image/video/audio/3D caller, all of which pass `bytes` here). Dry run: the
+    plan dict → ``<out>.request.json``.
+
+    A real (non-dry) `result` that is a `dict` rather than `bytes` — issue #122
+    phase A3's `stt`, the first op in this codebase whose *real* output is
+    structured data (a transcript), not raw media — is JSON-serialized straight
+    to `out` instead. This is a minimal, backward-compatible generalization:
+    every prior caller always passed `bytes` for a real run, so this branch was
+    simply unreachable before and changes nothing for them.
+
     Shared by the video/audio/3D modality modules so the sidecar convention lives in
     one place. (image.py deliberately returns the plan dict instead of writing it.)
     """
@@ -31,7 +41,10 @@ def write_result(out: str | Path, result: bytes | dict, dry_run: bool) -> Path:
         dbg = out.with_suffix(".request.json")
         dbg.write_text(json.dumps(result, indent=2))
         return dbg
-    out.write_bytes(result)
+    if isinstance(result, bytes):
+        out.write_bytes(result)
+    else:
+        out.write_text(json.dumps(result, indent=2))
     return out
 
 

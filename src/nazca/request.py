@@ -123,6 +123,30 @@ class SpeechToSpeechRequest:
 
 
 @dataclass
+class TranscriptionRequest:
+    """Everything a backend needs to transcribe one audio file (`op="stt"`,
+    issue #122 phase A3) — genuinely a different shape from `AudioRequest`
+    (text in, audio out): here the input is a *local audio file* and the
+    output is *text/JSON*, not audio bytes. Forcing it through `AudioRequest`
+    would mean overloading `text` as an output field and `voice`/`lyrics`/
+    `duration_seconds` as permanently-unused noise — so it gets its own
+    dataclass, mirroring the precedent `voice.py`'s `voice_clone`/
+    `voice_design` set in phase A2 for other non-`speak()`-shaped ops.
+
+    `source_audio_path` is the local file to transcribe. `language` is an
+    optional ISO-639-1/3 hint (omitted lets the backend auto-detect).
+    `est_cost_usd` is precomputed and echoed into the dry-run plan, same
+    convention as the other request dataclasses, though today's only backend
+    (ElevenLabs) is subscription-tier-priced and always leaves it `None`.
+    """
+
+    source_audio_path: str = ""
+    language: str | None = None
+    est_cost_usd: float | None = None
+    dry_run: bool = False
+
+
+@dataclass
 class ThreeDRequest:
     """Everything a backend needs to generate one 3D asset (GLB mesh).
 

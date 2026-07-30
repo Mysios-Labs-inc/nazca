@@ -1522,6 +1522,23 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"speech_to_speech"}),
     ),
+    # ElevenLabs speech-to-text (issue #122 phase A3, third sub-phase) — the
+    # first `stt` model wired anywhere in nazca (Atlas's own 2 STT models were
+    # deliberately left unwired per the standing #121 scoping decision; this is
+    # the ElevenLabs one A3's roadmap promised as a fast-follow after tts/sfx).
+    # `POST /v1/speech-to-text`, multipart; no voice concept (like sfx),
+    # provider_id empty. Pricing is subscription-tier-based like the rest of
+    # ElevenLabs' catalog here, unpriced.
+    "elevenlabs-stt": ModelSpec(
+        shorthand="elevenlabs-stt",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"stt"}),
+    ),
 }
 
 
