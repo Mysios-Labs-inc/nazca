@@ -310,7 +310,45 @@ All notable changes to nazca are documented here. Format follows
   *Status: integrated per ElevenLabs' published `openapi.json` speech-to-text
   spec, unverified against a live key.*
 
+- **ElevenLabs forced alignment (`elevenlabs-align` / `nazca align`, issue #122
+  phase A3, third sub-phase after `tts`/`sfx`):** wires `align` — named in
+  `AUDIO_OPS` since phase A1, unwired until now. `POST /v1/forced-alignment`
+  takes a LOCAL audio file plus a text transcript and returns character- and
+  word-level timestamps (+ a confidence `loss`) as JSON — a genuinely different
+  shape from every other audio op in this codebase, so it does NOT go through
+  `run_audio`/`AudioRequest`: a new `request.AlignRequest` dataclass, a new
+  `SupportsAlign` protocol (`backends/base.py`), and a new `align.py`
+  orchestrator module (`align_audio()`) carry it instead, mirroring how phase
+  A2's `voice_clone`/`voice_design` got their own module for the same reason.
+  `ElevenLabsBackend.align()` is a `multipart/form-data` POST — the second
+  multipart call in this codebase, after Fish's `voice_clone` — sending `file`
+  + `text` fields via `retry.post_multipart`. New CLI command: `nazca align
+  SOURCE (--text "..." | --text-file script.txt) -o alignment.json
+  [--dry-run]` — `SOURCE` is a local audio file (`click.Path(exists=True)`,
+  the first audio-modality command to take one); `--text`/`--text-file` are
+  mutually exclusive (exactly one required), mirroring `music`'s `--lyrics`
+  free-text-via-flag precedent but adding a file variant for longer
+  transcripts. The real-run result is JSON, not audio bytes, so
+  `media.write_result()` was extended (additively — every existing caller
+  still only ever passes `bytes` on a real run) to write a `dict` result
+  straight to `-o/--out` as pretty-printed JSON instead of assuming bytes.
+  Pricing is subscription-tier-based like `elevenlabs-tts`/`elevenlabs-sfx`,
+  so `elevenlabs-align` is likewise unpriced (`price_usd=None`).
+
+  *Status: endpoint, request fields, and response schema verified LIVE against
+  ElevenLabs' own API reference
+  (`elevenlabs.io/docs/api-reference/forced-alignment/create`,
+  2026-07-30) — a stronger posture than the "unverified against a live key"
+  caveat on `elevenlabs-tts`/`elevenlabs-sfx` above (schema confirmed, but no
+  actual authenticated call made).*
+
 ### Fixed
+- **`ElevenLabsBackend.align`'s dry-run branch had the identical unguarded
+  `stat()` call as `run_stt`'s (see the very next entry) — the third time
+  this exact TOCTOU gap shipped in this issue's rollout**, caught this time
+  while resolving this branch's rebase conflicts, before it could ship.
+  Fixed the same way: widened the `try` to cover both the dry-run `stat()`
+  and the real-run `read_bytes()`.
 - **`ElevenLabsBackend.run_stt`'s dry-run branch reintroduced the exact
   TOCTOU gap `speech_to_speech` had just been fixed for, two entries below.**
   Only the real-run `read_bytes()` call was wrapped in the guard — the

@@ -1539,6 +1539,22 @@ AUDIO_MODELS: dict[str, ModelSpec] = {
         price_usd=None,
         ops=frozenset({"stt"}),
     ),
+    # ElevenLabs forced alignment (issue #122 phase A3, third sub-phase) —
+    # POST /v1/forced-alignment, verified live against ElevenLabs' own API
+    # reference (elevenlabs.io/docs/api-reference/forced-alignment/create,
+    # 2026-07-30). No voice/model concept at all (it aligns, doesn't
+    # synthesize) — provider_id is empty like elevenlabs-sfx. Pricing is
+    # subscription-tier-based like the other two ElevenLabs ops, unpriced here.
+    "elevenlabs-align": ModelSpec(
+        shorthand="elevenlabs-align",
+        provider_id="",
+        backend="elevenlabs",
+        api="elevenlabs",
+        region="",
+        tier="premium",
+        price_usd=None,
+        ops=frozenset({"align"}),
+    ),
 }
 
 

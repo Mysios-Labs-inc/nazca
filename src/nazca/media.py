@@ -22,29 +22,25 @@ MAX_THUMB_EDGE = 1280
 def write_result(out: str | Path, result: bytes | dict, dry_run: bool) -> Path:
     """Write a backend run result and return the path.
 
-    Real run: raw media bytes → ``out`` (unchanged behavior for every existing
-    image/video/audio/3D caller, all of which pass `bytes` here). Dry run: the
-    plan dict → ``<out>.request.json``.
-
-    A real (non-dry) `result` that is a `dict` rather than `bytes` — issue #122
-    phase A3's `stt`, the first op in this codebase whose *real* output is
-    structured data (a transcript), not raw media — is JSON-serialized straight
-    to `out` instead. This is a minimal, backward-compatible generalization:
-    every prior caller always passed `bytes` for a real run, so this branch was
-    simply unreachable before and changes nothing for them.
-
-    Shared by the video/audio/3D modality modules so the sidecar convention lives in
-    one place. (image.py deliberately returns the plan dict instead of writing it.)
+    Real run: raw media bytes → ``out`` (audio/video/3D — the common case), OR,
+    when `result` is a `dict` (e.g. `stt`'s transcript JSON or `align`'s word/
+    character timing JSON, neither of which has a bytes-media form at all),
+    pretty-printed JSON → ``out`` directly — every prior caller (video/audio/
+    3D) only ever passed `bytes` on a real run, so this branch is additive and
+    doesn't change their behavior. Dry run: the plan dict → ``<out>.request.json``
+    (unchanged, regardless of the real result's shape). Shared by the video/
+    audio/3D/stt/align modality modules so the sidecar convention lives in one
+    place. (image.py deliberately returns the plan dict instead of writing it.)
     """
     out = Path(out)
     if dry_run:
         dbg = out.with_suffix(".request.json")
         dbg.write_text(json.dumps(result, indent=2))
         return dbg
-    if isinstance(result, bytes):
-        out.write_bytes(result)
-    else:
+    if isinstance(result, dict):
         out.write_text(json.dumps(result, indent=2))
+        return out
+    out.write_bytes(result)
     return out
 
 

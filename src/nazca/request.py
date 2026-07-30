@@ -147,6 +147,25 @@ class TranscriptionRequest:
 
 
 @dataclass
+class AlignRequest:
+    """Everything a backend needs to force-align one audio file to a transcript
+    (issue #122 phase A3, `align`: audio + text -> timed transcript).
+
+    Genuinely different shape from `AudioRequest`: the input is a LOCAL source
+    audio file (`source`) plus a transcript (`text`), and the output is a JSON
+    timing structure, not audio bytes — so this does not reuse `AudioRequest`
+    (which is text-in/audio-out) any more than `voice_clone`/`voice_design`
+    reuse it. `est_cost_usd` is precomputed and echoed into the dry-run plan,
+    same convention as every other request dataclass here.
+    """
+
+    source: str = ""
+    text: str = ""
+    est_cost_usd: float | None = None
+    dry_run: bool = False
+
+
+@dataclass
 class ThreeDRequest:
     """Everything a backend needs to generate one 3D asset (GLB mesh).
 

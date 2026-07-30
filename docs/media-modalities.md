@@ -133,12 +133,13 @@ the API level — that's a later, per-provider step where native role fields exi
 | `elevenlabs-voice-design` | elevenlabs | voice_design | `POST /v1/text-to-voice/design` — Step 1 of ElevenLabs' two-step voice-creation flow only (ephemeral previews; Step 2's permanent account-voice save, `POST /v1/text-to-voice`, is not wired); response reshaped to Fish's `{"candidates": [{"id", "audio_base64", ...}]}` shape so `nazca.voice.design_voice()` needs no changes; `n`/`language`/`speed` (no ElevenLabs equivalent) rejected by `nazca.voice.design_voice()` for this backend rather than silently ignored; `--reference-text` IS honored (maps to `text`); instruction must be 20-1000 chars; pricing subscription-tier-based, unpriced here |
 | `elevenlabs-speech-to-speech` | elevenlabs | speech_to_speech | `POST /v1/speech-to-speech/{voice_id}`; **multipart request** — local source audio FILE + `model_id` (defaults `eleven_english_sts_v2`) in, raw audio out (still not multipart — same shape as tts/sfx); `voice_id` is a URL path param; `output_format` is a query param; `--voice` required; pricing subscription-tier-based, unpriced here |
 | `elevenlabs-stt` | elevenlabs | stt | `POST /v1/speech-to-text` (multipart); the first wired op whose real output is JSON, not audio — local audio file in, `{text, words: [{text,start,end,type,...}], language_code, ...}` out; `model_id` hardcoded to `scribe_v2`; optional `--language` (auto-detected if omitted); pricing subscription-tier-based, unpriced here |
+| `elevenlabs-align` | elevenlabs | align | `POST /v1/forced-alignment` (multipart); LOCAL audio file + text transcript in, character/word timestamps (+ confidence `loss`) out as JSON, not audio bytes; no `voice_id`/model concept; endpoint/schema verified live against ElevenLabs' own API reference; pricing subscription-tier-based, unpriced here |
 
-Every wired audio model does `tts` only, except the six voice_clone/voice_design/
-speech_to_speech/stt entries (Fish Audio's pair, issue #122 phase A2, plus
-ElevenLabs' quartet, phase A3), `atlas-music-minimax` (phase A4, `music`), and
-`elevenlabs-sfx` (phase A3, `sfx`). No `dub`, `separate`, or `align` model is
-wired anywhere in nazca today.
+Every wired audio model does `tts` only, except the seven voice_clone/voice_design/
+speech_to_speech/stt/align entries (Fish Audio's pair, issue #122 phase A2, plus
+ElevenLabs' quintet, phase A3), `atlas-music-minimax` (phase A4, `music`), and
+`elevenlabs-sfx` (phase A3, `sfx`). No `dub` or `separate` model is wired
+anywhere in nazca today.
 
 ### Audio capability matrix (what each provider's *own* API offers — not what's wired)
 
@@ -152,7 +153,7 @@ led to the modify-op backends.
 | **Atlas Cloud** *(surveyed via a live, no-auth call to `GET api.atlascloud.ai/api/v1/models`, 2026-07-30 — issue [#122 A4](https://github.com/Mysios-Labs-inc/nazca/issues/122))* | ✅ **8 real TTS models**, 2 wired (`atlas-tts-grok`=`xai/tts-v1`, `atlas-tts-elevenlabs-v3`=`elevenlabs/v3/text-to-speech`), 6 unwired (`bytedance/seed-audio-1.0`, 3× `google/gemini-*-tts`, 2× `minimax/speech-2.6-*` — deferred, low marginal value given 4 direct TTS providers already exist) | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found (the 4 "AUDIO-TO-VIDEO" models are avatar/lip-sync — video output, not voice-changed audio; see `Models today` → Video) | ✅ 2 models (`bytedance/seed-asr-2.0`, `xai/stt-v1`), deliberately unwired — analysis, not generation, per the standing #121 scoping decision | ❌ not offered by any Atlas model found | ✅ **9 real models, 1 wired**: `minimax/music-2.6` wired as `atlas-music-minimax` ($0.15/gen, confirmed price); 8× `suno/chirp-*` variants deferred as a batch fast-follow (near-duplicates, not wired individually this pass) | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found | ❌ not offered by any Atlas model found |
 | **Worder** | ✅ (rich prosody control; no other audio capability offered — a TTS-only marketplace by design) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Fish Audio** | ✅ REST + WebSocket streaming | ✅ `POST /model` (instant clone or persistent trained model) | ✅ `POST /v1/voice-design` | ⚠️ marketing-only — "voice transformation" is a web-app feature, not in the public API/OpenAPI index | ✅ `POST /v1/speech-to-text`, per-segment timestamps | ⚠️ marketing-only — not in the public API index | ⚠️ marketing-only — not in the public API index | ❌ | ⚠️ marketing-only ("audio separation") — not in the public API index | ❌ |
-| **ElevenLabs** *(`tts` + `sfx` + `voice_clone` + `voice_design` + `speech_to_speech` + `stt` integrated — issue [#122 A3](https://github.com/Mysios-Labs-inc/nazca/issues/122), absorbs [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121); only `align` still unwired)* | ✅ **wired** (`elevenlabs-tts`); 3 model tiers exist (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) but only the default (`eleven_multilingual_v2`) is used — no `--model-id` flag yet | ✅ **wired** (`elevenlabs-voice-clone`); `POST /v1/voices/add` (Instant Voice Clone) — professional cloning (a separate, longer-form workflow) not wired | ✅ **wired** (`elevenlabs-voice-design`); `POST /v1/text-to-voice/design` — Step 1 of a two-step flow only (preview generation); Step 2 (`POST /v1/text-to-voice`, permanently saving a chosen preview as an account voice) deliberately not wired, see Audio roadmap below | ✅ **wired** (`elevenlabs-speech-to-speech`); `POST /v1/speech-to-speech/{voice_id}` — multipart request, raw-audio response; `model_id` defaults `eleven_english_sts_v2`; `voice_settings`/`seed`/`remove_background_noise`/`file_format` real but not exposed via CLI yet | ✅ **wired** (`elevenlabs-stt`); `POST /v1/speech-to-text`, `model_id` enum `scribe_v2`/`scribe_v1` (nazca hardcodes `scribe_v2`), multipart `file` upload, JSON response with word-level timestamps + language detection — diarization/entity-redaction/webhook-async are real, unwired fields | ✅ **wired** (`elevenlabs-sfx`); `POST /v1/sound-generation` — confirmed via ElevenLabs' live `openapi.json` (the `/v1/text-to-sound-effects/convert` path assumed in an earlier survey pass was wrong) | ✅ Eleven Music (not wired) | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ `/forced-alignment/create` (not wired) |
+| **ElevenLabs** *(`tts` + `sfx` + `voice_clone` + `voice_design` + `speech_to_speech` + `stt` + `align` integrated — issue [#122 A3](https://github.com/Mysios-Labs-inc/nazca/issues/122), absorbs [#121](https://github.com/Mysios-Labs-inc/nazca/issues/121); the full vocabulary except `dub`)* | ✅ **wired** (`elevenlabs-tts`); 3 model tiers exist (`eleven_v3`/`eleven_multilingual_v2`/`eleven_flash_v2_5`) but only the default (`eleven_multilingual_v2`) is used — no `--model-id` flag yet | ✅ **wired** (`elevenlabs-voice-clone`); `POST /v1/voices/add` (Instant Voice Clone) — professional cloning (a separate, longer-form workflow) not wired | ✅ **wired** (`elevenlabs-voice-design`); `POST /v1/text-to-voice/design` — Step 1 of a two-step flow only (preview generation); Step 2 (`POST /v1/text-to-voice`, permanently saving a chosen preview as an account voice) deliberately not wired, see Audio roadmap below | ✅ **wired** (`elevenlabs-speech-to-speech`); `POST /v1/speech-to-speech/{voice_id}` — multipart request, raw-audio response; `model_id` defaults `eleven_english_sts_v2`; `voice_settings`/`seed`/`remove_background_noise`/`file_format` real but not exposed via CLI yet | ✅ **wired** (`elevenlabs-stt`); `POST /v1/speech-to-text`, `model_id` enum `scribe_v2`/`scribe_v1` (nazca hardcodes `scribe_v2`), multipart `file` upload, JSON response with word-level timestamps + language detection — diarization/entity-redaction/webhook-async are real, unwired fields | ✅ **wired** (`elevenlabs-sfx`); `POST /v1/sound-generation` — confirmed via ElevenLabs' live `openapi.json` (the `/v1/text-to-sound-effects/convert` path assumed in an earlier survey pass was wrong) | ✅ Eleven Music (not wired) | 🚧 announced, **API not live yet** per their own docs | ❌ not offered | ✅ **wired** (`elevenlabs-align`); `POST /v1/forced-alignment` — request fields and response schema verified live against ElevenLabs' own API reference (`elevenlabs.io/docs/api-reference/forced-alignment/create`) |
 
 **Reading this table:** ⚠️ rows are claims from marketing copy that don't appear in
 the provider's own API reference/OpenAPI index — treat as "web-app only, unverified
@@ -255,8 +256,8 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   `nazca.voice` orchestrator (`clone_voice`/`design_voice`) and the `nazca
   voice-clone`/`nazca voice-design` CLI commands — not through `audio.speak()`/
   `AudioRequest`, since neither fits that text→single-audio-file shape.
-- 🔶 **A3** — ElevenLabs backend (absorbs issue #121): ✅ `tts` wired
-  (`elevenlabs-tts` / `elevenlabs:<voice_id>` — `xi-api-key` auth,
+- ✅ **A3** — ElevenLabs backend (absorbs issue #121), now complete: ✅ `tts`
+  wired (`elevenlabs-tts` / `elevenlabs:<voice_id>` — `xi-api-key` auth,
   voice_id-in-URL, output_format-as-query-param); ✅ `sfx` wired
   (`elevenlabs-sfx` — `POST /v1/sound-generation`, no `voice_id`, new
   `AudioRequest.duration_seconds` field, `audio.generate_sfx()` wrapper); ✅
@@ -288,11 +289,18 @@ sequencing as image/video: name the vocabulary + widen the spine first (A1),
   modality whose real output is JSON, not media bytes; `media.write_result`
   was generalized minimally to write JSON for a non-bytes real-run result
   instead of only handling the dry-run-plan case, with zero behavior change
-  for every existing bytes-producing caller); ⬜ still to come — `align`.
+  for every existing bytes-producing caller); ✅ `align` wired
+  (`elevenlabs-align` — `POST /v1/forced-alignment`, multipart; LOCAL audio
+  file + transcript in, JSON word/character timestamps out; new
+  `request.AlignRequest`, `backends.base.SupportsAlign`, and `align.py`
+  orchestrator module — same different-shape reasoning as `voice_clone`/
+  `voice_design`; new `nazca align SOURCE (--text|--text-file) -o out.json`
+  CLI command). Only `dub` remains named-but-unwired in the whole audio ops
+  vocabulary, with no ElevenLabs endpoint live yet to wire it against.
   **Correction, twice over:** `music` (A4) and `sfx` both turned out to fit
   `speak()`'s text→single-audio-file shape directly, same as TTS — the
   original "no existing `speak`-shaped input to reuse" framing was wrong for
-  both; `voice_design`/`speech_to_speech`/`stt` (like Fish's A2
+  both; `voice_design`/`speech_to_speech`/`stt`/`align` (like Fish's A2
   `voice_clone`/`voice_design`) each needed new plumbing outside
   `speak()`/`AudioRequest` — none of their inputs/outputs fit that
   text-in/single-audio-file-out shape.

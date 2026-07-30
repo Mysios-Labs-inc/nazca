@@ -129,6 +129,13 @@ class SupportsStt(Protocol):
     def run_stt(self, resolved: ResolvedModel, req: TranscriptionRequest) -> dict: ...
 
 
+@runtime_checkable
+class SupportsAlign(Protocol):
+    """A backend that can force-align a transcript to an audio file (issue #122 A3)."""
+
+    def align(self, source: str, text: str, **kwargs: object) -> dict: ...
+
+
 # modality/op key -> (capability protocol, human label for the error message)
 _CAPABILITY: dict[str, tuple[type, str]] = {
     "image": (SupportsImage, "images"),
@@ -139,6 +146,7 @@ _CAPABILITY: dict[str, tuple[type, str]] = {
     "voice_design": (SupportsVoiceDesign, "voice design"),
     "speech_to_speech": (SupportsSpeechToSpeech, "speech-to-speech voice conversion"),
     "stt": (SupportsStt, "speech-to-text"),
+    "align": (SupportsAlign, "forced alignment"),
 }
 
 
